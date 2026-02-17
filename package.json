@@ -1,0 +1,13 @@
+{
+  "name": "fd-gameplay-protoype",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.2.1",
+  "scripts": {
+    "dev": "pnpm --filter @fd/web-client dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm --filter @fd/gameplay-core test",
+    "verify": "pnpm typecheck && pnpm test && pnpm build"
+  }
+}
