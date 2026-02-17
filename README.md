@@ -22,6 +22,14 @@ pnpm install
 pnpm dev
 ```
 
+## 开发脚本（Win / Mac）
+
+- macOS/Linux 菜单模式：`bash scripts/dev.sh`
+- macOS/Linux 一键启动开发服务器：`bash scripts/dev.sh dev`
+- Windows 菜单模式：`powershell -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1`
+- Windows 一键启动开发服务器：`powershell -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 dev`
+- Windows 双击入口：`scripts\\dev.cmd`
+
 ## 验证命令
 
 ```bash
