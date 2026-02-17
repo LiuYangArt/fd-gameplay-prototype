@@ -1,4 +1,4 @@
-# fd-gameplay-protoype
+# fd-gameplay-prototype
 
 一个用于快速验证回合制玩法的 TypeScript 网页原型工程。
 
