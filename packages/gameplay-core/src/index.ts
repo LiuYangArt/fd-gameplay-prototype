@@ -9,5 +9,5 @@ export type {
 export { EGameplayEventType } from "./events/EGameplayEventType";
 export type { FGameplayEvent, FTypedGameplayEvent } from "./events/FGameplayEvent";
 export type { FSkillPayload } from "./types/FSkillPayload";
-export type { FUnitSnapshot, TTeamId } from "./types/FUnitSnapshot";
+export type { FTeamId, FUnitSnapshot } from "./types/FUnitSnapshot";
 export { UBattleSimulation } from "./facade/UBattleSimulation";

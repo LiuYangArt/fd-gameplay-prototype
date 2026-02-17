@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 import { EBattlePhase } from "@fd/gameplay-core";
-import { UWebBattleRuntime } from "./game/UWebBattleRuntime";
+import { useEffect, useMemo, useRef, useState } from "react";
+
 import { USceneBridge } from "./game/USceneBridge";
+import { UWebBattleRuntime } from "./game/UWebBattleRuntime";
 import { UInputController } from "./input/UInputController";
+
 import type { FHudViewModel } from "./ui/FHudViewModel";
 
 export function App() {
@@ -68,7 +70,8 @@ export function App() {
         <ul>
           {Hud.Units.map((Unit) => (
             <li key={Unit.UnitId}>
-              {Unit.UnitId} | {Unit.TeamId} | HP {Unit.CurrentHp}/{Unit.MaxHp} | {Unit.IsAlive ? "Alive" : "Defeated"}
+              {Unit.UnitId} | {Unit.TeamId} | HP {Unit.CurrentHp}/{Unit.MaxHp} |{" "}
+              {Unit.IsAlive ? "Alive" : "Defeated"}
             </li>
           ))}
         </ul>

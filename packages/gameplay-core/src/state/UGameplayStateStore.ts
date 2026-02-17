@@ -1,7 +1,8 @@
 import { EBattlePhase } from "../enums/EBattlePhase";
 import { EGameplayEventType } from "../events/EGameplayEventType";
-import type { FGameplayEvent } from "../events/FGameplayEvent";
+
 import type { FGameplayState } from "./FGameplayState";
+import type { FGameplayEvent } from "../events/FGameplayEvent";
 
 export class UGameplayStateStore {
   private State: FGameplayState;

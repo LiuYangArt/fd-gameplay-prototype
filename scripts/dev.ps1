@@ -1,5 +1,5 @@
 param(
-  [ValidateSet("menu", "install", "dev", "typecheck", "test", "build", "verify")]
+  [ValidateSet("menu", "install", "dev", "typecheck", "lint", "lintfix", "format", "formatcheck", "test", "build", "verify")]
   [string]$Command = "menu"
 )
 
@@ -18,6 +18,10 @@ function Invoke-Task {
     "install" { pnpm install }
     "dev" { pnpm dev }
     "typecheck" { pnpm typecheck }
+    "lint" { pnpm lint }
+    "lintfix" { pnpm lint:fix }
+    "format" { pnpm format }
+    "formatcheck" { pnpm format:check }
     "test" { pnpm test }
     "build" { pnpm build }
     "verify" { pnpm verify }
@@ -30,9 +34,13 @@ function Show-Menu {
   Write-Host "1) install   安装依赖"
   Write-Host "2) dev       一键启动开发服务器"
   Write-Host "3) typecheck 类型检查"
-  Write-Host "4) test      运行核心单测"
-  Write-Host "5) build     构建全部包"
-  Write-Host "6) verify    一键回归（typecheck + test + build）"
+  Write-Host "4) lint      运行 ESLint"
+  Write-Host "5) lintfix   自动修复 ESLint 问题"
+  Write-Host "6) format    运行 Prettier 格式化"
+  Write-Host "7) formatcheck 检查 Prettier 格式"
+  Write-Host "8) test      运行核心单测"
+  Write-Host "9) build     构建全部包"
+  Write-Host "10) verify   一键回归（typecheck + lint + test + build）"
   Write-Host "q) 退出"
   Write-Host "===================================================="
 }
@@ -49,9 +57,13 @@ while ($true) {
     "1" { Invoke-Task -Task "install" }
     "2" { Invoke-Task -Task "dev" }
     "3" { Invoke-Task -Task "typecheck" }
-    "4" { Invoke-Task -Task "test" }
-    "5" { Invoke-Task -Task "build" }
-    "6" { Invoke-Task -Task "verify" }
+    "4" { Invoke-Task -Task "lint" }
+    "5" { Invoke-Task -Task "lintfix" }
+    "6" { Invoke-Task -Task "format" }
+    "7" { Invoke-Task -Task "formatcheck" }
+    "8" { Invoke-Task -Task "test" }
+    "9" { Invoke-Task -Task "build" }
+    "10" { Invoke-Task -Task "verify" }
     "q" { break }
     "Q" { break }
     default { Write-Host "无效选项，请重试。" }

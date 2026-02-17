@@ -17,18 +17,7 @@ export class UInputController {
 
   public Bind(): () => void {
     const OnKeyDown = (Event: KeyboardEvent) => {
-      if (Event.code === "Enter" || Event.code === "Space") {
-        this.Runtime.UseBasicSkill();
-      }
-
-      if (Event.code === "Tab") {
-        Event.preventDefault();
-        this.Runtime.SelectNextTarget();
-      }
-
-      if (Event.code === "KeyR") {
-        this.Runtime.StartBattle();
-      }
+      this.HandleKeyboardAction(Event);
     };
 
     window.addEventListener("keydown", OnKeyDown);
@@ -57,32 +46,54 @@ export class UInputController {
   }
 
   private ReadGamepadState(): void {
-    const Gamepad = navigator.getGamepads().find((Pad) => Pad?.connected);
-    if (!Gamepad) {
-      this.PreviousA = false;
-      this.PreviousDpadRight = false;
-      this.PreviousStart = false;
+    const ActiveGamepad = navigator.getGamepads().find((Pad) => Pad?.connected);
+    if (!ActiveGamepad) {
+      this.ResetButtonEdges();
       return;
     }
 
-    const CurrentA = Gamepad.buttons[0]?.pressed ?? false;
-    const CurrentDpadRight = Gamepad.buttons[15]?.pressed ?? false;
-    const CurrentStart = Gamepad.buttons[9]?.pressed ?? false;
+    const CurrentA = ActiveGamepad.buttons[0]?.pressed ?? false;
+    const CurrentDpadRight = ActiveGamepad.buttons[15]?.pressed ?? false;
+    const CurrentStart = ActiveGamepad.buttons[9]?.pressed ?? false;
 
-    if (CurrentA && !this.PreviousA) {
-      this.Runtime.UseBasicSkill();
-    }
-
-    if (CurrentDpadRight && !this.PreviousDpadRight) {
-      this.Runtime.SelectNextTarget();
-    }
-
-    if (CurrentStart && !this.PreviousStart) {
-      this.Runtime.StartBattle();
-    }
+    this.HandlePressedEdge(CurrentA, this.PreviousA, () => this.Runtime.UseBasicSkill());
+    this.HandlePressedEdge(CurrentDpadRight, this.PreviousDpadRight, () =>
+      this.Runtime.SelectNextTarget()
+    );
+    this.HandlePressedEdge(CurrentStart, this.PreviousStart, () => this.Runtime.StartBattle());
 
     this.PreviousA = CurrentA;
     this.PreviousDpadRight = CurrentDpadRight;
     this.PreviousStart = CurrentStart;
+  }
+
+  private HandleKeyboardAction(Event: KeyboardEvent): void {
+    switch (Event.code) {
+      case "Enter":
+      case "Space":
+        this.Runtime.UseBasicSkill();
+        break;
+      case "Tab":
+        Event.preventDefault();
+        this.Runtime.SelectNextTarget();
+        break;
+      case "KeyR":
+        this.Runtime.StartBattle();
+        break;
+      default:
+        break;
+    }
+  }
+
+  private ResetButtonEdges(): void {
+    this.PreviousA = false;
+    this.PreviousDpadRight = false;
+    this.PreviousStart = false;
+  }
+
+  private HandlePressedEdge(Current: boolean, Previous: boolean, Action: () => void): void {
+    if (Current && !Previous) {
+      Action();
+    }
   }
 }

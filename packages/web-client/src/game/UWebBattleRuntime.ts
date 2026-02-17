@@ -5,6 +5,7 @@ import {
   UBattleSimulation,
   type FUnitSnapshot
 } from "@fd/gameplay-core";
+
 import type { FHudViewModel } from "../ui/FHudViewModel";
 
 type TRuntimeListener = (ViewModel: FHudViewModel) => void;
@@ -95,7 +96,7 @@ export class UWebBattleRuntime {
     const EnemyTargets = this.GetAvailableEnemyTargets();
     const SelectedTargetId =
       EnemyTargets.length > 0
-        ? EnemyTargets[this.SelectedTargetIndex % EnemyTargets.length]?.UnitId ?? null
+        ? (EnemyTargets[this.SelectedTargetIndex % EnemyTargets.length]?.UnitId ?? null)
         : null;
 
     return {

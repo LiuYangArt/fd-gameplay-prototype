@@ -1,5 +1,6 @@
 import { EGameplayEventType } from "./EGameplayEventType";
-import type { FUnitSnapshot, TTeamId } from "../types/FUnitSnapshot";
+
+import type { FTeamId, FUnitSnapshot } from "../types/FUnitSnapshot";
 
 export interface FBattleStartedPayload {
   BattleId: string;
@@ -33,7 +34,7 @@ export interface FTurnEndedPayload {
 }
 
 export interface FBattleFinishedPayload {
-  WinnerTeamId: TTeamId | null;
+  WinnerTeamId: FTeamId | null;
 }
 
 export interface FGameplayEventPayloadMap {

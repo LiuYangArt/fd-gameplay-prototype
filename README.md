@@ -22,10 +22,20 @@ pnpm install
 pnpm dev
 ```
 
+## 代码质量命令
+
+```bash
+pnpm lint
+pnpm lint:fix
+pnpm format
+pnpm format:check
+```
+
 ## 开发脚本（Win / Mac）
 
 - macOS/Linux 菜单模式：`bash scripts/dev.sh`
 - macOS/Linux 一键启动开发服务器：`bash scripts/dev.sh dev`
+- macOS Finder 双击菜单：`scripts/dev-mac.command`
 - Windows 菜单模式：`powershell -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1`
 - Windows 一键启动开发服务器：`powershell -ExecutionPolicy Bypass -File .\\scripts\\dev.ps1 dev`
 - Windows 双击入口：`scripts\\dev.cmd`
@@ -34,6 +44,7 @@ pnpm dev
 
 ```bash
 pnpm typecheck
+pnpm lint
 pnpm test
 pnpm build
 pnpm verify

@@ -1,4 +1,5 @@
 import { EBattlePhase } from "../enums/EBattlePhase";
+
 import type { FUnitSnapshot } from "../types/FUnitSnapshot";
 
 export interface FGameplayState {

@@ -1,4 +1,5 @@
 import { EGameplayCommandType } from "./EGameplayCommandType";
+
 import type { FSkillPayload } from "../types/FSkillPayload";
 import type { FUnitSnapshot } from "../types/FUnitSnapshot";
 
@@ -20,7 +21,4 @@ export interface FEndTurnCommand {
   SourceUnitId: string;
 }
 
-export type FGameplayCommand =
-  | FStartBattleCommand
-  | FUseSkillCommand
-  | FEndTurnCommand;
+export type FGameplayCommand = FStartBattleCommand | FUseSkillCommand | FEndTurnCommand;

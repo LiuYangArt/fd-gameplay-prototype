@@ -9,6 +9,7 @@ import {
   StandardMaterial,
   Vector3
 } from "@babylonjs/core";
+
 import type { FHudViewModel } from "../ui/FHudViewModel";
 
 export class USceneBridge {

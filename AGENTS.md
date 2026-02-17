@@ -28,8 +28,12 @@
 ## 测试与验证
 
 - 提交前至少通过：`pnpm verify`。
+- 优先执行：`pnpm lint`，必要时用 `pnpm lint:fix` 自动修复。
 - 新增玩法规则时，优先补 `gameplay-core` 单元测试。
 - 若修改输入或 UI 关键路径，补最小冒烟验证步骤。
+- 修复 bug 时必须先补一个会失败的回归测试，再修改实现。
+- bug 修复完成后，需更新 `docs/testing/regression-checklist.md` 的对应条目状态。
+- 满足触发条件的故障必须新增 postmortem：`docs/postmortems/YYYY-MM-DD-<主题>.md`（模板见 `docs/postmortems/_template.md`）。
 
 ## 工作流程
 

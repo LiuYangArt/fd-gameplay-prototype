@@ -1,18 +1,19 @@
 import { UEventBus } from "../bus/UEventBus";
 import { EGameplayCommandType } from "../commands/EGameplayCommandType";
-import type { FGameplayCommand } from "../commands/FGameplayCommand";
+import { EBattlePhase } from "../enums/EBattlePhase";
 import { EGameplayEventType } from "../events/EGameplayEventType";
+import { CreateEmptyGameplayState } from "../state/FGameplayState";
+import { UGameplayStateStore } from "../state/UGameplayStateStore";
+import { UDamageResolveSystem } from "../systems/UDamageResolveSystem";
+import { URoundOrderSystem } from "../systems/URoundOrderSystem";
+
+import type { FGameplayCommand } from "../commands/FGameplayCommand";
 import type {
   FGameplayEvent,
   FGameplayEventPayloadMap,
   FTypedGameplayEvent
 } from "../events/FGameplayEvent";
-import { EBattlePhase } from "../enums/EBattlePhase";
-import { CreateEmptyGameplayState } from "../state/FGameplayState";
-import { UGameplayStateStore } from "../state/UGameplayStateStore";
-import { UDamageResolveSystem } from "../systems/UDamageResolveSystem";
-import { URoundOrderSystem } from "../systems/URoundOrderSystem";
-import type { TTeamId } from "../types/FUnitSnapshot";
+import type { FTeamId } from "../types/FUnitSnapshot";
 
 export class UBattleSimulation {
   private readonly EventBus: UEventBus;
@@ -166,7 +167,7 @@ export class UBattleSimulation {
     return true;
   }
 
-  private ResolveWinnerTeamId(): TTeamId | null {
+  private ResolveWinnerTeamId(): FTeamId | null {
     const AliveTeams = new Set(
       Object.values(this.GetState().Units)
         .filter((Unit) => Unit.IsAlive)

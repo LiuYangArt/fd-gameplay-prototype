@@ -1,9 +1,9 @@
-export type TTeamId = "Player" | "Enemy";
+export type FTeamId = "Player" | "Enemy";
 
 export interface FUnitSnapshot {
   UnitId: string;
   DisplayName: string;
-  TeamId: TTeamId;
+  TeamId: FTeamId;
   MaxHp: number;
   CurrentHp: number;
   Speed: number;
