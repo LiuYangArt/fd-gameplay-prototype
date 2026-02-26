@@ -1,0 +1,15 @@
+{
+	"nodes":[
+		{"id":"1c91822d699bbb93","type":"group","x":-828,"y":-332,"width":856,"height":965,"label":"springarm + camera"},
+		{"id":"1af9b8e5e32b15b2","type":"text","text":"参考ue中spring arm， 它挂在角色身上， 然后下面挂camera\n核心参数： target arm length\ncamera lag speed\ncamera lag max distance\n\n先查参考资料， ue文档等， 然后实现这个功能","x":-518,"y":-252,"width":406,"height":258},
+		{"id":"b91489e9864ce255","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260226112806.png","x":-791,"y":164,"width":400,"height":286},
+		{"id":"e7ab0a6f97e2e5fb","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260226112748.png","x":-359,"y":164,"width":221,"height":400},
+		{"id":"d2612d613d3a8e82","type":"text","text":"大地图探索阶段\ncamera 有spring arm\n跟随角色时会有一些延迟和threshold","x":-478,"y":-603,"width":394,"height":153},
+		{"id":"6467a1dcb996faf2","type":"file","file":"fd_prototype_docs/design/_assets/20260226110529_1.jpg","x":17,"y":-633,"width":400,"height":225},
+		{"id":"7a7928ae1a1218a4","type":"file","file":"fd_prototype_docs/design/_assets/20260226110533_1.jpg","x":429,"y":-633,"width":400,"height":225}
+	],
+	"edges":[
+		{"id":"f67788f21e9ebff9","fromNode":"d2612d613d3a8e82","fromSide":"bottom","toNode":"1af9b8e5e32b15b2","toSide":"top"},
+		{"id":"146bed5d99df011c","fromNode":"d2612d613d3a8e82","fromSide":"right","toNode":"6467a1dcb996faf2","toSide":"left"}
+	]
+}
