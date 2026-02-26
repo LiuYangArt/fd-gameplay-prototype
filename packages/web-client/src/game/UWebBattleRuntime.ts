@@ -2,6 +2,7 @@ import {
   EBattlePhase,
   EGameplayCommandType,
   EGameplayEventType,
+  EOverworldPhase,
   UBattleSimulation,
   type FUnitSnapshot
 } from "@fd/gameplay-core";
@@ -100,10 +101,37 @@ export class UWebBattleRuntime {
         : null;
 
     return {
-      Phase: State.Phase,
-      ActiveUnitId: State.ActiveUnitId,
-      SelectedTargetId,
-      Units,
+      RuntimePhase: "Battle",
+      OverworldState: {
+        Phase: EOverworldPhase.Idle,
+        PlayerPosition: { X: 0, Z: 0 },
+        PlayerYawDegrees: 0,
+        Enemies: [],
+        PendingEncounterEnemyId: null,
+        LastEncounterEnemyId: null
+      },
+      BattleState: {
+        Phase: State.Phase,
+        ActiveUnitId: State.ActiveUnitId,
+        SelectedTargetId,
+        Units,
+        IsFinished: State.Phase === EBattlePhase.Finished
+      },
+      DebugState: {
+        IsMenuOpen: false,
+        Config: {
+          CameraDistance: 1000,
+          CameraPitch: 22,
+          CameraFov: 65,
+          CameraOffsetRight: 0,
+          CameraOffsetUp: 0,
+          WalkSpeed: 420,
+          RunSpeed: 750,
+          LookPitchMin: -20,
+          LookPitchMax: 55
+        },
+        LastUpdatedAtIso: null
+      },
       EventLogs: this.EventLogs
     };
   }

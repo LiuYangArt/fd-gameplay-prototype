@@ -1,6 +1,6 @@
 # 回归检查清单（Gameplay Prototype）
 
-更新时间：2026-02-17
+更新时间：2026-02-25
 
 > 用法
 >
@@ -44,10 +44,25 @@
 - [ ] `pnpm test`
 - [ ] `pnpm verify`
 
+## G. 探索与遇敌闭环（overworld）
+
+- [x] `InitializeWorld` 后阶段进入 `Exploring`。
+- [x] `Step` 在走路/跑步两种状态下位移差异符合预期。
+- [x] 敌人游荡更新位置且不会越界。
+- [x] 遇敌后仅触发一次 `EncounterTriggered`，直到 `ResolveEncounter`。
+- [x] `ResolveEncounter` 后移除敌人并返回探索态。
+- [x] `ResetPlayerToSafePoint` 后玩家回到安全点。
+- [ ] 键鼠与手柄输入在探索态行为一致（手动冒烟）。
+- [ ] `F3` 参数调整可持久化并支持 JSON 导入导出（手动冒烟）。
+- [ ] 完整闭环“探索 -> 遇敌 -> 战斗 -> 返回探索”通过（手动冒烟）。
+
 ## F. 本次修复记录
 
-- 问题描述：
-- 对应测试文件：
-- 新增/修改条目：
+- 问题描述：实现大地图探索阶段并打通遇敌切战闭环（功能开发，非缺陷修复）。
+- 对应测试文件：`packages/gameplay-core/tests/UOverworldSimulation.test.ts`
+- 新增/修改条目：新增 G 节“探索与遇敌闭环（overworld）”共 9 项。
 - 验证命令与结果：
-- 是否新增 postmortem：`是 / 否`
+  - `pnpm lint`：通过
+  - `pnpm test`：通过（`UBattleSimulation` + `UOverworldSimulation` 共 8 项）
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`

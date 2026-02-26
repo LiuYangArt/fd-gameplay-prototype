@@ -44,12 +44,26 @@ body {
   border: 1px solid #2f3d53;
   border-radius: 12px;
   background: rgba(9, 15, 24, 0.85);
+  overflow: auto;
+}
+
+.PanelBlock {
+  border-top: 1px solid #233247;
+  margin-top: 12px;
+  padding-top: 10px;
 }
 
 .Controls {
   display: grid;
   gap: 8px;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+}
+
+.ControlsInline {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 button {
@@ -74,16 +88,42 @@ ul {
   gap: 6px;
 }
 
+.DebugPanel {
+  display: grid;
+  gap: 10px;
+}
+
+.DebugField {
+  display: grid;
+  gap: 6px;
+}
+
+.DebugField input {
+  width: 100%;
+}
+
+.DebugTextarea {
+  width: 100%;
+  min-height: 132px;
+  border-radius: 8px;
+  border: 1px solid #3d4f6a;
+  background: #0f1b2b;
+  color: inherit;
+  padding: 10px;
+  resize: vertical;
+}
+
+.DebugMessage {
+  margin: 0;
+  padding: 8px;
+  border-radius: 8px;
+  border: 1px solid #2e5d7e;
+  background: #13273a;
+}
+
 .EventLogList {
   max-height: 200px;
   overflow: auto;
-}
-
-.DoneText {
-  padding: 8px;
-  border-radius: 8px;
-  background: #1f3a20;
-  border: 1px solid #4f7650;
 }
 
 @media (max-width: 1024px) {
