@@ -24,9 +24,9 @@ interface FSkyCloudActor {
 
 export class USceneBridge {
   private static readonly CentimetersToMeters = 0.01;
-  private static readonly OverworldGroundColorHex = "#49545f";
+  private static readonly OverworldGroundColorHex = "#333a41";
   private static readonly OverworldPlayerColorHex = "#dba511";
-  private static readonly OverworldGridColorHex = "#8ea0b3";
+  private static readonly OverworldGridColorHex = "#50565e";
   private static readonly MainLightGroundColorHex = "#4a5561";
   private readonly Engine: Engine;
   private readonly Scene: Scene;
