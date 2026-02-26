@@ -1,4 +1,4 @@
-const DebugConfigStorageKey = "FD_DEBUG_CONFIG_V1";
+const DebugConfigStorageKey = "FD_DEBUG_CONFIG_V2";
 
 interface FDebugConfigStoragePayload {
   Config: FDebugConfig;
@@ -6,9 +6,11 @@ interface FDebugConfigStoragePayload {
 }
 
 export interface FDebugConfig {
-  CameraDistance: number;
+  TargetArmLength: number;
   CameraPitch: number;
   CameraFov: number;
+  CameraLagSpeed: number;
+  CameraLagMaxDistance: number;
   CameraOffsetRight: number;
   CameraOffsetUp: number;
   WalkSpeed: number;
@@ -18,13 +20,15 @@ export interface FDebugConfig {
 }
 
 const DefaultDebugConfig: FDebugConfig = {
-  CameraDistance: 1000,
+  TargetArmLength: 200,
   CameraPitch: 22,
   CameraFov: 65,
-  CameraOffsetRight: 0,
-  CameraOffsetUp: 0,
-  WalkSpeed: 420,
-  RunSpeed: 750,
+  CameraLagSpeed: 5,
+  CameraLagMaxDistance: 300,
+  CameraOffsetRight: 50,
+  CameraOffsetUp: 70,
+  WalkSpeed: 300,
+  RunSpeed: 500,
   LookPitchMin: -20,
   LookPitchMax: 55
 };
@@ -110,8 +114,8 @@ export class UDebugConfigStore {
     );
 
     return {
-      CameraDistance: this.Clamp(
-        this.PickNumber(Input?.CameraDistance, Base.CameraDistance),
+      TargetArmLength: this.Clamp(
+        this.PickNumber(Input?.TargetArmLength, Base.TargetArmLength),
         10,
         2800
       ),
@@ -121,6 +125,16 @@ export class UDebugConfigStore {
         LookPitchMax
       ),
       CameraFov: this.Clamp(this.PickNumber(Input?.CameraFov, Base.CameraFov), 40, 110),
+      CameraLagSpeed: this.Clamp(
+        this.PickNumber(Input?.CameraLagSpeed, Base.CameraLagSpeed),
+        0,
+        20
+      ),
+      CameraLagMaxDistance: this.Clamp(
+        this.PickNumber(Input?.CameraLagMaxDistance, Base.CameraLagMaxDistance),
+        0,
+        1200
+      ),
       CameraOffsetRight: this.Clamp(
         this.PickNumber(Input?.CameraOffsetRight, Base.CameraOffsetRight),
         -600,

@@ -12,7 +12,7 @@ import {
   Vector3
 } from "@babylonjs/core";
 
-import type { FHudViewModel } from "../ui/FHudViewModel";
+import type { FHudViewModel, FRuntimePhase } from "../ui/FHudViewModel";
 
 interface FSkyCloudActor {
   Root: TransformNode;
@@ -20,6 +20,12 @@ interface FSkyCloudActor {
   Speed: number;
   DriftRange: number;
   Phase: number;
+}
+
+interface FVector3Cm {
+  X: number;
+  Y: number;
+  Z: number;
 }
 
 export class USceneBridge {
@@ -44,6 +50,9 @@ export class USceneBridge {
   private readonly SkyCloudActors: FSkyCloudActor[];
   private LastFrameTimestamp: number;
   private ElapsedSeconds: number;
+  private LaggedCameraTargetCm: FVector3Cm | null;
+  private LastCameraUpdateTimeMs: number | null;
+  private LastCameraRuntimePhase: FRuntimePhase | null;
 
   public constructor(Canvas: HTMLCanvasElement) {
     this.Engine = new Engine(Canvas, true);
@@ -63,6 +72,9 @@ export class USceneBridge {
     this.SkyCloudActors = this.CreateSkyCloudActors();
     this.LastFrameTimestamp = performance.now();
     this.ElapsedSeconds = 0;
+    this.LaggedCameraTargetCm = null;
+    this.LastCameraUpdateTimeMs = null;
+    this.LastCameraRuntimePhase = null;
     this.BattleGround.setEnabled(false);
     this.HandleWindowResize = () => {
       this.ResizeEngine();
@@ -223,24 +235,33 @@ export class USceneBridge {
   }
 
   private ApplyCamera(ViewModel: FHudViewModel): void {
-    this.Camera.fov = (ViewModel.DebugState.Config.CameraFov * Math.PI) / 180;
+    this.SyncCameraTrackingPhase(ViewModel.RuntimePhase);
+    const DebugConfig = ViewModel.DebugState.Config;
+    this.Camera.fov = (DebugConfig.CameraFov * Math.PI) / 180;
     if (ViewModel.RuntimePhase === "Overworld") {
       const Player = ViewModel.OverworldState.PlayerPosition;
       const PlayerYawRadians = (ViewModel.OverworldState.PlayerYawDegrees * Math.PI) / 180;
       const RightX = Math.cos(PlayerYawRadians);
       const RightZ = -Math.sin(PlayerYawRadians);
-      const TargetX = Player.X + RightX * ViewModel.DebugState.Config.CameraOffsetRight;
-      const TargetY = 85 + ViewModel.DebugState.Config.CameraOffsetUp;
-      const TargetZ = Player.Z + RightZ * ViewModel.DebugState.Config.CameraOffsetRight;
+      const DesiredTargetCm: FVector3Cm = {
+        X: Player.X + RightX * DebugConfig.CameraOffsetRight,
+        Y: 85 + DebugConfig.CameraOffsetUp,
+        Z: Player.Z + RightZ * DebugConfig.CameraOffsetRight
+      };
+      const LaggedTargetCm = this.ResolveSpringArmTargetCm(
+        DesiredTargetCm,
+        DebugConfig.CameraLagSpeed,
+        DebugConfig.CameraLagMaxDistance
+      );
       this.Camera.target = new Vector3(
-        this.ToMeters(TargetX),
-        this.ToMeters(TargetY),
-        this.ToMeters(TargetZ)
+        this.ToMeters(LaggedTargetCm.X),
+        this.ToMeters(LaggedTargetCm.Y),
+        this.ToMeters(LaggedTargetCm.Z)
       );
       // ArcRotate 的平面坐标是 x=cos(alpha), z=sin(alpha)，此处显式映射到“角色后方”
       this.Camera.alpha = -PlayerYawRadians - Math.PI / 2;
-      this.Camera.beta = this.ToArcCameraBeta(ViewModel.DebugState.Config.CameraPitch);
-      this.Camera.radius = this.ToMeters(ViewModel.DebugState.Config.CameraDistance);
+      this.Camera.beta = this.ToArcCameraBeta(DebugConfig.CameraPitch);
+      this.Camera.radius = this.ToMeters(DebugConfig.TargetArmLength);
       return;
     }
 
@@ -248,6 +269,86 @@ export class USceneBridge {
     this.Camera.alpha = Math.PI / 2;
     this.Camera.beta = Math.PI / 3;
     this.Camera.radius = 14;
+  }
+
+  private SyncCameraTrackingPhase(RuntimePhase: FRuntimePhase): void {
+    if (this.LastCameraRuntimePhase === RuntimePhase) {
+      return;
+    }
+
+    this.LastCameraRuntimePhase = RuntimePhase;
+    this.ResetSpringArmLagState();
+  }
+
+  private ResetSpringArmLagState(): void {
+    this.LaggedCameraTargetCm = null;
+    this.LastCameraUpdateTimeMs = null;
+  }
+
+  private ResolveSpringArmTargetCm(
+    DesiredTargetCm: FVector3Cm,
+    CameraLagSpeed: number,
+    CameraLagMaxDistance: number
+  ): FVector3Cm {
+    const DeltaSeconds = this.ResolveCameraLagDeltaSeconds();
+    if (!this.LaggedCameraTargetCm || CameraLagSpeed <= 0) {
+      const SyncedTargetCm = { ...DesiredTargetCm };
+      this.LaggedCameraTargetCm = SyncedTargetCm;
+      return SyncedTargetCm;
+    }
+
+    const Alpha = 1 - Math.exp(-CameraLagSpeed * DeltaSeconds);
+    const Current = this.LaggedCameraTargetCm;
+    const InterpolatedTargetCm: FVector3Cm = {
+      X: Current.X + (DesiredTargetCm.X - Current.X) * Alpha,
+      Y: Current.Y + (DesiredTargetCm.Y - Current.Y) * Alpha,
+      Z: Current.Z + (DesiredTargetCm.Z - Current.Z) * Alpha
+    };
+    const LimitedTargetCm = this.LimitLagDistanceToDesiredTarget(
+      DesiredTargetCm,
+      InterpolatedTargetCm,
+      CameraLagMaxDistance
+    );
+
+    this.LaggedCameraTargetCm = LimitedTargetCm;
+    return { ...LimitedTargetCm };
+  }
+
+  private LimitLagDistanceToDesiredTarget(
+    DesiredTargetCm: FVector3Cm,
+    CandidateTargetCm: FVector3Cm,
+    CameraLagMaxDistance: number
+  ): FVector3Cm {
+    if (CameraLagMaxDistance <= 0) {
+      return CandidateTargetCm;
+    }
+
+    const DeltaX = DesiredTargetCm.X - CandidateTargetCm.X;
+    const DeltaY = DesiredTargetCm.Y - CandidateTargetCm.Y;
+    const DeltaZ = DesiredTargetCm.Z - CandidateTargetCm.Z;
+    const DistanceToDesiredCm = Math.sqrt(DeltaX * DeltaX + DeltaY * DeltaY + DeltaZ * DeltaZ);
+    if (DistanceToDesiredCm <= CameraLagMaxDistance || DistanceToDesiredCm <= 1e-6) {
+      return CandidateTargetCm;
+    }
+
+    const Ratio = CameraLagMaxDistance / DistanceToDesiredCm;
+    return {
+      X: DesiredTargetCm.X - DeltaX * Ratio,
+      Y: DesiredTargetCm.Y - DeltaY * Ratio,
+      Z: DesiredTargetCm.Z - DeltaZ * Ratio
+    };
+  }
+
+  private ResolveCameraLagDeltaSeconds(): number {
+    const Now = performance.now();
+    if (this.LastCameraUpdateTimeMs === null) {
+      this.LastCameraUpdateTimeMs = Now;
+      return 1 / 60;
+    }
+
+    const DeltaSeconds = Math.min(Math.max((Now - this.LastCameraUpdateTimeMs) / 1000, 0), 0.05);
+    this.LastCameraUpdateTimeMs = Now;
+    return DeltaSeconds;
   }
 
   private ToArcCameraBeta(PitchDegrees: number): number {

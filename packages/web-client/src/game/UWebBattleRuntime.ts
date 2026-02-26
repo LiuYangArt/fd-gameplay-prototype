@@ -120,13 +120,15 @@ export class UWebBattleRuntime {
       DebugState: {
         IsMenuOpen: false,
         Config: {
-          CameraDistance: 1000,
+          TargetArmLength: 200,
           CameraPitch: 22,
           CameraFov: 65,
-          CameraOffsetRight: 0,
-          CameraOffsetUp: 0,
-          WalkSpeed: 420,
-          RunSpeed: 750,
+          CameraLagSpeed: 5,
+          CameraLagMaxDistance: 300,
+          CameraOffsetRight: 50,
+          CameraOffsetUp: 70,
+          WalkSpeed: 300,
+          RunSpeed: 500,
           LookPitchMin: -20,
           LookPitchMax: 55
         },

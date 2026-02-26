@@ -160,12 +160,12 @@ export function App() {
           {Hud.DebugState.IsMenuOpen ? (
             <div className="DebugPanel">
               <RangeField
-                Label="Camera Distance (cm)"
-                Value={Hud.DebugState.Config.CameraDistance}
+                Label="Target Arm Length (cm)"
+                Value={Hud.DebugState.Config.TargetArmLength}
                 Min={10}
                 Max={2800}
                 Step={10}
-                OnChange={(Value) => ApplyDebugPatch({ CameraDistance: Value })}
+                OnChange={(Value) => ApplyDebugPatch({ TargetArmLength: Value })}
               />
               <RangeField
                 Label="Camera Fov"
@@ -174,6 +174,22 @@ export function App() {
                 Max={110}
                 Step={0.5}
                 OnChange={(Value) => ApplyDebugPatch({ CameraFov: Value })}
+              />
+              <RangeField
+                Label="Camera Lag Speed"
+                Value={Hud.DebugState.Config.CameraLagSpeed}
+                Min={0}
+                Max={20}
+                Step={0.1}
+                OnChange={(Value) => ApplyDebugPatch({ CameraLagSpeed: Value })}
+              />
+              <RangeField
+                Label="Camera Lag Max Distance (cm)"
+                Value={Hud.DebugState.Config.CameraLagMaxDistance}
+                Min={0}
+                Max={1200}
+                Step={10}
+                OnChange={(Value) => ApplyDebugPatch({ CameraLagMaxDistance: Value })}
               />
               <RangeField
                 Label="Camera Offset Right (cm)"

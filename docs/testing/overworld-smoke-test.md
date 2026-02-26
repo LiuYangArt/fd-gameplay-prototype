@@ -41,13 +41,19 @@
 ## 步骤 4：F3 Debug 配置持久化
 
 1. 按 `F3` 打开 Debug 菜单。
-2. 调整 `Camera Distance / Camera Fov / Walk Speed / Run Speed`。
-3. 点击“导出 JSON”，复制文本；刷新页面后确认配置保留。
-4. 粘贴 JSON 后点击“导入 JSON”。
+2. 调整 `Target Arm Length (cm)`，观察镜头远近变化。
+3. 将 `Camera Lag Speed` 调到 `0`，持续移动角色观察镜头跟随。
+4. 将 `Camera Lag Speed` 调低到 `2` 左右，持续移动角色观察拖尾效果。
+5. 将 `Camera Lag Max Distance (cm)` 从 `300` 调到 `80`，观察最大拖尾距离被限制。
+6. 点击“导出 JSON”，复制文本；刷新页面后确认配置保留。
+7. 粘贴 JSON 后点击“导入 JSON”。
 
 预期结果：
 
-- 参数修改后立即生效。
+- `Target Arm Length` 调整后相机远近立即变化。
+- `Camera Lag Speed=0` 时镜头几乎即时跟随。
+- 降低 `Camera Lag Speed` 后可观察到明显拖尾。
+- 降低 `Camera Lag Max Distance` 后拖尾距离明显受限。
 - 刷新后仍保持上次配置。
 - 导入 JSON 后可恢复同一配置。
 
