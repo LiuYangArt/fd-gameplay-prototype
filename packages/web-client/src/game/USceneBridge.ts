@@ -26,6 +26,8 @@ export class USceneBridge {
   private static readonly CentimetersToMeters = 0.01;
   private static readonly OverworldGroundColorHex = "#49545f";
   private static readonly OverworldPlayerColorHex = "#dba511";
+  private static readonly OverworldGridColorHex = "#8ea0b3";
+  private static readonly MainLightGroundColorHex = "#4a5561";
   private readonly Engine: Engine;
   private readonly Scene: Scene;
   private readonly HandleWindowResize: () => void;
@@ -114,7 +116,7 @@ export class USceneBridge {
   private CreateLight(): void {
     const MainLight = new HemisphericLight("MainLight", new Vector3(0, 1, 0), this.Scene);
     MainLight.intensity = 0.95;
-    MainLight.groundColor = new Color3(0.18, 0.22, 0.2);
+    MainLight.groundColor = Color3.FromHexString(USceneBridge.MainLightGroundColorHex);
   }
 
   private CreateOverworldGround(): Mesh {
@@ -153,7 +155,7 @@ export class USceneBridge {
       },
       this.Scene
     );
-    Grid.color = new Color3(0.26, 0.35, 0.26);
+    Grid.color = Color3.FromHexString(USceneBridge.OverworldGridColorHex);
     Grid.isPickable = false;
     return Grid;
   }

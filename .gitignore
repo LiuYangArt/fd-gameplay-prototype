@@ -6,3 +6,5 @@ coverage
 playwright-report
 test-results
 .husky/_
+notes.md
+task_plan.md
