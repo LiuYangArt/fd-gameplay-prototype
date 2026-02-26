@@ -29,11 +29,13 @@ body {
 
 .BattleSection {
   min-height: 0;
+  align-self: start;
 }
 
 .BattleCanvas {
   width: 100%;
-  height: min(78vh, 860px);
+  aspect-ratio: 16 / 9;
+  height: auto;
   display: block;
   border: 1px solid #2f3d53;
   border-radius: 12px;
@@ -132,6 +134,6 @@ ul {
   }
 
   .BattleCanvas {
-    height: 52vh;
+    max-height: 52vh;
   }
 }

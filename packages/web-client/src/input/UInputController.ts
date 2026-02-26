@@ -267,7 +267,7 @@ export class UInputController {
 
   private ComposeLookPitchDeltaDegrees(GamepadLookY: number, DeltaSeconds: number): number {
     const MousePitchDelta = this.MouseDeltaY * MousePitchDegreesPerPixel;
-    const GamepadPitchDelta = -GamepadLookY * GamepadPitchDegreesPerSecond * DeltaSeconds;
+    const GamepadPitchDelta = GamepadLookY * GamepadPitchDegreesPerSecond * DeltaSeconds;
     return MousePitchDelta + GamepadPitchDelta;
   }
 

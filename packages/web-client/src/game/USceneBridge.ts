@@ -1,21 +1,35 @@
 import {
   ArcRotateCamera,
   Color3,
+  Color4,
   Engine,
   HemisphericLight,
   Mesh,
   MeshBuilder,
   Scene,
   StandardMaterial,
+  TransformNode,
   Vector3
 } from "@babylonjs/core";
 
 import type { FHudViewModel } from "../ui/FHudViewModel";
 
+interface FSkyCloudActor {
+  Root: TransformNode;
+  BaseX: number;
+  Speed: number;
+  DriftRange: number;
+  Phase: number;
+}
+
 export class USceneBridge {
   private static readonly CentimetersToMeters = 0.01;
+  private static readonly OverworldGroundColorHex = "#49545f";
+  private static readonly OverworldPlayerColorHex = "#dba511";
   private readonly Engine: Engine;
   private readonly Scene: Scene;
+  private readonly HandleWindowResize: () => void;
+  private readonly CanvasResizeObserver: ResizeObserver | null;
   private readonly Camera: ArcRotateCamera;
   private readonly OverworldEnemyMeshMap: Map<string, Mesh>;
   private readonly BattleUnitMeshMap: Map<string, Mesh>;
@@ -24,10 +38,15 @@ export class USceneBridge {
   private readonly BattleGround: Mesh;
   private readonly PlayerMesh: Mesh;
   private readonly PlayerForwardArrowMesh: Mesh;
+  private readonly SkyCloudMaterial: StandardMaterial;
+  private readonly SkyCloudActors: FSkyCloudActor[];
+  private LastFrameTimestamp: number;
+  private ElapsedSeconds: number;
 
   public constructor(Canvas: HTMLCanvasElement) {
     this.Engine = new Engine(Canvas, true);
     this.Scene = new Scene(this.Engine);
+    this.Scene.clearColor = new Color4(0.47, 0.71, 0.94, 1);
     this.OverworldEnemyMeshMap = new Map();
     this.BattleUnitMeshMap = new Map();
 
@@ -38,15 +57,27 @@ export class USceneBridge {
     this.PlayerMesh = this.CreatePlayerMesh();
     this.PlayerForwardArrowMesh = this.CreatePlayerForwardArrowMesh();
     this.CreateLight();
+    this.SkyCloudMaterial = this.CreateSkyCloudMaterial();
+    this.SkyCloudActors = this.CreateSkyCloudActors();
+    this.LastFrameTimestamp = performance.now();
+    this.ElapsedSeconds = 0;
     this.BattleGround.setEnabled(false);
+    this.HandleWindowResize = () => {
+      this.ResizeEngine();
+    };
+    this.CanvasResizeObserver = this.CreateCanvasResizeObserver(Canvas);
 
     this.Engine.runRenderLoop(() => {
+      const Now = performance.now();
+      const DeltaSeconds = Math.min(Math.max((Now - this.LastFrameTimestamp) / 1000, 0), 0.05);
+      this.LastFrameTimestamp = Now;
+      this.ElapsedSeconds += DeltaSeconds;
+      this.UpdateSkyClouds(DeltaSeconds);
       this.Scene.render();
     });
 
-    window.addEventListener("resize", () => {
-      this.Engine.resize();
-    });
+    window.addEventListener("resize", this.HandleWindowResize);
+    this.ResizeEngine();
   }
 
   public ApplyViewModel(ViewModel: FHudViewModel): void {
@@ -60,6 +91,8 @@ export class USceneBridge {
   }
 
   public Dispose(): void {
+    window.removeEventListener("resize", this.HandleWindowResize);
+    this.CanvasResizeObserver?.disconnect();
     this.Scene.dispose();
     this.Engine.dispose();
   }
@@ -79,7 +112,9 @@ export class USceneBridge {
   }
 
   private CreateLight(): void {
-    new HemisphericLight("MainLight", new Vector3(0, 1, 0), this.Scene);
+    const MainLight = new HemisphericLight("MainLight", new Vector3(0, 1, 0), this.Scene);
+    MainLight.intensity = 0.95;
+    MainLight.groundColor = new Color3(0.18, 0.22, 0.2);
   }
 
   private CreateOverworldGround(): Mesh {
@@ -92,7 +127,7 @@ export class USceneBridge {
       this.Scene
     );
     const GroundMaterial = new StandardMaterial("OverworldGroundMat", this.Scene);
-    GroundMaterial.diffuseColor = new Color3(0.11, 0.17, 0.11);
+    GroundMaterial.diffuseColor = Color3.FromHexString(USceneBridge.OverworldGroundColorHex);
     Ground.material = GroundMaterial;
     return Ground;
   }
@@ -148,9 +183,21 @@ export class USceneBridge {
       this.Scene
     );
     const Material = new StandardMaterial("OverworldPlayerMat", this.Scene);
-    Material.diffuseColor = new Color3(0.93, 0.45, 0.12);
+    Material.diffuseColor = Color3.FromHexString(USceneBridge.OverworldPlayerColorHex);
     Capsule.material = Material;
     return Capsule;
+  }
+
+  private CreateCanvasResizeObserver(Canvas: HTMLCanvasElement): ResizeObserver | null {
+    if (typeof ResizeObserver === "undefined") {
+      return null;
+    }
+
+    const Observer = new ResizeObserver(() => {
+      this.ResizeEngine();
+    });
+    Observer.observe(Canvas);
+    return Observer;
   }
 
   private CreatePlayerForwardArrowMesh(): Mesh {
@@ -363,7 +410,81 @@ export class USceneBridge {
     return UnitMesh;
   }
 
+  private CreateSkyCloudMaterial(): StandardMaterial {
+    const Material = new StandardMaterial("SkyCloudMaterial", this.Scene);
+    Material.diffuseColor = new Color3(1, 1, 1);
+    Material.emissiveColor = new Color3(0.92, 0.95, 1);
+    Material.alpha = 0.86;
+    return Material;
+  }
+
+  private CreateSkyCloudActors(): FSkyCloudActor[] {
+    const Seeds = [
+      { X: -22, Y: 8.5, Z: -14, Scale: 1.1, Speed: 0.75, Drift: 0.75, Phase: 0.2 },
+      { X: -8, Y: 9.2, Z: -2, Scale: 0.95, Speed: 0.63, Drift: 0.55, Phase: 0.8 },
+      { X: 7, Y: 8.8, Z: -18, Scale: 1.05, Speed: 0.7, Drift: 0.62, Phase: 1.5 },
+      { X: 18, Y: 9.5, Z: 3, Scale: 0.9, Speed: 0.58, Drift: 0.48, Phase: 2.1 },
+      { X: 26, Y: 8.7, Z: -9, Scale: 1.2, Speed: 0.82, Drift: 0.72, Phase: 2.8 }
+    ];
+
+    return Seeds.map((Seed, Index) => {
+      const Root = new TransformNode(`SkyCloud_${Index}`, this.Scene);
+      Root.position = new Vector3(Seed.X, Seed.Y, Seed.Z);
+
+      this.CreateCloudPuff(`Cloud_${Index}_A`, Root, new Vector3(-0.9, 0, 0), 1.2 * Seed.Scale);
+      this.CreateCloudPuff(`Cloud_${Index}_B`, Root, new Vector3(0, 0.15, 0.18), 1.35 * Seed.Scale);
+      this.CreateCloudPuff(
+        `Cloud_${Index}_C`,
+        Root,
+        new Vector3(0.95, 0.04, -0.12),
+        1.05 * Seed.Scale
+      );
+
+      return {
+        Root,
+        BaseX: Seed.X,
+        Speed: Seed.Speed,
+        DriftRange: Seed.Drift,
+        Phase: Seed.Phase
+      };
+    });
+  }
+
+  private CreateCloudPuff(Name: string, Root: TransformNode, Offset: Vector3, Scale: number): void {
+    const Puff = MeshBuilder.CreateSphere(
+      Name,
+      {
+        diameter: 1
+      },
+      this.Scene
+    );
+    Puff.parent = Root;
+    Puff.position = Offset;
+    Puff.scaling = new Vector3(2.4 * Scale, 0.65 * Scale, 1.25 * Scale);
+    Puff.material = this.SkyCloudMaterial;
+  }
+
+  private UpdateSkyClouds(DeltaSeconds: number): void {
+    const WrapLimit = 44;
+    this.SkyCloudActors.forEach((CloudActor) => {
+      let NextZ = CloudActor.Root.position.z + CloudActor.Speed * DeltaSeconds;
+      if (NextZ > WrapLimit) {
+        NextZ = -WrapLimit;
+      }
+
+      const DriftX =
+        CloudActor.BaseX +
+        Math.sin(this.ElapsedSeconds * 0.16 + CloudActor.Phase) * CloudActor.DriftRange;
+      CloudActor.Root.position.x = DriftX;
+      CloudActor.Root.position.z = NextZ;
+    });
+  }
+
   private ToMeters(Centimeters: number): number {
     return Centimeters * USceneBridge.CentimetersToMeters;
+  }
+
+  private ResizeEngine(): void {
+    this.Engine.resize();
   }
 }
