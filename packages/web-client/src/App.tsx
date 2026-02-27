@@ -195,6 +195,7 @@ function RangeField({ Label, Value, Min, Max, Step, OnChange }: FRangeFieldProps
 // eslint-disable-next-line complexity
 export function App() {
   const CanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const BattleViewportRef = useRef<HTMLDivElement | null>(null);
   const DebugMenuPointerActionRef = useRef<FDebugMenuPointerAction | null>(null);
   const Runtime = useMemo(() => new UWebGameRuntime(), []);
   const DebugMenuLayoutStore = useMemo(() => new UDebugMenuLayoutStore(), []);
@@ -213,8 +214,11 @@ export function App() {
     }
 
     const SceneBridge = new USceneBridge(Canvas);
-    const InputController = new UInputController((Snapshot) =>
-      Runtime.ConsumeInputSnapshot(Snapshot)
+    const InputController = new UInputController(
+      (Snapshot) => Runtime.ConsumeInputSnapshot(Snapshot),
+      {
+        ResolveAimViewportRect: () => BattleViewportRef.current?.getBoundingClientRect() ?? null
+      }
     );
 
     const UnbindInput = InputController.Bind();
@@ -338,6 +342,7 @@ export function App() {
     IsBattle3CPhase &&
     (Hud.Battle3CState.CameraMode === "PlayerAim" ||
       Hud.Battle3CState.CameraMode === "SkillTargetZoom");
+  const IsAimCursorHidden = IsBattle3CPhase && Hud.Battle3CState.CameraMode === "PlayerAim";
   const DebugMenuStyle: React.CSSProperties = {
     left: `${DebugMenuLayout.X}px`,
     top: `${DebugMenuLayout.Y}px`,
@@ -348,7 +353,10 @@ export function App() {
   return (
     <main className="AppRoot">
       <section className="BattleSection">
-        <div className="BattleViewport">
+        <div
+          ref={BattleViewportRef}
+          className={`BattleViewport${IsAimCursorHidden ? " BattleViewport--HideCursor" : ""}`}
+        >
           <canvas ref={CanvasRef} className="BattleCanvas" />
 
           {Hud.EncounterState.PromptText ? (

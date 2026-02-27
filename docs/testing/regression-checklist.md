@@ -1,6 +1,6 @@
 # 回归检查清单（Gameplay Prototype）
 
-更新时间：2026-02-26
+更新时间：2026-02-27
 
 > 用法
 >
@@ -31,6 +31,7 @@
 - [ ] 手柄映射：A / D-Pad Right / Start 均可触发。
 - [ ] 输入边沿触发无连发问题（按住不会重复触发一次性动作）。
 - [ ] 战斗结束后 UI 与 3D 表现同步到完成态。
+- [x] 瞄准模式下鼠标驱动准星使用绝对坐标，且隐藏系统鼠标光标（`PlayerAim`）。
 
 ## D. 分层边界与命名约束
 
@@ -74,5 +75,15 @@
 - 验证命令与结果：
   - `pnpm lint`：通过
   - `pnpm test`：通过（`UBattleSimulation` + `UOverworldSimulation` 共 8 项）
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：修复战斗瞄准模式下“系统鼠标 cursor 与 Crosshair 同时显示且位置不一致”的交互问题。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增回归）。
+- 新增/修改条目：C 节新增“瞄准模式鼠标绝对坐标 + 隐藏 cursor”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（新增回归 1 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
   - `pnpm verify`：通过（typecheck + lint + test + build）
 - 是否新增 postmortem：`否`

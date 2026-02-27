@@ -35,14 +35,20 @@ const GamepadPitchDegreesPerSecond = 135;
 const GamepadAimPixelsPerSecond = 520;
 const GamepadCycleAxisThreshold = 0.65;
 
+interface FInputControllerOptions {
+  ResolveAimViewportRect?: () => DOMRect | null;
+}
+
 export class UInputController {
   private readonly OnInputFrame: (Snapshot: FInputSnapshot) => void;
+  private readonly ResolveAimViewportRect: () => DOMRect | null;
   private readonly PressedKeys: Set<string>;
   private readonly KeyDownEdgeHandlers: Record<string, () => void>;
   private FrameHandle: number | null;
   private LastTimestamp: number | null;
   private MouseDeltaX: number;
   private MouseDeltaY: number;
+  private PendingAimScreenPosition: FInputVector2 | null;
   private PendingToggleAimEdge: boolean;
   private PendingFireEdge: boolean;
   private PendingSwitchCharacterEdge: boolean;
@@ -63,14 +69,19 @@ export class UInputController {
   private PreviousGamepadBack: boolean;
   private PreviousGamepadStickCycleDirection: number;
 
-  public constructor(OnInputFrame: (Snapshot: FInputSnapshot) => void) {
+  public constructor(
+    OnInputFrame: (Snapshot: FInputSnapshot) => void,
+    Options?: FInputControllerOptions
+  ) {
     this.OnInputFrame = OnInputFrame;
+    this.ResolveAimViewportRect = Options?.ResolveAimViewportRect ?? (() => null);
     this.PressedKeys = new Set();
     this.KeyDownEdgeHandlers = this.CreateKeyDownEdgeHandlers();
     this.FrameHandle = null;
     this.LastTimestamp = null;
     this.MouseDeltaX = 0;
     this.MouseDeltaY = 0;
+    this.PendingAimScreenPosition = null;
     this.PendingToggleAimEdge = false;
     this.PendingFireEdge = false;
     this.PendingSwitchCharacterEdge = false;
@@ -138,6 +149,7 @@ export class UInputController {
           DeltaSeconds
         ),
         AimScreenDelta: this.ComposeAimScreenDelta(GamepadSnapshot.LookAxis, DeltaSeconds),
+        AimScreenPosition: this.PendingAimScreenPosition,
         SprintHold:
           this.PressedKeys.has("ShiftLeft") ||
           this.PressedKeys.has("ShiftRight") ||
@@ -204,6 +216,7 @@ export class UInputController {
   private HandleMouseMove(Event: MouseEvent): void {
     this.MouseDeltaX += Event.movementX;
     this.MouseDeltaY += Event.movementY;
+    this.PendingAimScreenPosition = this.ResolveAimScreenPosition(Event.clientX, Event.clientY);
   }
 
   private HandleMouseDown(Event: MouseEvent): void {
@@ -216,6 +229,7 @@ export class UInputController {
     this.PressedKeys.clear();
     this.MouseDeltaX = 0;
     this.MouseDeltaY = 0;
+    this.PendingAimScreenPosition = null;
     this.ClearFrameEdges();
     this.ResetGamepadEdges();
   }
@@ -417,6 +431,31 @@ export class UInputController {
     };
   }
 
+  private ResolveAimScreenPosition(ClientX: number, ClientY: number): FInputVector2 | null {
+    const ViewportRect = this.ResolveAimViewportRect();
+    if (ViewportRect && ViewportRect.width > 0 && ViewportRect.height > 0) {
+      const LocalX = (ClientX - ViewportRect.left) / ViewportRect.width;
+      const LocalY = (ClientY - ViewportRect.top) / ViewportRect.height;
+      if (LocalX < 0 || LocalX > 1 || LocalY < 0 || LocalY > 1) {
+        return null;
+      }
+
+      return {
+        X: LocalX,
+        Y: LocalY
+      };
+    }
+
+    if (window.innerWidth <= 0 || window.innerHeight <= 0) {
+      return null;
+    }
+
+    return {
+      X: this.Clamp(ClientX / window.innerWidth, 0, 1),
+      Y: this.Clamp(ClientY / window.innerHeight, 0, 1)
+    };
+  }
+
   private GetActiveGamepad(): Gamepad | null {
     const Gamepads = navigator.getGamepads();
     for (const Pad of Gamepads) {
@@ -479,9 +518,14 @@ export class UInputController {
     return Current && !Previous;
   }
 
+  private Clamp(Value: number, Min: number, Max: number): number {
+    return Math.min(Math.max(Value, Min), Max);
+  }
+
   private ClearFrameAccumulation(): void {
     this.MouseDeltaX = 0;
     this.MouseDeltaY = 0;
+    this.PendingAimScreenPosition = null;
     this.ClearFrameEdges();
   }
 

@@ -36,6 +36,11 @@ body {
   position: relative;
 }
 
+.BattleViewport.BattleViewport--HideCursor,
+.BattleViewport.BattleViewport--HideCursor * {
+  cursor: none !important;
+}
+
 .BattleCanvas {
   width: 100%;
   aspect-ratio: 16 / 9;

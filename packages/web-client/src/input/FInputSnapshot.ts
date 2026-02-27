@@ -8,6 +8,7 @@ export interface FInputSnapshot {
   LookYawDeltaDegrees: number;
   LookPitchDeltaDegrees: number;
   AimScreenDelta: FInputVector2;
+  AimScreenPosition: FInputVector2 | null;
   SprintHold: boolean;
   ToggleAimEdge: boolean;
   FireEdge: boolean;

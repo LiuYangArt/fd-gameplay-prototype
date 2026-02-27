@@ -77,8 +77,8 @@ const BattleAnchorCm: FVector3Cm = {
   Y: 0,
   Z: 0
 };
-const CrosshairMin = 0.08;
-const CrosshairMax = 0.92;
+const CrosshairMin = 0;
+const CrosshairMax = 1;
 const CrosshairReferenceWidth = 1600;
 const CrosshairReferenceHeight = 900;
 const EnemyScriptCameraHoldMs = 680;
@@ -517,10 +517,12 @@ export class UWebGameRuntime {
       return;
     }
 
-    const NextCrosshair = this.ResolveCrosshairPosition(
-      this.ActiveBattleSession.CrosshairScreenPosition,
-      InputSnapshot.AimScreenDelta
-    );
+    const NextCrosshair = InputSnapshot.AimScreenPosition
+      ? this.ResolveAbsoluteCrosshairPosition(InputSnapshot.AimScreenPosition)
+      : this.ResolveCrosshairPosition(
+          this.ActiveBattleSession.CrosshairScreenPosition,
+          InputSnapshot.AimScreenDelta
+        );
     if (
       NextCrosshair.X !== this.ActiveBattleSession.CrosshairScreenPosition.X ||
       NextCrosshair.Y !== this.ActiveBattleSession.CrosshairScreenPosition.Y
@@ -787,20 +789,24 @@ export class UWebGameRuntime {
     Current: { X: number; Y: number },
     AimDelta: { X: number; Y: number }
   ): { X: number; Y: number } {
-    const NextX = this.Clamp(
-      Current.X + AimDelta.X / CrosshairReferenceWidth,
-      CrosshairMin,
-      CrosshairMax
-    );
-    const NextY = this.Clamp(
-      Current.Y + AimDelta.Y / CrosshairReferenceHeight,
-      CrosshairMin,
-      CrosshairMax
-    );
     return {
-      X: Number(NextX.toFixed(4)),
-      Y: Number(NextY.toFixed(4))
+      X: this.NormalizeCrosshairCoordinate(Current.X + AimDelta.X / CrosshairReferenceWidth),
+      Y: this.NormalizeCrosshairCoordinate(Current.Y + AimDelta.Y / CrosshairReferenceHeight)
     };
+  }
+
+  private ResolveAbsoluteCrosshairPosition(ScreenPosition: { X: number; Y: number }): {
+    X: number;
+    Y: number;
+  } {
+    return {
+      X: this.NormalizeCrosshairCoordinate(ScreenPosition.X),
+      Y: this.NormalizeCrosshairCoordinate(ScreenPosition.Y)
+    };
+  }
+
+  private NormalizeCrosshairCoordinate(Value: number): number {
+    return Number(this.Clamp(Value, CrosshairMin, CrosshairMax).toFixed(4));
   }
 
   private ResolveBattleControlCameraMode(Session: FBattle3CSession): FBattleCameraMode {
