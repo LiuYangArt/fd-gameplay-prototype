@@ -26,12 +26,17 @@ export interface FDebugConfig {
   BattleIntroCameraEndHeightCm: number;
   BattleIntroDurationSec: number;
   BattleIntroFovDeg: number;
+  BattleFollowFocusOffsetRightCm: number;
+  BattleFollowFocusOffsetUpCm: number;
   BattleDropStartHeightCm: number;
   BattleDropDurationSec: number;
   BattlePromptDurationSec: number;
   BattleFollowShoulderOffsetCm: number;
   PlayerAimFovDeg: number;
+  PlayerAimDistanceCm: number;
   PlayerAimShoulderOffsetCm: number;
+  PlayerAimFocusOffsetRightCm: number;
+  PlayerAimFocusOffsetUpCm: number;
   SkillTargetZoomDistanceCm: number;
   EnemyAttackCamDistanceCm: number;
   EnemyAttackCamHeightCm: number;
@@ -65,12 +70,17 @@ const DefaultDebugConfig: FDebugConfig = {
   BattleIntroCameraEndHeightCm: 180,
   BattleIntroDurationSec: 1.35,
   BattleIntroFovDeg: 58,
+  BattleFollowFocusOffsetRightCm: 110,
+  BattleFollowFocusOffsetUpCm: 0,
   BattleDropStartHeightCm: 460,
   BattleDropDurationSec: 0.82,
   BattlePromptDurationSec: 0.55,
   BattleFollowShoulderOffsetCm: 0,
   PlayerAimFovDeg: 52,
+  PlayerAimDistanceCm: 360,
   PlayerAimShoulderOffsetCm: 45,
+  PlayerAimFocusOffsetRightCm: 0,
+  PlayerAimFocusOffsetUpCm: 0,
   SkillTargetZoomDistanceCm: 420,
   EnemyAttackCamDistanceCm: 360,
   EnemyAttackCamHeightCm: 130,
@@ -273,7 +283,7 @@ export class UDebugConfigStore {
           "BattleIntroCameraStartHeightCm",
           Base.BattleIntroCameraStartHeightCm
         ),
-        20,
+        -3000,
         3000
       ),
       BattleIntroCameraEndDistanceCm: this.Clamp(
@@ -282,7 +292,7 @@ export class UDebugConfigStore {
           "BattleIntroCameraEndDistanceCm",
           Base.BattleIntroCameraEndDistanceCm
         ),
-        120,
+        -3000,
         3200
       ),
       BattleIntroCameraEndHeightCm: this.Clamp(
@@ -291,7 +301,7 @@ export class UDebugConfigStore {
           "BattleIntroCameraEndHeightCm",
           Base.BattleIntroCameraEndHeightCm
         ),
-        20,
+        -3000,
         1400
       ),
       BattleIntroDurationSec: this.Clamp(
@@ -303,6 +313,20 @@ export class UDebugConfigStore {
         this.ResolveNumber(Source, "BattleIntroFovDeg", Base.BattleIntroFovDeg),
         30,
         110
+      ),
+      BattleFollowFocusOffsetRightCm: this.Clamp(
+        this.ResolveNumber(
+          Source,
+          "BattleFollowFocusOffsetRightCm",
+          Base.BattleFollowFocusOffsetRightCm
+        ),
+        -400,
+        400
+      ),
+      BattleFollowFocusOffsetUpCm: this.Clamp(
+        this.ResolveNumber(Source, "BattleFollowFocusOffsetUpCm", Base.BattleFollowFocusOffsetUpCm),
+        -800,
+        800
       ),
       BattleDropStartHeightCm: this.Clamp(
         this.ResolveNumber(Source, "BattleDropStartHeightCm", Base.BattleDropStartHeightCm),
@@ -333,10 +357,25 @@ export class UDebugConfigStore {
         20,
         95
       ),
+      PlayerAimDistanceCm: this.Clamp(
+        this.ResolveNumber(Source, "PlayerAimDistanceCm", Base.PlayerAimDistanceCm),
+        120,
+        2600
+      ),
       PlayerAimShoulderOffsetCm: this.Clamp(
         this.ResolveNumber(Source, "PlayerAimShoulderOffsetCm", Base.PlayerAimShoulderOffsetCm),
         -300,
         300
+      ),
+      PlayerAimFocusOffsetRightCm: this.Clamp(
+        this.ResolveNumber(Source, "PlayerAimFocusOffsetRightCm", Base.PlayerAimFocusOffsetRightCm),
+        -400,
+        400
+      ),
+      PlayerAimFocusOffsetUpCm: this.Clamp(
+        this.ResolveNumber(Source, "PlayerAimFocusOffsetUpCm", Base.PlayerAimFocusOffsetUpCm),
+        -800,
+        800
       ),
       SkillTargetZoomDistanceCm: this.Clamp(
         this.ResolveNumber(Source, "SkillTargetZoomDistanceCm", Base.SkillTargetZoomDistanceCm),
@@ -350,7 +389,7 @@ export class UDebugConfigStore {
       ),
       EnemyAttackCamHeightCm: this.Clamp(
         this.ResolveNumber(Source, "EnemyAttackCamHeightCm", Base.EnemyAttackCamHeightCm),
-        20,
+        -3000,
         1200
       ),
       SettlementCamDistanceCm: this.Clamp(
@@ -360,7 +399,7 @@ export class UDebugConfigStore {
       ),
       SettlementCamHeightCm: this.Clamp(
         this.ResolveNumber(Source, "SettlementCamHeightCm", Base.SettlementCamHeightCm),
-        40,
+        -3000,
         1800
       ),
       UnitModelChar01Path: this.ResolveString(

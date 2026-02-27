@@ -28,7 +28,8 @@
 		{"id":"0cdce55eadefd23a","type":"file","file":"fd_prototype_docs/design/_assets/20260226111219_1.jpg","x":-355,"y":1787,"width":400,"height":225},
 		{"id":"02cd00ef26b9f685","x":-1540,"y":951,"width":447,"height":283,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227214216.png"},
 		{"id":"118cff313103dbe8","x":-1388,"y":643,"width":400,"height":236,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227213724.png"},
-		{"id":"a3236c3b5a7a9796","x":-1078,"y":951,"width":400,"height":285,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227214336.png"}
+		{"id":"a3236c3b5a7a9796","x":-1078,"y":951,"width":400,"height":285,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227214336.png"},
+		{"id":"58c868a2d7447d45","x":301,"y":1106,"width":250,"height":60,"type":"text","text":"进入瞄准时隐藏队友。"}
 	],
 	"edges":[
 		{"id":"ccbf3f1c2e8a8bf6","fromNode":"de545118cf52a11e","fromSide":"bottom","toNode":"7b3738d50d1569fc","toSide":"top"},

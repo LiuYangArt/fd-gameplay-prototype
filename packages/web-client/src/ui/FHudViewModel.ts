@@ -68,6 +68,12 @@ export interface FBattleScriptFocusHudState {
   TargetUnitIds: string[];
 }
 
+export interface FBattleShotHudState {
+  ShotId: number;
+  AttackerUnitId: string;
+  TargetUnitId: string;
+}
+
 export interface FBattle3CHudState {
   PlayerTeamId: string | null;
   EnemyTeamId: string | null;
@@ -79,9 +85,12 @@ export interface FBattle3CHudState {
   ScriptStepIndex: number;
   IsAimMode: boolean;
   IsSkillTargetMode: boolean;
+  AimCameraYawDeg: number | null;
   SelectedTargetId: string | null;
+  HoveredTargetId: string | null;
   Units: FBattleUnitHudState[];
   ScriptFocus: FBattleScriptFocusHudState | null;
+  LastShot: FBattleShotHudState | null;
 }
 
 export interface FSettlementPreviewHudState {

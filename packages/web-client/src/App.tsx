@@ -45,6 +45,14 @@ interface FControlledUnitAnchor {
   Y: number;
 }
 
+interface FAimHoverTargetAnchor {
+  UnitId: string;
+  Anchor: {
+    X: number;
+    Y: number;
+  };
+}
+
 type FDebugNumberKey = {
   [K in keyof FDebugConfig]: FDebugConfig[K] extends number ? K : never;
 }[keyof FDebugConfig];
@@ -56,6 +64,10 @@ type FDebugStringKey = {
 type FDebugBooleanKey = {
   [K in keyof FDebugConfig]: FDebugConfig[K] extends boolean ? K : never;
 }[keyof FDebugConfig];
+
+const IgnoreFireInputSelector = '[data-ignore-fire-input="true"]';
+const InteractiveInputSelector =
+  "button, input, textarea, select, option, label, a, [role='button']";
 
 const OverworldRangeGroups: FRangeGroup[] = [
   {
@@ -93,14 +105,14 @@ const BattleRangeGroups: FRangeGroup[] = [
       {
         Key: "BattleIntroCameraEndDistanceCm",
         Label: "待机镜头距离 (cm)",
-        Min: 120,
+        Min: -3000,
         Max: 3200,
         Step: 10
       },
       {
         Key: "BattleIntroCameraEndHeightCm",
         Label: "待机镜头高度 (cm)",
-        Min: 20,
+        Min: -3000,
         Max: 1400,
         Step: 10
       },
@@ -117,6 +129,20 @@ const BattleRangeGroups: FRangeGroup[] = [
         Min: 30,
         Max: 110,
         Step: 0.5
+      },
+      {
+        Key: "BattleFollowFocusOffsetRightCm",
+        Label: "待机焦点侧偏移 (cm)",
+        Min: -400,
+        Max: 400,
+        Step: 5
+      },
+      {
+        Key: "BattleFollowFocusOffsetUpCm",
+        Label: "待机焦点高偏移 (cm)",
+        Min: -800,
+        Max: 800,
+        Step: 5
       }
     ]
   },
@@ -133,7 +159,7 @@ const BattleRangeGroups: FRangeGroup[] = [
       {
         Key: "BattleIntroCameraStartHeightCm",
         Label: "入场镜头起始高度 (cm)",
-        Min: 20,
+        Min: -3000,
         Max: 3000,
         Step: 10
       },
@@ -154,6 +180,13 @@ const BattleRangeGroups: FRangeGroup[] = [
     Specs: [
       { Key: "PlayerAimFovDeg", Label: "瞄准镜头 Fov (deg)", Min: 20, Max: 95, Step: 0.5 },
       {
+        Key: "PlayerAimDistanceCm",
+        Label: "瞄准镜头距离 (cm)",
+        Min: 120,
+        Max: 2600,
+        Step: 10
+      },
+      {
         Key: "PlayerAimShoulderOffsetCm",
         Label: "瞄准肩位偏移 (cm)",
         Min: -300,
@@ -161,8 +194,22 @@ const BattleRangeGroups: FRangeGroup[] = [
         Step: 5
       },
       {
+        Key: "PlayerAimFocusOffsetRightCm",
+        Label: "瞄准焦点侧偏移 (cm)",
+        Min: -400,
+        Max: 400,
+        Step: 5
+      },
+      {
+        Key: "PlayerAimFocusOffsetUpCm",
+        Label: "瞄准焦点高偏移 (cm)",
+        Min: -800,
+        Max: 800,
+        Step: 5
+      },
+      {
         Key: "SkillTargetZoomDistanceCm",
-        Label: "目标模式镜头距离 (cm)",
+        Label: "目标模式镜头距离（SkillTarget）(cm)",
         Min: 120,
         Max: 2600,
         Step: 10
@@ -182,12 +229,12 @@ const BattleRangeGroups: FRangeGroup[] = [
       {
         Key: "EnemyAttackCamHeightCm",
         Label: "敌方攻击镜头高度 (cm)",
-        Min: 20,
+        Min: -3000,
         Max: 1200,
         Step: 10
       },
       { Key: "SettlementCamDistanceCm", Label: "结算镜头距离 (cm)", Min: 200, Max: 3600, Step: 10 },
-      { Key: "SettlementCamHeightCm", Label: "结算镜头高度 (cm)", Min: 40, Max: 1800, Step: 10 }
+      { Key: "SettlementCamHeightCm", Label: "结算镜头高度 (cm)", Min: -3000, Max: 1800, Step: 10 }
     ]
   }
 ];
@@ -224,6 +271,9 @@ export function App() {
   const [ControlledUnitAnchor, SetControlledUnitAnchor] = useState<FControlledUnitAnchor | null>(
     null
   );
+  const [AimHoverTargetAnchor, SetAimHoverTargetAnchor] = useState<FAimHoverTargetAnchor | null>(
+    null
+  );
   const [DebugMenuLayout, SetDebugMenuLayout] = useState<FDebugMenuLayoutState>(() =>
     DebugMenuLayoutStore.Load()
   );
@@ -248,6 +298,23 @@ export function App() {
             Math.abs(PreviousAnchor.X - Anchor.X) <= Epsilon &&
             Math.abs(PreviousAnchor.Y - Anchor.Y) <= Epsilon;
           return IsUnchanged ? PreviousAnchor : Anchor;
+        });
+      },
+      OnAimHoverTargetUpdated: (State) => {
+        Runtime.SetBattleAimHoverTarget(State?.UnitId ?? null);
+        SetAimHoverTargetAnchor((PreviousState) => {
+          if (!State && !PreviousState) {
+            return PreviousState;
+          }
+          if (!State || !PreviousState) {
+            return State;
+          }
+          const Epsilon = 0.0006;
+          const IsUnchanged =
+            PreviousState.UnitId === State.UnitId &&
+            Math.abs(PreviousState.Anchor.X - State.Anchor.X) <= Epsilon &&
+            Math.abs(PreviousState.Anchor.Y - State.Anchor.Y) <= Epsilon;
+          return IsUnchanged ? PreviousState : State;
         });
       }
     });
@@ -386,6 +453,28 @@ export function App() {
     StartDebugMenuPointerAction("Resize", Event.clientX, Event.clientY);
   };
 
+  const ShouldIgnoreBattleViewportFireTarget = (Target: EventTarget | null): boolean => {
+    if (!(Target instanceof Element)) {
+      return false;
+    }
+
+    return (
+      Target.closest(IgnoreFireInputSelector) !== null ||
+      Target.closest(InteractiveInputSelector) !== null
+    );
+  };
+
+  const HandleBattleViewportPointerDown = (Event: React.PointerEvent<HTMLDivElement>) => {
+    if (Event.button !== 0 || !IsBattle3CPhase) {
+      return;
+    }
+    if (ShouldIgnoreBattleViewportFireTarget(Event.target)) {
+      return;
+    }
+
+    Runtime.FireBattleAction();
+  };
+
   const IsBattle3CPhase = Hud.RuntimePhase === "Battle3C";
   const IsSettlementPhase = Hud.RuntimePhase === "SettlementPreview";
   const IsCrosshairVisible =
@@ -401,6 +490,23 @@ export function App() {
     ) ?? null;
   const IsBattleActionHudVisible =
     IsBattle3CPhase && ControlledUnit !== null && ControlledUnitAnchor !== null;
+  const BattlePartyUnits = Hud.Battle3CState.PlayerActiveUnitIds.map((UnitId) =>
+    Hud.Battle3CState.Units.find((Unit) => Unit.UnitId === UnitId)
+  ).filter((Unit): Unit is NonNullable<typeof ControlledUnit> => Unit !== undefined);
+  const HoveredEnemyUnit =
+    AimHoverTargetAnchor !== null
+      ? (Hud.Battle3CState.Units.find(
+          (Unit) =>
+            Unit.UnitId === AimHoverTargetAnchor.UnitId && Unit.TeamId === "Enemy" && Unit.IsAlive
+        ) ?? null)
+      : null;
+  const EnemyHpBarStyle: React.CSSProperties | undefined =
+    AimHoverTargetAnchor !== null
+      ? {
+          left: `${(AimHoverTargetAnchor.Anchor.X * 100).toFixed(2)}%`,
+          top: `${(AimHoverTargetAnchor.Anchor.Y * 100).toFixed(2)}%`
+        }
+      : undefined;
   const ControlledUnitHudStyle: React.CSSProperties | undefined =
     ControlledUnitAnchor !== null
       ? {
@@ -421,6 +527,7 @@ export function App() {
         <div
           ref={BattleViewportRef}
           className={`BattleViewport${IsAimCursorHidden ? " BattleViewport--HideCursor" : ""}`}
+          onPointerDown={HandleBattleViewportPointerDown}
         >
           <canvas ref={CanvasRef} className="BattleCanvas" />
 
@@ -443,6 +550,23 @@ export function App() {
                 top: `${(Hud.Battle3CState.CrosshairScreenPosition.Y * 100).toFixed(2)}%`
               }}
             />
+          ) : null}
+
+          {IsBattleAimMode && HoveredEnemyUnit && EnemyHpBarStyle ? (
+            <div className="EnemyHeadHpHud" style={EnemyHpBarStyle}>
+              <div className="EnemyHeadHpHud__Name">{HoveredEnemyUnit.DisplayName}</div>
+              <div className="EnemyHeadHpHud__Bar">
+                <div
+                  className="EnemyHeadHpHud__Fill"
+                  style={{
+                    width: `${((HoveredEnemyUnit.CurrentHp / Math.max(HoveredEnemyUnit.MaxHp, 1)) * 100).toFixed(2)}%`
+                  }}
+                />
+              </div>
+              <div className="EnemyHeadHpHud__Value">
+                {HoveredEnemyUnit.CurrentHp} / {HoveredEnemyUnit.MaxHp}
+              </div>
+            </div>
           ) : null}
 
           {IsBattleActionHudVisible && ControlledUnitHudStyle ? (
@@ -518,6 +642,49 @@ export function App() {
               >
                 跳过回合
               </button>
+            </div>
+          ) : null}
+
+          {IsBattle3CPhase && BattlePartyUnits.length > 0 ? (
+            <div className="BattlePartyHud" data-ignore-fire-input="true">
+              {BattlePartyUnits.map((Unit) => {
+                const HpRatio = Unit.CurrentHp / Math.max(Unit.MaxHp, 1);
+                const MpRatio = Unit.CurrentMp / Math.max(Unit.MaxMp, 1);
+                return (
+                  <article
+                    key={Unit.UnitId}
+                    className={`BattlePartyCard${Unit.IsControlled ? " IsControlled" : ""}`}
+                  >
+                    <div className="BattlePartyPortrait">{Unit.DisplayName.slice(0, 1)}</div>
+                    <div className="BattlePartyVitals">
+                      <div className="BattlePartyValueLine">
+                        <span>HP</span>
+                        <strong>
+                          {Unit.CurrentHp}/{Unit.MaxHp}
+                        </strong>
+                      </div>
+                      <div className="BattlePartyBar">
+                        <div
+                          className="BattlePartyBarFill IsHp"
+                          style={{ width: `${(HpRatio * 100).toFixed(2)}%` }}
+                        />
+                      </div>
+                      <div className="BattlePartyValueLine">
+                        <span>MP</span>
+                        <strong>
+                          {Unit.CurrentMp}/{Unit.MaxMp}
+                        </strong>
+                      </div>
+                      <div className="BattlePartyBar">
+                        <div
+                          className="BattlePartyBarFill IsMp"
+                          style={{ width: `${(MpRatio * 100).toFixed(2)}%` }}
+                        />
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           ) : null}
         </div>

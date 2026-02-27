@@ -233,7 +233,7 @@ export class UInputController {
     if (Event.button !== 0 || this.ShouldIgnoreMouseFire(Event.target)) {
       return;
     }
-    this.PendingFireEdge = true;
+    this.PendingAimScreenPosition = this.ResolveAimScreenPosition(Event.clientX, Event.clientY);
   }
 
   private HandleWindowBlur(): void {

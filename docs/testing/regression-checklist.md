@@ -35,6 +35,22 @@
 - [x] 战斗 HUD 点击不会误触发开火输入（`mousedown` 过滤 UI 元素）。
 - [x] 瞄准模式下支持 `Esc / 手柄 B / HUD 返回按钮` 退出瞄准并回到跟随镜头。
 - [x] 战斗结束回到 `Overworld` 后，左下角战斗 HUD（逃跑/跳过回合）会完全清理。
+- [x] 瞄准模式下悬停敌人会同步 `HoveredTargetId`，并支持头顶血条显示（`UWebGameRuntime.test.ts`）。
+- [x] 战斗开火会产出 Shot 可视化事件（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准模式开火不会切到敌方攻击机位（避免 camera 乱飞）（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准悬停敌人时可控角色朝向会同步对准目标（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准悬停敌人时 `AimCameraYawDeg` 保持稳定，镜头不随悬停目标漂移（`UWebGameRuntime.test.ts`）。
+- [x] `PlayerAimDistanceCm` 存在且 `ApplyPatch` 的下限钳制生效（`UDebugConfigStore.test.ts`）。
+- [x] 退出瞄准后恢复待机朝向，再次进入瞄准机位基准保持稳定（`UWebGameRuntime.test.ts`）。
+- [ ] 右下角队伍头像 + HP/MP HUD 在 Battle3C 正常显示（手动冒烟）。
+- [ ] 开火子弹从 `SOCKET_Muzzle*` 发射并在命中点出现特效（手动冒烟）。
+- [ ] `BattleFollowFocusOffsetRightCm` 可将待机构图从居中调到偏左（手动冒烟）。
+- [ ] `BattleFollowFocusOffsetUpCm` 与右偏参数仅影响 `PlayerFollow`，不影响 `PlayerAim`（手动冒烟）。
+- [ ] 瞄准偏移参数（`PlayerAimFocusOffsetRightCm/UpCm`）与待机偏移参数完全独立（手动冒烟）。
+- [ ] 瞄准镜头距离参数（`PlayerAimDistanceCm`）在 `PlayerAim` 下实时生效，且与 `SkillTargetZoomDistanceCm` 独立（手动冒烟）。
+- [ ] 瞄准准星（Crosshair）层级高于战斗操作按钮（手动冒烟）。
+- [ ] `PlayerFollow <-> PlayerAim` 镜头切换为平滑过渡（无硬切）（手动冒烟）。
+- [ ] 瞄准悬停切换敌人时，角色左右转向为平滑过渡（手动冒烟）。
 
 ## D. 分层边界与命名约束
 
@@ -93,6 +109,46 @@
   - `pnpm verify`：通过（typecheck + lint + test + build）
 - 是否新增 postmortem：`否`
 
+- 问题描述：修复“待机 -> 瞄准 -> 返回待机 -> 再次瞄准”机位漂移；根因是瞄准期临时转向未在退出时回滚，导致后续瞄准基准被污染。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增失败回归后修复）。
+- 新增/修改条目：C 节新增 1 项并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（9 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：修复“瞄准镜头与角色距离不生效”（此前使用 `TargetArmLength * 0.58` 固定计算，未暴露独立可调参数）。
+- 对应测试文件：`packages/web-client/src/debug/UDebugConfigStore.test.ts`（新增回归）。
+- 新增/修改条目：C 节新增 2 项（自动化 1 项、手动 1 项）。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（8 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：修复瞄准镜头参数耦合（与待机共用导致互相打架）以及悬停敌人时镜头漂移。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增 `AimCameraYawDeg` 稳定断言）。
+- 新增/修改条目：C 节新增 2 项（自动化 1 项、手动 1 项）。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（7 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：修复瞄准交互回归（鼠标开火不稳定、手柄 A 开火触发镜头乱切），并补齐战斗焦点高偏移参数与瞄准镜头复用。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（扩展悬停朝向、瞄准开火机位稳定断言）。
+- 新增/修改条目：C 节新增 3 项自动化 + 1 项手动冒烟。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（7 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
 - 问题描述：修复战斗瞄准模式下“系统鼠标 cursor 与 Crosshair 同时显示且位置不一致”的交互问题。
 - 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增回归）。
 - 新增/修改条目：C 节新增“瞄准模式鼠标绝对坐标 + 隐藏 cursor”条目并置为已完成。
@@ -132,5 +188,25 @@
   - `pnpm lint`：通过
   - `pnpm test`：通过（`gameplay-core` 15 项）
   - `pnpm --filter @fd/web-client test`：通过（5 项）
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：补齐战斗表现链路（右下队伍 HUD、瞄准悬停敌人头顶血条、开火子弹/击中特效）并修复战斗待机构图“无法调出偏左”的 debug 参数缺口。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增 2 条回归）。
+- 新增/修改条目：C 节新增 5 项，其中 2 项自动化已完成，3 项待手动冒烟。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（7 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：修复瞄准态准星层级低于按钮、`PlayerFollow <-> PlayerAim` 镜头硬切、角色朝向硬切导致观感突兀。
+- 对应测试文件：暂无自动化（本次为 Scene 表现层插值与层级修复，先走手动冒烟）。
+- 新增/修改条目：C 节新增 3 项手动冒烟（准星层级、镜头切换平滑、角色转向平滑）。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（9 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
   - `pnpm verify`：通过（typecheck + lint + test + build）
 - 是否新增 postmortem：`否`
