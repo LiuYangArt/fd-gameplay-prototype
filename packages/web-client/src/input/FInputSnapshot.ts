@@ -7,9 +7,15 @@ export interface FInputSnapshot {
   MoveAxis: FInputVector2;
   LookYawDeltaDegrees: number;
   LookPitchDeltaDegrees: number;
+  AimScreenDelta: FInputVector2;
   SprintHold: boolean;
-  ConfirmEdge: boolean;
-  NextTargetEdge: boolean;
+  ToggleAimEdge: boolean;
+  FireEdge: boolean;
+  SwitchCharacterEdge: boolean;
+  ToggleSkillTargetModeEdge: boolean;
+  CycleTargetAxis: number;
+  ForceSettlementEdge: boolean;
+  ConfirmSettlementEdge: boolean;
   RestartEdge: boolean;
   ToggleDebugEdge: boolean;
   DeltaSeconds: number;

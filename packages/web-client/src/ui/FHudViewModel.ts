@@ -1,13 +1,28 @@
 import type { FDebugConfig } from "../debug/UDebugConfigStore";
-import type {
-  EBattlePhase,
-  EOverworldPhase,
-  FOverworldEnemyState,
-  FOverworldVector2,
-  FUnitSnapshot
-} from "@fd/gameplay-core";
+import type { EOverworldPhase, FOverworldEnemyState, FOverworldVector2 } from "@fd/gameplay-core";
 
-export type FRuntimePhase = "Overworld" | "Battle";
+export type FRuntimePhase = "Overworld" | "EncounterTransition" | "Battle3C" | "SettlementPreview";
+
+export type FBattleCameraMode =
+  | "IntroPullOut"
+  | "IntroDropIn"
+  | "PlayerFollow"
+  | "PlayerAim"
+  | "SkillTargetZoom"
+  | "EnemyAttackSingle"
+  | "EnemyAttackAOE"
+  | "SettlementCam";
+
+export interface FVector3Cm {
+  X: number;
+  Y: number;
+  Z: number;
+}
+
+export interface FCrosshairScreenPosition {
+  X: number;
+  Y: number;
+}
 
 export interface FOverworldHudState {
   Phase: EOverworldPhase;
@@ -18,12 +33,48 @@ export interface FOverworldHudState {
   LastEncounterEnemyId: string | null;
 }
 
-export interface FBattleHudState {
-  Phase: EBattlePhase;
-  ActiveUnitId: string | null;
+export interface FEncounterHudState {
+  EncounterEnemyId: string | null;
+  PromptText: string | null;
+  StartedAtMs: number | null;
+  PromptDurationSec: number;
+  IntroDurationSec: number;
+  DropDurationSec: number;
+  RemainingTransitionMs: number;
+}
+
+export interface FBattleUnitHudState {
+  UnitId: string;
+  DisplayName: string;
+  TeamId: "Player" | "Enemy";
+  PositionCm: FVector3Cm;
+  YawDeg: number;
+  IsAlive: boolean;
+  IsControlled: boolean;
+  IsSelectedTarget: boolean;
+  IsEncounterPrimaryEnemy: boolean;
+}
+
+export interface FBattleScriptFocusHudState {
+  AttackerUnitId: string;
+  TargetUnitIds: string[];
+}
+
+export interface FBattle3CHudState {
+  ControlledCharacterId: string | null;
+  CameraMode: FBattleCameraMode;
+  CrosshairScreenPosition: FCrosshairScreenPosition;
+  ScriptStepIndex: number;
+  IsAimMode: boolean;
+  IsSkillTargetMode: boolean;
   SelectedTargetId: string | null;
-  Units: FUnitSnapshot[];
-  IsFinished: boolean;
+  Units: FBattleUnitHudState[];
+  ScriptFocus: FBattleScriptFocusHudState | null;
+}
+
+export interface FSettlementPreviewHudState {
+  SummaryText: string;
+  ConfirmHintText: string;
 }
 
 export interface FDebugHudState {
@@ -35,7 +86,9 @@ export interface FDebugHudState {
 export interface FHudViewModel {
   RuntimePhase: FRuntimePhase;
   OverworldState: FOverworldHudState;
-  BattleState: FBattleHudState;
+  EncounterState: FEncounterHudState;
+  Battle3CState: FBattle3CHudState;
+  SettlementState: FSettlementPreviewHudState;
   DebugState: FDebugHudState;
   EventLogs: string[];
 }

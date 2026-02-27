@@ -4,14 +4,23 @@ interface FGamepadSnapshot {
   MoveAxis: FInputVector2;
   LookAxis: FInputVector2;
   SprintHold: boolean;
-  ConfirmEdge: boolean;
-  NextTargetEdge: boolean;
+  ToggleAimEdge: boolean;
+  FireEdge: boolean;
+  SwitchCharacterEdge: boolean;
+  ToggleSkillTargetModeEdge: boolean;
+  CycleTargetAxis: number;
+  ConfirmSettlementEdge: boolean;
   RestartEdge: boolean;
   ToggleDebugEdge: boolean;
 }
 
 interface FGamepadButtonState {
   A: boolean;
+  LB: boolean;
+  RB: boolean;
+  LT: boolean;
+  RT: boolean;
+  DpadLeft: boolean;
   DpadRight: boolean;
   Start: boolean;
   Back: boolean;
@@ -23,49 +32,77 @@ const MouseYawDegreesPerPixel = 0.18;
 const MousePitchDegreesPerPixel = 0.14;
 const GamepadYawDegreesPerSecond = 180;
 const GamepadPitchDegreesPerSecond = 135;
+const GamepadAimPixelsPerSecond = 520;
+const GamepadCycleAxisThreshold = 0.65;
 
 export class UInputController {
   private readonly OnInputFrame: (Snapshot: FInputSnapshot) => void;
   private readonly PressedKeys: Set<string>;
+  private readonly KeyDownEdgeHandlers: Record<string, () => void>;
   private FrameHandle: number | null;
   private LastTimestamp: number | null;
   private MouseDeltaX: number;
   private MouseDeltaY: number;
-  private PendingConfirmEdge: boolean;
-  private PendingNextTargetEdge: boolean;
+  private PendingToggleAimEdge: boolean;
+  private PendingFireEdge: boolean;
+  private PendingSwitchCharacterEdge: boolean;
+  private PendingToggleSkillTargetModeEdge: boolean;
+  private PendingCycleTargetAxis: number;
+  private PendingForceSettlementEdge: boolean;
+  private PendingConfirmSettlementEdge: boolean;
   private PendingRestartEdge: boolean;
   private PendingToggleDebugEdge: boolean;
   private PreviousGamepadA: boolean;
+  private PreviousGamepadLB: boolean;
+  private PreviousGamepadRB: boolean;
+  private PreviousGamepadLT: boolean;
+  private PreviousGamepadRT: boolean;
+  private PreviousGamepadDpadLeft: boolean;
   private PreviousGamepadDpadRight: boolean;
   private PreviousGamepadStart: boolean;
   private PreviousGamepadBack: boolean;
+  private PreviousGamepadStickCycleDirection: number;
 
   public constructor(OnInputFrame: (Snapshot: FInputSnapshot) => void) {
     this.OnInputFrame = OnInputFrame;
     this.PressedKeys = new Set();
+    this.KeyDownEdgeHandlers = this.CreateKeyDownEdgeHandlers();
     this.FrameHandle = null;
     this.LastTimestamp = null;
     this.MouseDeltaX = 0;
     this.MouseDeltaY = 0;
-    this.PendingConfirmEdge = false;
-    this.PendingNextTargetEdge = false;
+    this.PendingToggleAimEdge = false;
+    this.PendingFireEdge = false;
+    this.PendingSwitchCharacterEdge = false;
+    this.PendingToggleSkillTargetModeEdge = false;
+    this.PendingCycleTargetAxis = 0;
+    this.PendingForceSettlementEdge = false;
+    this.PendingConfirmSettlementEdge = false;
     this.PendingRestartEdge = false;
     this.PendingToggleDebugEdge = false;
     this.PreviousGamepadA = false;
+    this.PreviousGamepadLB = false;
+    this.PreviousGamepadRB = false;
+    this.PreviousGamepadLT = false;
+    this.PreviousGamepadRT = false;
+    this.PreviousGamepadDpadLeft = false;
     this.PreviousGamepadDpadRight = false;
     this.PreviousGamepadStart = false;
     this.PreviousGamepadBack = false;
+    this.PreviousGamepadStickCycleDirection = 0;
   }
 
   public Bind(): () => void {
     const OnKeyDown = (Event: KeyboardEvent) => this.HandleKeyDown(Event);
     const OnKeyUp = (Event: KeyboardEvent) => this.HandleKeyUp(Event);
     const OnMouseMove = (Event: MouseEvent) => this.HandleMouseMove(Event);
+    const OnMouseDown = (Event: MouseEvent) => this.HandleMouseDown(Event);
     const OnWindowBlur = () => this.HandleWindowBlur();
 
     window.addEventListener("keydown", OnKeyDown);
     window.addEventListener("keyup", OnKeyUp);
     window.addEventListener("mousemove", OnMouseMove);
+    window.addEventListener("mousedown", OnMouseDown);
     window.addEventListener("blur", OnWindowBlur);
     this.StartLoop();
 
@@ -73,6 +110,7 @@ export class UInputController {
       window.removeEventListener("keydown", OnKeyDown);
       window.removeEventListener("keyup", OnKeyUp);
       window.removeEventListener("mousemove", OnMouseMove);
+      window.removeEventListener("mousedown", OnMouseDown);
       window.removeEventListener("blur", OnWindowBlur);
       this.StopLoop();
     };
@@ -88,6 +126,7 @@ export class UInputController {
         KeyboardMoveAxis.Y + GamepadSnapshot.MoveAxis.Y
       );
 
+      const CycleTargetAxis = this.ResolveCycleTargetAxis(GamepadSnapshot.CycleTargetAxis);
       const Snapshot: FInputSnapshot = {
         MoveAxis,
         LookYawDeltaDegrees: this.ComposeLookYawDeltaDegrees(
@@ -98,12 +137,20 @@ export class UInputController {
           GamepadSnapshot.LookAxis.Y,
           DeltaSeconds
         ),
+        AimScreenDelta: this.ComposeAimScreenDelta(GamepadSnapshot.LookAxis, DeltaSeconds),
         SprintHold:
           this.PressedKeys.has("ShiftLeft") ||
           this.PressedKeys.has("ShiftRight") ||
           GamepadSnapshot.SprintHold,
-        ConfirmEdge: this.PendingConfirmEdge || GamepadSnapshot.ConfirmEdge,
-        NextTargetEdge: this.PendingNextTargetEdge || GamepadSnapshot.NextTargetEdge,
+        ToggleAimEdge: this.PendingToggleAimEdge || GamepadSnapshot.ToggleAimEdge,
+        FireEdge: this.PendingFireEdge || GamepadSnapshot.FireEdge,
+        SwitchCharacterEdge: this.PendingSwitchCharacterEdge || GamepadSnapshot.SwitchCharacterEdge,
+        ToggleSkillTargetModeEdge:
+          this.PendingToggleSkillTargetModeEdge || GamepadSnapshot.ToggleSkillTargetModeEdge,
+        CycleTargetAxis,
+        ForceSettlementEdge: this.PendingForceSettlementEdge,
+        ConfirmSettlementEdge:
+          this.PendingConfirmSettlementEdge || GamepadSnapshot.ConfirmSettlementEdge,
         RestartEdge: this.PendingRestartEdge || GamepadSnapshot.RestartEdge,
         ToggleDebugEdge: this.PendingToggleDebugEdge || GamepadSnapshot.ToggleDebugEdge,
         DeltaSeconds
@@ -138,22 +185,15 @@ export class UInputController {
       return;
     }
 
-    switch (Event.code) {
-      case "Enter":
-      case "Space":
-        this.PendingConfirmEdge = true;
-        break;
-      case "Tab":
-        this.PendingNextTargetEdge = true;
-        break;
-      case "KeyR":
-        this.PendingRestartEdge = true;
-        break;
-      case "F3":
-        this.PendingToggleDebugEdge = true;
-        break;
-      default:
-        break;
+    if (Event.code === "KeyQ" && Event.altKey) {
+      Event.preventDefault();
+      this.PendingForceSettlementEdge = true;
+      return;
+    }
+
+    const Handler = this.KeyDownEdgeHandlers[Event.code];
+    if (Handler) {
+      Handler();
     }
   }
 
@@ -164,6 +204,12 @@ export class UInputController {
   private HandleMouseMove(Event: MouseEvent): void {
     this.MouseDeltaX += Event.movementX;
     this.MouseDeltaY += Event.movementY;
+  }
+
+  private HandleMouseDown(Event: MouseEvent): void {
+    if (Event.button === 0) {
+      this.PendingFireEdge = true;
+    }
   }
 
   private HandleWindowBlur(): void {
@@ -199,18 +245,32 @@ export class UInputController {
     }
 
     const Buttons = this.ReadGamepadButtonState(ActiveGamepad);
+    const StickCycleAxis = this.ReadGamepadStickCycleAxis(ActiveGamepad);
+    const DpadCycleAxis = this.ResolveDpadCycleAxis(Buttons);
+    const CycleTargetAxis = DpadCycleAxis !== 0 ? DpadCycleAxis : StickCycleAxis;
+    const FireFromA = this.ResolvePressedEdge(Buttons.A, this.PreviousGamepadA);
+    const FireFromRT = this.ResolvePressedEdge(Buttons.RT, this.PreviousGamepadRT);
 
     const Snapshot: FGamepadSnapshot = {
       MoveAxis: this.ReadGamepadMoveAxis(ActiveGamepad),
       LookAxis: this.ReadGamepadLookAxis(ActiveGamepad),
-      SprintHold: (ActiveGamepad.buttons[7]?.value ?? 0) > 0.25,
-      ConfirmEdge: this.ResolvePressedEdge(Buttons.A, this.PreviousGamepadA),
-      NextTargetEdge: this.ResolvePressedEdge(Buttons.DpadRight, this.PreviousGamepadDpadRight),
+      SprintHold: ActiveGamepad.buttons[10]?.pressed ?? false,
+      ToggleAimEdge: this.ResolvePressedEdge(Buttons.LT, this.PreviousGamepadLT),
+      FireEdge: FireFromA || FireFromRT,
+      SwitchCharacterEdge: this.ResolvePressedEdge(Buttons.LB, this.PreviousGamepadLB),
+      ToggleSkillTargetModeEdge: this.ResolvePressedEdge(Buttons.RB, this.PreviousGamepadRB),
+      CycleTargetAxis,
+      ConfirmSettlementEdge: FireFromA,
       RestartEdge: this.ResolvePressedEdge(Buttons.Start, this.PreviousGamepadStart),
       ToggleDebugEdge: this.ResolvePressedEdge(Buttons.Back, this.PreviousGamepadBack)
     };
 
     this.PreviousGamepadA = Buttons.A;
+    this.PreviousGamepadLB = Buttons.LB;
+    this.PreviousGamepadRB = Buttons.RB;
+    this.PreviousGamepadLT = Buttons.LT;
+    this.PreviousGamepadRT = Buttons.RT;
+    this.PreviousGamepadDpadLeft = Buttons.DpadLeft;
     this.PreviousGamepadDpadRight = Buttons.DpadRight;
     this.PreviousGamepadStart = Buttons.Start;
     this.PreviousGamepadBack = Buttons.Back;
@@ -223,19 +283,30 @@ export class UInputController {
       MoveAxis: { X: 0, Y: 0 },
       LookAxis: { X: 0, Y: 0 },
       SprintHold: false,
-      ConfirmEdge: false,
-      NextTargetEdge: false,
+      ToggleAimEdge: false,
+      FireEdge: false,
+      SwitchCharacterEdge: false,
+      ToggleSkillTargetModeEdge: false,
+      CycleTargetAxis: 0,
+      ConfirmSettlementEdge: false,
       RestartEdge: false,
       ToggleDebugEdge: false
     };
   }
 
   private ReadGamepadButtonState(Pad: Gamepad): FGamepadButtonState {
+    const LTValue = this.ReadGamepadButtonValue(Pad, 6);
+    const RTValue = this.ReadGamepadButtonValue(Pad, 7);
     return {
-      A: Pad.buttons[0]?.pressed ?? false,
-      DpadRight: Pad.buttons[15]?.pressed ?? false,
-      Start: Pad.buttons[9]?.pressed ?? false,
-      Back: Pad.buttons[8]?.pressed ?? false
+      A: this.ReadGamepadButtonPressed(Pad, 0),
+      LB: this.ReadGamepadButtonPressed(Pad, 4),
+      RB: this.ReadGamepadButtonPressed(Pad, 5),
+      LT: LTValue > 0.5,
+      RT: RTValue > 0.35,
+      DpadLeft: this.ReadGamepadButtonPressed(Pad, 14),
+      DpadRight: this.ReadGamepadButtonPressed(Pad, 15),
+      Start: this.ReadGamepadButtonPressed(Pad, 9),
+      Back: this.ReadGamepadButtonPressed(Pad, 8)
     };
   }
 
@@ -259,6 +330,71 @@ export class UInputController {
     );
   }
 
+  private ReadGamepadStickCycleAxis(Pad: Gamepad): number {
+    const StickX = Pad.axes[0] ?? 0;
+    const DigitalDirection =
+      StickX >= GamepadCycleAxisThreshold ? 1 : StickX <= -GamepadCycleAxisThreshold ? -1 : 0;
+    const IsRisingEdge =
+      DigitalDirection !== 0 && DigitalDirection !== this.PreviousGamepadStickCycleDirection;
+    this.PreviousGamepadStickCycleDirection = DigitalDirection;
+    return IsRisingEdge ? DigitalDirection : 0;
+  }
+
+  private ResolveDpadCycleAxis(Buttons: FGamepadButtonState): number {
+    const LeftEdge = this.ResolvePressedEdge(Buttons.DpadLeft, this.PreviousGamepadDpadLeft);
+    const RightEdge = this.ResolvePressedEdge(Buttons.DpadRight, this.PreviousGamepadDpadRight);
+    if (LeftEdge && !RightEdge) {
+      return -1;
+    }
+    if (RightEdge && !LeftEdge) {
+      return 1;
+    }
+    return 0;
+  }
+
+  private CreateKeyDownEdgeHandlers(): Record<string, () => void> {
+    return {
+      KeyQ: () => {
+        this.PendingToggleAimEdge = true;
+      },
+      KeyC: () => {
+        this.PendingSwitchCharacterEdge = true;
+      },
+      Tab: () => {
+        this.PendingToggleSkillTargetModeEdge = true;
+      },
+      Enter: () => {
+        this.PendingConfirmSettlementEdge = true;
+      },
+      KeyR: () => {
+        this.PendingRestartEdge = true;
+      },
+      F3: () => {
+        this.PendingToggleDebugEdge = true;
+      },
+      ArrowLeft: () => {
+        this.PendingCycleTargetAxis = -1;
+      },
+      KeyA: () => {
+        this.PendingCycleTargetAxis = -1;
+      },
+      ArrowRight: () => {
+        this.PendingCycleTargetAxis = 1;
+      },
+      KeyD: () => {
+        this.PendingCycleTargetAxis = 1;
+      }
+    };
+  }
+
+  private ReadGamepadButtonPressed(Pad: Gamepad, ButtonIndex: number): boolean {
+    return Pad.buttons[ButtonIndex]?.pressed ?? false;
+  }
+
+  private ReadGamepadButtonValue(Pad: Gamepad, ButtonIndex: number): number {
+    return Pad.buttons[ButtonIndex]?.value ?? 0;
+  }
+
   private ComposeLookYawDeltaDegrees(GamepadLookX: number, DeltaSeconds: number): number {
     const MouseYawDelta = this.MouseDeltaX * MouseYawDegreesPerPixel;
     const GamepadYawDelta = GamepadLookX * GamepadYawDegreesPerSecond * DeltaSeconds;
@@ -269,6 +405,16 @@ export class UInputController {
     const MousePitchDelta = this.MouseDeltaY * MousePitchDegreesPerPixel;
     const GamepadPitchDelta = GamepadLookY * GamepadPitchDegreesPerSecond * DeltaSeconds;
     return MousePitchDelta + GamepadPitchDelta;
+  }
+
+  private ComposeAimScreenDelta(
+    GamepadLookAxis: FInputVector2,
+    DeltaSeconds: number
+  ): FInputVector2 {
+    return {
+      X: this.MouseDeltaX + GamepadLookAxis.X * GamepadAimPixelsPerSecond * DeltaSeconds,
+      Y: this.MouseDeltaY + GamepadLookAxis.Y * GamepadAimPixelsPerSecond * DeltaSeconds
+    };
   }
 
   private GetActiveGamepad(): Gamepad | null {
@@ -322,6 +468,13 @@ export class UInputController {
     );
   }
 
+  private ResolveCycleTargetAxis(GamepadAxis: number): number {
+    if (this.PendingCycleTargetAxis !== 0) {
+      return this.PendingCycleTargetAxis;
+    }
+    return GamepadAxis;
+  }
+
   private ResolvePressedEdge(Current: boolean, Previous: boolean): boolean {
     return Current && !Previous;
   }
@@ -333,16 +486,27 @@ export class UInputController {
   }
 
   private ClearFrameEdges(): void {
-    this.PendingConfirmEdge = false;
-    this.PendingNextTargetEdge = false;
+    this.PendingToggleAimEdge = false;
+    this.PendingFireEdge = false;
+    this.PendingSwitchCharacterEdge = false;
+    this.PendingToggleSkillTargetModeEdge = false;
+    this.PendingCycleTargetAxis = 0;
+    this.PendingForceSettlementEdge = false;
+    this.PendingConfirmSettlementEdge = false;
     this.PendingRestartEdge = false;
     this.PendingToggleDebugEdge = false;
   }
 
   private ResetGamepadEdges(): void {
     this.PreviousGamepadA = false;
+    this.PreviousGamepadLB = false;
+    this.PreviousGamepadRB = false;
+    this.PreviousGamepadLT = false;
+    this.PreviousGamepadRT = false;
+    this.PreviousGamepadDpadLeft = false;
     this.PreviousGamepadDpadRight = false;
     this.PreviousGamepadStart = false;
     this.PreviousGamepadBack = false;
+    this.PreviousGamepadStickCycleDirection = 0;
   }
 }

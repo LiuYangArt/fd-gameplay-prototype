@@ -32,6 +32,10 @@ body {
   align-self: start;
 }
 
+.BattleViewport {
+  position: relative;
+}
+
 .BattleCanvas {
   width: 100%;
   aspect-ratio: 16 / 9;
@@ -55,10 +59,17 @@ body {
   padding-top: 10px;
 }
 
-.Controls {
+.PanelBlock h3 {
+  margin: 10px 0 6px;
+  font-size: 14px;
+  color: #a8b8cb;
+}
+
+.ControlsGrid {
   display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .ControlsInline {
@@ -82,6 +93,11 @@ button:hover {
   background: #1a324f;
 }
 
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 ul {
   list-style: none;
   padding: 0;
@@ -90,9 +106,27 @@ ul {
   gap: 6px;
 }
 
+.HintText {
+  margin: 0;
+  color: #9eb2ca;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .DebugPanel {
   display: grid;
   gap: 10px;
+}
+
+.DebugRangeGroup {
+  display: grid;
+  gap: 8px;
+}
+
+.DebugRangeGroup h3 {
+  margin: 6px 0 2px;
+  font-size: 13px;
+  color: #9fb7cf;
 }
 
 .DebugField {
@@ -123,9 +157,162 @@ ul {
   background: #13273a;
 }
 
-.EventLogList {
-  max-height: 200px;
+.FloatingDebugPanel {
+  position: fixed;
+  z-index: 40;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  font-size: 13px;
+  border: 1px solid #35516f;
+  border-radius: 12px;
+  background: rgba(8, 15, 24, 0.96);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.48);
+  overflow: hidden;
+}
+
+.FloatingDebugHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #2a4360;
+  background: linear-gradient(90deg, rgba(15, 31, 46, 0.95), rgba(13, 22, 34, 0.95));
+  cursor: grab;
+  user-select: none;
+}
+
+.FloatingDebugHeader:active {
+  cursor: grabbing;
+}
+
+.FloatingDebugHeader h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.FloatingDebugHeader span {
+  font-size: 11px;
+  color: #8fb1d3;
+}
+
+.FloatingDebugBody {
+  min-height: 0;
   overflow: auto;
+  padding: 12px;
+}
+
+.DebugTabBar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.DebugTabButton {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.DebugTabButton.IsActive {
+  border-color: #71a9db;
+  background: #18456c;
+}
+
+.FloatingDebugResizeHandle {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  height: 24px;
+  cursor: nwse-resize;
+}
+
+.FloatingDebugResizeHandle::before {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  width: 10px;
+  height: 10px;
+  border-right: 2px solid #8ab4df;
+  border-bottom: 2px solid #8ab4df;
+}
+
+.EventLogList {
+  max-height: 220px;
+  overflow: auto;
+}
+
+.PhaseBanner {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 198, 72, 0.45);
+  background: rgba(25, 29, 36, 0.84);
+  color: #ffd784;
+  letter-spacing: 0.04em;
+}
+
+.SettlementOverlay {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(84%, 560px);
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid #4e647d;
+  background: rgba(12, 20, 31, 0.9);
+  text-align: center;
+}
+
+.SettlementOverlay p {
+  margin: 8px 0;
+}
+
+.Crosshair {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin-left: -9px;
+  margin-top: -9px;
+  border-radius: 50%;
+  border: 2px solid #f2f4f9;
+  box-shadow: 0 0 0 2px rgba(10, 16, 24, 0.7);
+  pointer-events: none;
+}
+
+.Crosshair::before,
+.Crosshair::after {
+  content: "";
+  position: absolute;
+  background: #f2f4f9;
+}
+
+.Crosshair::before {
+  left: 50%;
+  top: -7px;
+  width: 2px;
+  height: 30px;
+  margin-left: -1px;
+}
+
+.Crosshair::after {
+  top: 50%;
+  left: -7px;
+  width: 30px;
+  height: 2px;
+  margin-top: -1px;
+}
+
+@media (max-width: 1280px) {
+  .ControlsGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 1024px) {

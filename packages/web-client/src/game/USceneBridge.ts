@@ -12,7 +12,12 @@ import {
   Vector3
 } from "@babylonjs/core";
 
-import type { FHudViewModel, FRuntimePhase } from "../ui/FHudViewModel";
+import type {
+  FBattleCameraMode,
+  FBattleUnitHudState,
+  FHudViewModel,
+  FRuntimePhase
+} from "../ui/FHudViewModel";
 
 interface FSkyCloudActor {
   Root: TransformNode;
@@ -28,11 +33,34 @@ interface FVector3Cm {
   Z: number;
 }
 
+interface FBattleCameraContext {
+  ViewModel: FHudViewModel;
+  DebugConfig: FHudViewModel["DebugState"]["Config"];
+  DropOffsetCm: number;
+  ControlledUnit: FBattleUnitHudState | null;
+  ControlledPos: Vector3;
+  SelectedPos: Vector3;
+  BattleCenter: Vector3;
+  Forward: Vector3;
+  Right: Vector3;
+}
+
+interface FBattleFollowCameraPose {
+  Focus: Vector3;
+  Position: Vector3;
+}
+
 export class USceneBridge {
   private static readonly CentimetersToMeters = 0.01;
   private static readonly OverworldGroundColorHex = "#333a41";
   private static readonly OverworldPlayerColorHex = "#dba511";
+  private static readonly OverworldEnemyColorHex = "#3385e8";
+  private static readonly BattlePlayerSecondaryColorHex = "#be2f35";
+  private static readonly BattleEnemyMainColorHex = "#2f71c7";
+  private static readonly BattleEnemyColorHex = "#3385e8";
   private static readonly OverworldGridColorHex = "#50565e";
+  private static readonly BattleGroundColorHex = "#2f3944";
+  private static readonly BattleGridColorHex = "#4d5965";
   private static readonly MainLightGroundColorHex = "#4a5561";
   private readonly Engine: Engine;
   private readonly Scene: Scene;
@@ -44,6 +72,7 @@ export class USceneBridge {
   private readonly OverworldGround: Mesh;
   private readonly OverworldGrid: Mesh;
   private readonly BattleGround: Mesh;
+  private readonly BattleGrid: Mesh;
   private readonly PlayerMesh: Mesh;
   private readonly PlayerForwardArrowMesh: Mesh;
   private readonly SkyCloudMaterial: StandardMaterial;
@@ -53,6 +82,7 @@ export class USceneBridge {
   private LaggedCameraTargetCm: FVector3Cm | null;
   private LastCameraUpdateTimeMs: number | null;
   private LastCameraRuntimePhase: FRuntimePhase | null;
+  private CurrentViewModel: FHudViewModel | null;
 
   public constructor(Canvas: HTMLCanvasElement) {
     this.Engine = new Engine(Canvas, true);
@@ -60,11 +90,13 @@ export class USceneBridge {
     this.Scene.clearColor = new Color4(0.47, 0.71, 0.94, 1);
     this.OverworldEnemyMeshMap = new Map();
     this.BattleUnitMeshMap = new Map();
+    this.CurrentViewModel = null;
 
     this.Camera = this.CreateCamera();
     this.OverworldGround = this.CreateOverworldGround();
-    this.OverworldGrid = this.CreateOverworldGrid(30, 1);
+    this.OverworldGrid = this.CreateOverworldGrid(30, 1, "OverworldGrid");
     this.BattleGround = this.CreateBattleGround();
+    this.BattleGrid = this.CreateOverworldGrid(12, 0.5, "BattleGrid", true);
     this.PlayerMesh = this.CreatePlayerMesh();
     this.PlayerForwardArrowMesh = this.CreatePlayerForwardArrowMesh();
     this.CreateLight();
@@ -76,6 +108,8 @@ export class USceneBridge {
     this.LastCameraUpdateTimeMs = null;
     this.LastCameraRuntimePhase = null;
     this.BattleGround.setEnabled(false);
+    this.BattleGrid.setEnabled(false);
+
     this.HandleWindowResize = () => {
       this.ResizeEngine();
     };
@@ -87,6 +121,9 @@ export class USceneBridge {
       this.LastFrameTimestamp = Now;
       this.ElapsedSeconds += DeltaSeconds;
       this.UpdateSkyClouds(DeltaSeconds);
+      if (this.CurrentViewModel) {
+        this.RenderFromViewModel(this.CurrentViewModel);
+      }
       this.Scene.render();
     });
 
@@ -95,13 +132,7 @@ export class USceneBridge {
   }
 
   public ApplyViewModel(ViewModel: FHudViewModel): void {
-    this.ApplyCamera(ViewModel);
-    if (ViewModel.RuntimePhase === "Overworld") {
-      this.ApplyOverworldView(ViewModel);
-      return;
-    }
-
-    this.ApplyBattleView(ViewModel);
+    this.CurrentViewModel = ViewModel;
   }
 
   public Dispose(): void {
@@ -109,6 +140,15 @@ export class USceneBridge {
     this.CanvasResizeObserver?.disconnect();
     this.Scene.dispose();
     this.Engine.dispose();
+  }
+
+  private RenderFromViewModel(ViewModel: FHudViewModel): void {
+    if (ViewModel.RuntimePhase === "Overworld") {
+      this.ApplyOverworldView(ViewModel);
+    } else {
+      this.ApplyBattlePocketView(ViewModel);
+    }
+    this.ApplyCamera(ViewModel);
   }
 
   private CreateCamera(): ArcRotateCamera {
@@ -121,7 +161,8 @@ export class USceneBridge {
       this.Scene
     );
     Camera.lowerRadiusLimit = 0.1;
-    Camera.upperRadiusLimit = 50;
+    Camera.upperRadiusLimit = 80;
+    Camera.minZ = 0.02;
     return Camera;
   }
 
@@ -146,7 +187,12 @@ export class USceneBridge {
     return Ground;
   }
 
-  private CreateOverworldGrid(WorldHalfSize: number, CellSize: number): Mesh {
+  private CreateOverworldGrid(
+    WorldHalfSize: number,
+    CellSize: number,
+    GridId: string,
+    IsBattleGrid = false
+  ): Mesh {
     const Lines: Vector3[][] = [];
     for (let Position = -WorldHalfSize; Position <= WorldHalfSize; Position += CellSize) {
       Lines.push([
@@ -160,14 +206,16 @@ export class USceneBridge {
     }
 
     const Grid = MeshBuilder.CreateLineSystem(
-      "OverworldGrid",
+      GridId,
       {
         lines: Lines,
         updatable: false
       },
       this.Scene
     );
-    Grid.color = Color3.FromHexString(USceneBridge.OverworldGridColorHex);
+    Grid.color = Color3.FromHexString(
+      IsBattleGrid ? USceneBridge.BattleGridColorHex : USceneBridge.OverworldGridColorHex
+    );
     Grid.isPickable = false;
     return Grid;
   }
@@ -176,13 +224,13 @@ export class USceneBridge {
     const Ground = MeshBuilder.CreateGround(
       "BattleGround",
       {
-        width: 14,
-        height: 8
+        width: 24,
+        height: 16
       },
       this.Scene
     );
     const GroundMaterial = new StandardMaterial("BattleGroundMat", this.Scene);
-    GroundMaterial.diffuseColor = new Color3(0.08, 0.1, 0.13);
+    GroundMaterial.diffuseColor = Color3.FromHexString(USceneBridge.BattleGroundColorHex);
     Ground.material = GroundMaterial;
     return Ground;
   }
@@ -236,39 +284,217 @@ export class USceneBridge {
 
   private ApplyCamera(ViewModel: FHudViewModel): void {
     this.SyncCameraTrackingPhase(ViewModel.RuntimePhase);
-    const DebugConfig = ViewModel.DebugState.Config;
-    this.Camera.fov = (DebugConfig.CameraFov * Math.PI) / 180;
     if (ViewModel.RuntimePhase === "Overworld") {
-      const Player = ViewModel.OverworldState.PlayerPosition;
-      const PlayerYawRadians = (ViewModel.OverworldState.PlayerYawDegrees * Math.PI) / 180;
-      const RightX = Math.cos(PlayerYawRadians);
-      const RightZ = -Math.sin(PlayerYawRadians);
-      const DesiredTargetCm: FVector3Cm = {
-        X: Player.X + RightX * DebugConfig.CameraOffsetRight,
-        Y: 85 + DebugConfig.CameraOffsetUp,
-        Z: Player.Z + RightZ * DebugConfig.CameraOffsetRight
-      };
-      const LaggedTargetCm = this.ResolveSpringArmTargetCm(
-        DesiredTargetCm,
-        DebugConfig.CameraLagSpeed,
-        DebugConfig.CameraLagMaxDistance
-      );
-      this.Camera.target = new Vector3(
-        this.ToMeters(LaggedTargetCm.X),
-        this.ToMeters(LaggedTargetCm.Y),
-        this.ToMeters(LaggedTargetCm.Z)
-      );
-      // ArcRotate 的平面坐标是 x=cos(alpha), z=sin(alpha)，此处显式映射到“角色后方”
-      this.Camera.alpha = -PlayerYawRadians - Math.PI / 2;
-      this.Camera.beta = this.ToArcCameraBeta(DebugConfig.CameraPitch);
-      this.Camera.radius = this.ToMeters(DebugConfig.TargetArmLength);
+      this.ApplyOverworldCamera(ViewModel);
       return;
     }
 
-    this.Camera.target = Vector3.Zero();
-    this.Camera.alpha = Math.PI / 2;
-    this.Camera.beta = Math.PI / 3;
-    this.Camera.radius = 14;
+    this.ApplyBattleCamera(ViewModel);
+  }
+
+  private ApplyOverworldCamera(ViewModel: FHudViewModel): void {
+    const DebugConfig = ViewModel.DebugState.Config;
+    this.Camera.fov = (DebugConfig.CameraFov * Math.PI) / 180;
+
+    const Player = ViewModel.OverworldState.PlayerPosition;
+    const PlayerYawRadians = (ViewModel.OverworldState.PlayerYawDegrees * Math.PI) / 180;
+    const RightX = Math.cos(PlayerYawRadians);
+    const RightZ = -Math.sin(PlayerYawRadians);
+    const DesiredTargetCm: FVector3Cm = {
+      X: Player.X + RightX * DebugConfig.CameraOffsetRight,
+      Y: 85 + DebugConfig.CameraOffsetUp,
+      Z: Player.Z + RightZ * DebugConfig.CameraOffsetRight
+    };
+    const LaggedTargetCm = this.ResolveSpringArmTargetCm(
+      DesiredTargetCm,
+      DebugConfig.CameraLagSpeed,
+      DebugConfig.CameraLagMaxDistance
+    );
+    this.Camera.target = new Vector3(
+      this.ToMeters(LaggedTargetCm.X),
+      this.ToMeters(LaggedTargetCm.Y),
+      this.ToMeters(LaggedTargetCm.Z)
+    );
+    this.Camera.alpha = -PlayerYawRadians - Math.PI / 2;
+    this.Camera.beta = this.ToArcCameraBeta(DebugConfig.CameraPitch);
+    this.Camera.radius = this.ToMeters(DebugConfig.TargetArmLength);
+  }
+
+  private ApplyBattleCamera(ViewModel: FHudViewModel): void {
+    const Context = this.BuildBattleCameraContext(ViewModel);
+    const CameraMode: FBattleCameraMode =
+      ViewModel.RuntimePhase === "SettlementPreview"
+        ? "SettlementCam"
+        : ViewModel.Battle3CState.CameraMode;
+
+    if (CameraMode === "EnemyAttackSingle" || CameraMode === "EnemyAttackAOE") {
+      this.ApplyEnemyAttackCamera(Context);
+      return;
+    }
+
+    const Handlers: Record<
+      Exclude<FBattleCameraMode, "EnemyAttackSingle" | "EnemyAttackAOE">,
+      () => void
+    > = {
+      IntroPullOut: () => this.ApplyIntroPullOutCamera(Context),
+      IntroDropIn: () => this.ApplyIntroDropInCamera(Context),
+      PlayerFollow: () => this.ApplyPlayerFollowCamera(Context),
+      PlayerAim: () => this.ApplyPlayerAimCamera(Context),
+      SkillTargetZoom: () => this.ApplySkillTargetZoomCamera(Context),
+      SettlementCam: () => this.ApplySettlementCamera(Context)
+    };
+    Handlers[CameraMode]();
+  }
+
+  private BuildBattleCameraContext(ViewModel: FHudViewModel): FBattleCameraContext {
+    const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
+    const ControlledUnit = this.FindBattleUnit(
+      ViewModel,
+      ViewModel.Battle3CState.ControlledCharacterId
+    );
+    const ControlledPos =
+      ControlledUnit !== null
+        ? this.ResolveBattleUnitPositionMeters(ControlledUnit, DropOffsetCm)
+        : Vector3.Zero();
+    const SelectedUnit = this.FindBattleUnit(ViewModel, ViewModel.Battle3CState.SelectedTargetId);
+    const SelectedPos =
+      SelectedUnit !== null
+        ? this.ResolveBattleUnitPositionMeters(SelectedUnit, DropOffsetCm)
+        : this.ResolveBattleCenterMeters(ViewModel, DropOffsetCm);
+    const YawDeg = ControlledUnit?.YawDeg ?? 0;
+
+    return {
+      ViewModel,
+      DebugConfig: ViewModel.DebugState.Config,
+      DropOffsetCm,
+      ControlledUnit,
+      ControlledPos,
+      SelectedPos,
+      BattleCenter: this.ResolveBattleCenterMeters(ViewModel, DropOffsetCm),
+      Forward: this.ResolveForwardVectorFromYawDeg(YawDeg),
+      Right: this.ResolveRightVectorFromYawDeg(YawDeg)
+    };
+  }
+
+  private ApplyIntroPullOutCamera(Context: FBattleCameraContext): void {
+    const FollowPose = this.ResolvePlayerFollowCameraPose(Context);
+    const Position = FollowPose.Focus.add(
+      Context.Forward.scale(-this.ToMeters(Context.DebugConfig.BattleIntroCameraStartDistanceCm))
+    )
+      .add(Context.Right.scale(this.ToMeters(Context.DebugConfig.BattleFollowShoulderOffsetCm)))
+      .add(new Vector3(0, this.ToMeters(Context.DebugConfig.BattleIntroCameraStartHeightCm), 0));
+    this.ApplyArcCameraFromPosition(
+      FollowPose.Focus,
+      Position,
+      Context.DebugConfig.BattleIntroFovDeg
+    );
+  }
+
+  private ApplyIntroDropInCamera(Context: FBattleCameraContext): void {
+    const FollowPose = this.ResolvePlayerFollowCameraPose(Context);
+    const IntroProgress = this.ResolveEncounterIntroProgress(Context.ViewModel);
+    const StartPosition = FollowPose.Focus.add(
+      Context.Forward.scale(-this.ToMeters(Context.DebugConfig.BattleIntroCameraStartDistanceCm))
+    )
+      .add(Context.Right.scale(this.ToMeters(Context.DebugConfig.BattleFollowShoulderOffsetCm)))
+      .add(new Vector3(0, this.ToMeters(Context.DebugConfig.BattleIntroCameraStartHeightCm), 0));
+    const Position = Vector3.Lerp(StartPosition, FollowPose.Position, IntroProgress);
+    this.ApplyArcCameraFromPosition(
+      FollowPose.Focus,
+      Position,
+      Context.DebugConfig.BattleIntroFovDeg
+    );
+  }
+
+  private ApplyPlayerFollowCamera(Context: FBattleCameraContext): void {
+    const FollowPose = this.ResolvePlayerFollowCameraPose(Context);
+    this.ApplyArcCameraFromPosition(
+      FollowPose.Focus,
+      FollowPose.Position,
+      Context.DebugConfig.BattleIntroFovDeg
+    );
+  }
+
+  private ApplyPlayerAimCamera(Context: FBattleCameraContext): void {
+    const DistanceCm = Math.max(220, Context.DebugConfig.TargetArmLength * 0.58);
+    const Position = Context.ControlledPos.add(Context.Forward.scale(-this.ToMeters(DistanceCm)))
+      .add(Context.Right.scale(this.ToMeters(Context.DebugConfig.PlayerAimShoulderOffsetCm)))
+      .add(new Vector3(0, this.ToMeters(145), 0));
+    const Target = Context.SelectedPos.add(new Vector3(0, 0.75, 0));
+    this.ApplyArcCameraFromPosition(Target, Position, Context.DebugConfig.PlayerAimFovDeg);
+  }
+
+  private ApplySkillTargetZoomCamera(Context: FBattleCameraContext): void {
+    const Direction = Context.ControlledPos.subtract(Context.SelectedPos);
+    const SafeDirection =
+      Direction.length() > 0.001 ? Direction.normalize() : new Vector3(-1, 0, 0);
+    const Position = Context.SelectedPos.add(
+      SafeDirection.scale(this.ToMeters(Context.DebugConfig.SkillTargetZoomDistanceCm))
+    ).add(new Vector3(0, this.ToMeters(120), 0));
+    const Target = Context.SelectedPos.add(new Vector3(0, 0.75, 0));
+    const FovDeg = Math.max(Context.DebugConfig.PlayerAimFovDeg - 3, 32);
+    this.ApplyArcCameraFromPosition(Target, Position, FovDeg);
+  }
+
+  private ApplyEnemyAttackCamera(Context: FBattleCameraContext): void {
+    const ScriptFocus = Context.ViewModel.Battle3CState.ScriptFocus;
+    if (!ScriptFocus) {
+      this.ApplyPlayerFollowCamera(Context);
+      return;
+    }
+
+    const VictimCenter = this.ResolveTargetGroupCenterMeters(
+      Context.ViewModel,
+      ScriptFocus.TargetUnitIds,
+      Context.DropOffsetCm
+    );
+    const AttackerUnit = this.FindBattleUnit(Context.ViewModel, ScriptFocus.AttackerUnitId);
+    const AttackerPos =
+      AttackerUnit !== null
+        ? this.ResolveBattleUnitPositionMeters(AttackerUnit, Context.DropOffsetCm)
+        : Context.BattleCenter;
+    const TargetToAttacker = AttackerPos.subtract(VictimCenter);
+    const SafeDirection =
+      TargetToAttacker.length() > 0.001 ? TargetToAttacker.normalize() : new Vector3(1, 0, 0);
+    const CameraPos = VictimCenter.add(
+      SafeDirection.scale(-this.ToMeters(Context.DebugConfig.EnemyAttackCamDistanceCm))
+    ).add(new Vector3(0, this.ToMeters(Context.DebugConfig.EnemyAttackCamHeightCm), 0));
+    const Target = VictimCenter.add(SafeDirection.scale(this.ToMeters(70)));
+    this.ApplyArcCameraFromPosition(Target, CameraPos, Context.DebugConfig.BattleIntroFovDeg);
+  }
+
+  private ApplySettlementCamera(Context: FBattleCameraContext): void {
+    const Position = Context.BattleCenter.add(
+      new Vector3(
+        -this.ToMeters(Context.DebugConfig.SettlementCamDistanceCm),
+        this.ToMeters(Context.DebugConfig.SettlementCamHeightCm),
+        -this.ToMeters(Context.DebugConfig.SettlementCamDistanceCm * 0.1)
+      )
+    );
+    this.ApplyArcCameraFromPosition(
+      Context.BattleCenter.add(new Vector3(0, 0.75, 0)),
+      Position,
+      46
+    );
+  }
+
+  private ResolvePlayerFollowCameraPose(Context: FBattleCameraContext): FBattleFollowCameraPose {
+    const Focus = Context.ControlledPos.add(new Vector3(0, 0.8, 0));
+    const Position = Focus.add(
+      Context.Forward.scale(-this.ToMeters(Context.DebugConfig.BattleIntroCameraEndDistanceCm))
+    )
+      .add(Context.Right.scale(this.ToMeters(Context.DebugConfig.BattleFollowShoulderOffsetCm)))
+      .add(new Vector3(0, this.ToMeters(Context.DebugConfig.BattleIntroCameraEndHeightCm), 0));
+    return {
+      Focus,
+      Position
+    };
+  }
+
+  private ApplyArcCameraFromPosition(Target: Vector3, Position: Vector3, FovDeg: number): void {
+    this.Camera.fov = (FovDeg * Math.PI) / 180;
+    this.Camera.setTarget(Target);
+    this.Camera.setPosition(Position);
   }
 
   private SyncCameraTrackingPhase(RuntimePhase: FRuntimePhase): void {
@@ -361,6 +587,7 @@ export class USceneBridge {
     this.OverworldGround.setEnabled(true);
     this.OverworldGrid.setEnabled(true);
     this.BattleGround.setEnabled(false);
+    this.BattleGrid.setEnabled(false);
     this.PlayerMesh.setEnabled(true);
     this.PlayerForwardArrowMesh.setEnabled(true);
 
@@ -376,14 +603,16 @@ export class USceneBridge {
     this.HideAllBattleUnits();
   }
 
-  private ApplyBattleView(ViewModel: FHudViewModel): void {
+  private ApplyBattlePocketView(ViewModel: FHudViewModel): void {
     this.OverworldGround.setEnabled(false);
     this.OverworldGrid.setEnabled(false);
     this.BattleGround.setEnabled(true);
+    this.BattleGrid.setEnabled(true);
     this.PlayerMesh.setEnabled(false);
     this.PlayerForwardArrowMesh.setEnabled(false);
     this.HideAllOverworldEnemies();
-    this.SyncBattleUnits(ViewModel);
+    const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
+    this.SyncBattleUnits(ViewModel, DropOffsetCm);
   }
 
   private HideAllOverworldEnemies(): void {
@@ -417,7 +646,7 @@ export class USceneBridge {
       if (ViewModel.OverworldState.PendingEncounterEnemyId === Enemy.EnemyId) {
         Material.diffuseColor = new Color3(0.88, 0.2, 0.2);
       } else {
-        Material.diffuseColor = new Color3(0.2, 0.52, 0.91);
+        Material.diffuseColor = Color3.FromHexString(USceneBridge.OverworldEnemyColorHex);
       }
 
       ExistingEnemyIds.delete(Enemy.EnemyId);
@@ -432,38 +661,26 @@ export class USceneBridge {
     });
   }
 
-  private SyncBattleUnits(ViewModel: FHudViewModel): void {
+  private SyncBattleUnits(ViewModel: FHudViewModel, DropOffsetCm: number): void {
     const ExistingIds = new Set(this.BattleUnitMeshMap.keys());
-    const EnemyIndexMap = new Map<string, number>();
-    let EnemyCount = 0;
-
-    ViewModel.BattleState.Units.forEach((Unit) => {
-      if (Unit.TeamId === "Enemy") {
-        EnemyIndexMap.set(Unit.UnitId, EnemyCount);
-        EnemyCount += 1;
-      }
-    });
-
-    ViewModel.BattleState.Units.forEach((Unit) => {
-      const Mesh =
-        this.BattleUnitMeshMap.get(Unit.UnitId) ?? this.CreateBattleUnitMesh(Unit.UnitId);
+    ViewModel.Battle3CState.Units.forEach((Unit) => {
+      const Mesh = this.BattleUnitMeshMap.get(Unit.UnitId) ?? this.CreateBattleUnitMesh(Unit);
       Mesh.setEnabled(true);
-      const TeamOffset = Unit.TeamId === "Player" ? -3.5 : 3.5;
-      const EnemyIndex = EnemyIndexMap.get(Unit.UnitId) ?? 0;
-      const Spread = Math.max(EnemyCount - 1, 1);
-      Mesh.position = new Vector3(TeamOffset, 0.8, (EnemyIndex / Spread) * 4 - 2);
+      Mesh.position = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+      Mesh.rotation = new Vector3(0, (Unit.YawDeg * Math.PI) / 180, 0);
 
       const Material = Mesh.material as StandardMaterial;
       if (!Unit.IsAlive) {
         Material.diffuseColor = new Color3(0.24, 0.24, 0.24);
-      } else if (ViewModel.BattleState.SelectedTargetId === Unit.UnitId) {
-        Material.diffuseColor = new Color3(0.88, 0.65, 0.12);
-      } else if (ViewModel.BattleState.ActiveUnitId === Unit.UnitId) {
-        Material.diffuseColor = new Color3(0.15, 0.65, 0.95);
-      } else if (Unit.TeamId === "Player") {
-        Material.diffuseColor = new Color3(0.2, 0.82, 0.42);
       } else {
-        Material.diffuseColor = new Color3(0.84, 0.3, 0.24);
+        const BaseColor = this.ResolveBattleUnitBaseColor(Unit);
+        if (Unit.IsSelectedTarget) {
+          Material.diffuseColor = this.AdjustColorBrightness(BaseColor, 0.34);
+        } else if (Unit.IsControlled) {
+          Material.diffuseColor = this.AdjustColorBrightness(BaseColor, 0.2);
+        } else {
+          Material.diffuseColor = BaseColor;
+        }
       }
 
       ExistingIds.delete(Unit.UnitId);
@@ -478,6 +695,102 @@ export class USceneBridge {
     });
   }
 
+  private ResolveBattleUnitPositionMeters(
+    Unit: FBattleUnitHudState,
+    DropOffsetCm: number
+  ): Vector3 {
+    const BaseHeightMeters = Unit.TeamId === "Player" ? 0.85 : 0.9;
+    return new Vector3(
+      this.ToMeters(Unit.PositionCm.X),
+      BaseHeightMeters + this.ToMeters(Unit.PositionCm.Y + DropOffsetCm),
+      this.ToMeters(Unit.PositionCm.Z)
+    );
+  }
+
+  private FindBattleUnit(
+    ViewModel: FHudViewModel,
+    UnitId: string | null
+  ): FBattleUnitHudState | null {
+    if (!UnitId) {
+      return null;
+    }
+    return ViewModel.Battle3CState.Units.find((Unit) => Unit.UnitId === UnitId) ?? null;
+  }
+
+  private ResolveBattleCenterMeters(ViewModel: FHudViewModel, DropOffsetCm: number): Vector3 {
+    if (ViewModel.Battle3CState.Units.length === 0) {
+      return Vector3.Zero();
+    }
+    let SumX = 0;
+    let SumY = 0;
+    let SumZ = 0;
+    ViewModel.Battle3CState.Units.forEach((Unit) => {
+      const Position = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+      SumX += Position.x;
+      SumY += Position.y;
+      SumZ += Position.z;
+    });
+    const Count = ViewModel.Battle3CState.Units.length;
+    return new Vector3(SumX / Count, SumY / Count, SumZ / Count);
+  }
+
+  private ResolveTargetGroupCenterMeters(
+    ViewModel: FHudViewModel,
+    TargetUnitIds: string[],
+    DropOffsetCm: number
+  ): Vector3 {
+    const Targets = TargetUnitIds.map((TargetId) =>
+      this.FindBattleUnit(ViewModel, TargetId)
+    ).filter((Unit): Unit is FBattleUnitHudState => Unit !== null);
+    if (Targets.length === 0) {
+      return this.ResolveBattleCenterMeters(ViewModel, DropOffsetCm);
+    }
+
+    let SumX = 0;
+    let SumY = 0;
+    let SumZ = 0;
+    Targets.forEach((Unit) => {
+      const Position = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+      SumX += Position.x;
+      SumY += Position.y;
+      SumZ += Position.z;
+    });
+    const Count = Targets.length;
+    return new Vector3(SumX / Count, SumY / Count, SumZ / Count);
+  }
+
+  private ResolveEncounterDropOffsetCm(ViewModel: FHudViewModel): number {
+    if (ViewModel.RuntimePhase !== "EncounterTransition" || !ViewModel.EncounterState.StartedAtMs) {
+      return 0;
+    }
+
+    const ElapsedMs = Date.now() - ViewModel.EncounterState.StartedAtMs;
+    const DropMs = Math.max(ViewModel.EncounterState.DropDurationSec * 1000, 1);
+    const StartHeight = ViewModel.DebugState.Config.BattleDropStartHeightCm;
+    const DropProgress = this.Clamp(ElapsedMs / DropMs, 0, 1);
+    return this.Lerp(StartHeight, 0, DropProgress);
+  }
+
+  private ResolveEncounterIntroProgress(ViewModel: FHudViewModel): number {
+    if (ViewModel.RuntimePhase !== "EncounterTransition" || !ViewModel.EncounterState.StartedAtMs) {
+      return 1;
+    }
+
+    const ElapsedMs = Date.now() - ViewModel.EncounterState.StartedAtMs;
+    const IntroMs = Math.max(ViewModel.EncounterState.IntroDurationSec * 1000, 1);
+    return this.Clamp(ElapsedMs / IntroMs, 0, 1);
+  }
+
+  private ResolveForwardVectorFromYawDeg(YawDeg: number): Vector3 {
+    const YawRadians = (YawDeg * Math.PI) / 180;
+    return new Vector3(Math.sin(YawRadians), 0, Math.cos(YawRadians));
+  }
+
+  private ResolveRightVectorFromYawDeg(YawDeg: number): Vector3 {
+    const YawRadians = (YawDeg * Math.PI) / 180;
+    return new Vector3(Math.cos(YawRadians), 0, -Math.sin(YawRadians));
+  }
+
   private CreateOverworldEnemyMesh(EnemyId: string): Mesh {
     const EnemyMesh = MeshBuilder.CreateCylinder(
       `OverworldEnemy_${EnemyId}`,
@@ -490,26 +803,39 @@ export class USceneBridge {
       this.Scene
     );
     const Material = new StandardMaterial(`OverworldEnemyMat_${EnemyId}`, this.Scene);
-    Material.diffuseColor = new Color3(0.2, 0.52, 0.91);
+    Material.diffuseColor = Color3.FromHexString(USceneBridge.OverworldEnemyColorHex);
     EnemyMesh.material = Material;
     this.OverworldEnemyMeshMap.set(EnemyId, EnemyMesh);
     return EnemyMesh;
   }
 
-  private CreateBattleUnitMesh(UnitId: string): Mesh {
-    const UnitMesh = MeshBuilder.CreateBox(
-      `BattleUnit_${UnitId}`,
-      {
-        size: 1.3
-      },
-      this.Scene
-    );
+  private CreateBattleUnitMesh(Unit: FBattleUnitHudState): Mesh {
+    const UnitMesh =
+      Unit.TeamId === "Player"
+        ? MeshBuilder.CreateCapsule(
+            `BattleUnit_${Unit.UnitId}`,
+            {
+              height: 1.7,
+              radius: 0.38
+            },
+            this.Scene
+          )
+        : MeshBuilder.CreateCylinder(
+            `BattleUnit_${Unit.UnitId}`,
+            {
+              height: 1.8,
+              diameterTop: 1.2,
+              diameterBottom: 0.06,
+              tessellation: 4
+            },
+            this.Scene
+          );
 
-    const Material = new StandardMaterial(`BattleUnitMat_${UnitId}`, this.Scene);
+    const Material = new StandardMaterial(`BattleUnitMat_${Unit.UnitId}`, this.Scene);
     Material.diffuseColor = new Color3(0.7, 0.7, 0.7);
     UnitMesh.material = Material;
 
-    this.BattleUnitMeshMap.set(UnitId, UnitMesh);
+    this.BattleUnitMeshMap.set(Unit.UnitId, UnitMesh);
     return UnitMesh;
   }
 
@@ -567,6 +893,26 @@ export class USceneBridge {
     Puff.material = this.SkyCloudMaterial;
   }
 
+  private ResolveBattleUnitBaseColor(Unit: FBattleUnitHudState): Color3 {
+    if (Unit.TeamId === "Player") {
+      return Unit.UnitId === "P_YELLOW"
+        ? Color3.FromHexString(USceneBridge.OverworldPlayerColorHex)
+        : Color3.FromHexString(USceneBridge.BattlePlayerSecondaryColorHex);
+    }
+
+    return Unit.IsEncounterPrimaryEnemy
+      ? Color3.FromHexString(USceneBridge.BattleEnemyMainColorHex)
+      : Color3.FromHexString(USceneBridge.BattleEnemyColorHex);
+  }
+
+  private AdjustColorBrightness(Color: Color3, Delta: number): Color3 {
+    return new Color3(
+      this.Clamp(Color.r + Delta, 0, 1),
+      this.Clamp(Color.g + Delta, 0, 1),
+      this.Clamp(Color.b + Delta, 0, 1)
+    );
+  }
+
   private UpdateSkyClouds(DeltaSeconds: number): void {
     const WrapLimit = 44;
     this.SkyCloudActors.forEach((CloudActor) => {
@@ -585,6 +931,14 @@ export class USceneBridge {
 
   private ToMeters(Centimeters: number): number {
     return Centimeters * USceneBridge.CentimetersToMeters;
+  }
+
+  private Clamp(Value: number, Min: number, Max: number): number {
+    return Math.min(Math.max(Value, Min), Max);
+  }
+
+  private Lerp(Start: number, End: number, Alpha: number): number {
+    return Start + (End - Start) * this.Clamp(Alpha, 0, 1);
   }
 
   private ResizeEngine(): void {

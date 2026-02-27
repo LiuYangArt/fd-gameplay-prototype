@@ -1,6 +1,6 @@
 # 回归检查清单（Gameplay Prototype）
 
-更新时间：2026-02-25
+更新时间：2026-02-26
 
 > 用法
 >
@@ -40,9 +40,9 @@
 
 ## E. 提交前命令
 
-- [ ] `pnpm lint`
-- [ ] `pnpm test`
-- [ ] `pnpm verify`
+- [x] `pnpm lint`
+- [x] `pnpm test`
+- [x] `pnpm verify`
 
 ## G. 探索与遇敌闭环（overworld）
 
@@ -56,11 +56,21 @@
 - [ ] `F3` 参数调整可持久化并支持 JSON 导入导出（手动冒烟）。
 - [ ] 完整闭环“探索 -> 遇敌 -> 战斗 -> 返回探索”通过（手动冒烟）。
 
+## H. 遭遇到战斗 3C 衔接（2026-02-26）
+
+- [x] 运行时阶段链路为 `Overworld -> EncounterTransition -> Battle3C -> SettlementPreview -> Overworld`。
+- [x] 输入语义映射已接入：`Q/LT` 切瞄准，`LMB/RT/A` 开火，`C/LB` 切角色，`Tab/RB` 目标模式，`Alt+Q` 结算。
+- [x] Debug 配置升级到 `FD_DEBUG_CONFIG_V3`，并兼容读取 V2。
+- [ ] 遭遇过渡演出（提示、镜头拉出/推进、单位高位落地）通过手动冒烟。
+- [ ] 敌方三段机位脚本（单体黄/单体红/AOE）构图通过手动冒烟。
+- [ ] `Alt+Q` 结算预览 + Enter/A 返回探索闭环通过手动冒烟。
+- [ ] Battle Tab 参数修改后刷新页面仍保留（手动冒烟）。
+
 ## F. 本次修复记录
 
-- 问题描述：实现大地图探索阶段并打通遇敌切战闭环（功能开发，非缺陷修复）。
-- 对应测试文件：`packages/gameplay-core/tests/UOverworldSimulation.test.ts`
-- 新增/修改条目：新增 G 节“探索与遇敌闭环（overworld）”共 9 项。
+- 问题描述：实现“遭遇 -> 战斗 3C -> 结算回图”的事件驱动链路（功能开发，非缺陷修复）。
+- 对应测试文件：`packages/gameplay-core/tests/UOverworldSimulation.test.ts`（核心回归沿用）。
+- 新增/修改条目：新增 H 节“遭遇到战斗 3C 衔接（2026-02-26）”共 7 项，并更新 E 节命令状态。
 - 验证命令与结果：
   - `pnpm lint`：通过
   - `pnpm test`：通过（`UBattleSimulation` + `UOverworldSimulation` 共 8 项）
