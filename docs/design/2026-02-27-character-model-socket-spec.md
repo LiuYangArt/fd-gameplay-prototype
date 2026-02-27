@@ -37,6 +37,9 @@
   - `packages/web-client/public/assets/models/characters/P_YELLOW.glb`
   - `packages/web-client/public/assets/models/characters/P_RED.glb`
 
+user：角色已经放进去了， 命名是SM_Char01.glb SM_Char02.glb SM_Char03.glb
+socket命名以 SOCKET_Muzzle为前缀， 后面的文字可能会变, 例如 SOCKET_Muzzle.001
+
 ## 交付自检清单（美术导出前）
 
 - 文件格式为 `glb`。
