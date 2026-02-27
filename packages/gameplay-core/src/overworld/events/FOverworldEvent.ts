@@ -1,6 +1,11 @@
 import { EOverworldEventType } from "./EOverworldEventType";
 
 import type {
+  FTeamPackageSnapshot,
+  FUnitCombatRuntimeSnapshot,
+  FUnitStaticConfig
+} from "../../team/state/FTeamPackageSnapshot";
+import type {
   FOverworldEnemyState,
   FOverworldPlayerState,
   FOverworldTuningSnapshot,
@@ -10,12 +15,18 @@ import type {
 export interface FWorldInitializedPayload {
   WorldHalfSize: number;
   SafePoint: FOverworldVector2;
+  ControlledTeamId: string;
   Player: FOverworldPlayerState;
   Enemies: FOverworldEnemyState[];
   Tuning: FOverworldTuningSnapshot;
+  TeamPackages: FTeamPackageSnapshot[];
+  UnitStaticConfigs: FUnitStaticConfig[];
+  UnitRuntimeSnapshots: FUnitCombatRuntimeSnapshot[];
+  EnemyTeamBindings: Record<string, string>;
 }
 
 export interface FPlayerMovedPayload {
+  TeamId: string;
   Position: FOverworldVector2;
   YawDegrees: number;
   IsSprinting: boolean;
@@ -28,6 +39,9 @@ export interface FEnemyMovedPayload {
 }
 
 export interface FEncounterTriggeredPayload {
+  EncounterId: string;
+  PlayerTeamId: string;
+  EnemyTeamId: string;
   EnemyId: string;
   PlayerPosition: FOverworldVector2;
   EnemyPosition: FOverworldVector2;
@@ -41,6 +55,13 @@ export interface FPlayerResetToSafePointPayload {
   Position: FOverworldVector2;
 }
 
+export interface FTeamValidationFailedPayload {
+  TeamId: string;
+  EncounterId: string | null;
+  FailureReason: string;
+  Violations: string[];
+}
+
 export interface FOverworldEventPayloadMap {
   [EOverworldEventType.WorldInitialized]: FWorldInitializedPayload;
   [EOverworldEventType.PlayerMoved]: FPlayerMovedPayload;
@@ -48,6 +69,7 @@ export interface FOverworldEventPayloadMap {
   [EOverworldEventType.EncounterTriggered]: FEncounterTriggeredPayload;
   [EOverworldEventType.EncounterResolved]: FEncounterResolvedPayload;
   [EOverworldEventType.PlayerResetToSafePoint]: FPlayerResetToSafePointPayload;
+  [EOverworldEventType.TeamValidationFailed]: FTeamValidationFailedPayload;
 }
 
 export interface FTypedOverworldEvent<TType extends EOverworldEventType> {

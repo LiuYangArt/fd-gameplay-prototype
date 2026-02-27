@@ -1,9 +1,12 @@
 import {
+  AbstractMesh,
   ArcRotateCamera,
   Color3,
   Color4,
+  DirectionalLight,
   Engine,
   HemisphericLight,
+  LinesMesh,
   Matrix,
   Mesh,
   MeshBuilder,
@@ -12,6 +15,9 @@ import {
   TransformNode,
   Vector3
 } from "@babylonjs/core";
+import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator";
+import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
+import "@babylonjs/loaders/glTF";
 
 import type {
   FBattleCameraMode,
@@ -60,12 +66,29 @@ interface FSceneBridgeOptions {
   OnControlledUnitAnchorUpdated?: (Anchor: FScreenAnchor | null) => void;
 }
 
+interface FCharacterModelVisual {
+  UnitId: string;
+  ModelPath: string;
+  RootNode: TransformNode;
+  RootMeshes: AbstractMesh[];
+  GroundOffsetMeters: number;
+  MuzzleSocketNode: TransformNode;
+  UsesFallbackMuzzle: boolean;
+  IsLoadFailed: boolean;
+}
+
+interface FMuzzleGizmoVisual {
+  Sphere: Mesh;
+  ForwardLine: LinesMesh;
+}
+
 export class USceneBridge {
   private static readonly CentimetersToMeters = 0.01;
   private static readonly OverworldGroundColorHex = "#333a41";
   private static readonly OverworldPlayerColorHex = "#dba511";
   private static readonly OverworldEnemyColorHex = "#3385e8";
   private static readonly BattlePlayerSecondaryColorHex = "#be2f35";
+  private static readonly BattlePlayerTertiaryColorHex = "#5ca86a";
   private static readonly BattleEnemyMainColorHex = "#2f71c7";
   private static readonly BattleEnemyColorHex = "#3385e8";
   private static readonly OverworldGridColorHex = "#50565e";
@@ -77,8 +100,13 @@ export class USceneBridge {
   private readonly HandleWindowResize: () => void;
   private readonly CanvasResizeObserver: ResizeObserver | null;
   private readonly Camera: ArcRotateCamera;
+  private SunLight!: DirectionalLight;
+  private SunShadowGenerator!: ShadowGenerator;
   private readonly OverworldEnemyMeshMap: Map<string, Mesh>;
   private readonly BattleUnitMeshMap: Map<string, Mesh>;
+  private readonly CharacterModelVisualMap: Map<string, FCharacterModelVisual>;
+  private readonly CharacterModelLoadPromiseMap: Map<string, Promise<void>>;
+  private readonly MuzzleGizmoMap: Map<string, FMuzzleGizmoVisual>;
   private readonly OverworldGround: Mesh;
   private readonly OverworldGrid: Mesh;
   private readonly BattleGround: Mesh;
@@ -102,6 +130,9 @@ export class USceneBridge {
     this.Scene.clearColor = new Color4(0.47, 0.71, 0.94, 1);
     this.OverworldEnemyMeshMap = new Map();
     this.BattleUnitMeshMap = new Map();
+    this.CharacterModelVisualMap = new Map();
+    this.CharacterModelLoadPromiseMap = new Map();
+    this.MuzzleGizmoMap = new Map();
     this.CurrentViewModel = null;
     this.OnControlledUnitAnchorUpdated = Options?.OnControlledUnitAnchorUpdated ?? null;
     this.LastControlledUnitAnchor = null;
@@ -114,6 +145,9 @@ export class USceneBridge {
     this.PlayerMesh = this.CreatePlayerMesh();
     this.PlayerForwardArrowMesh = this.CreatePlayerForwardArrowMesh();
     this.CreateLight();
+    this.ConfigureShadowReceivers();
+    this.RegisterShadowCaster(this.PlayerMesh);
+    this.RegisterShadowCaster(this.PlayerForwardArrowMesh);
     this.SkyCloudMaterial = this.CreateSkyCloudMaterial();
     this.SkyCloudActors = this.CreateSkyCloudActors();
     this.LastFrameTimestamp = performance.now();
@@ -152,6 +186,16 @@ export class USceneBridge {
   public Dispose(): void {
     window.removeEventListener("resize", this.HandleWindowResize);
     this.CanvasResizeObserver?.disconnect();
+    this.MuzzleGizmoMap.forEach((Gizmo) => {
+      Gizmo.ForwardLine.dispose();
+      Gizmo.Sphere.dispose();
+    });
+    this.MuzzleGizmoMap.clear();
+    this.CharacterModelVisualMap.forEach((Visual) => {
+      Visual.RootNode.dispose();
+    });
+    this.CharacterModelVisualMap.clear();
+    this.CharacterModelLoadPromiseMap.clear();
     this.Scene.dispose();
     this.Engine.dispose();
   }
@@ -183,8 +227,37 @@ export class USceneBridge {
 
   private CreateLight(): void {
     const MainLight = new HemisphericLight("MainLight", new Vector3(0, 1, 0), this.Scene);
-    MainLight.intensity = 0.95;
+    MainLight.intensity = 0.32;
     MainLight.groundColor = Color3.FromHexString(USceneBridge.MainLightGroundColorHex);
+
+    this.SunLight = new DirectionalLight("SunLight", new Vector3(-0.45, -1, 0.3), this.Scene);
+    this.SunLight.position = new Vector3(22, 32, -14);
+    this.SunLight.intensity = 2.1;
+    this.SunLight.diffuse = new Color3(1, 0.97, 0.9);
+    this.SunLight.specular = new Color3(1, 0.95, 0.88);
+    this.SunLight.shadowMinZ = 0.1;
+    this.SunLight.shadowMaxZ = 120;
+    this.SunLight.autoCalcShadowZBounds = true;
+
+    this.SunShadowGenerator = new ShadowGenerator(2048, this.SunLight);
+    this.SunShadowGenerator.usePercentageCloserFiltering = true;
+    this.SunShadowGenerator.filteringQuality = ShadowGenerator.QUALITY_MEDIUM;
+    this.SunShadowGenerator.bias = 0.0008;
+    this.SunShadowGenerator.normalBias = 0.015;
+    this.SunShadowGenerator.darkness = 0.5;
+    this.SunShadowGenerator.forceBackFacesOnly = true;
+  }
+
+  private ConfigureShadowReceivers(): void {
+    this.OverworldGround.receiveShadows = true;
+    this.BattleGround.receiveShadows = true;
+  }
+
+  private RegisterShadowCaster(Target: AbstractMesh): void {
+    if (!this.SunShadowGenerator || Target.isDisposed()) {
+      return;
+    }
+    this.SunShadowGenerator.addShadowCaster(Target, true);
   }
 
   private CreateOverworldGround(): Mesh {
@@ -198,6 +271,7 @@ export class USceneBridge {
     );
     const GroundMaterial = new StandardMaterial("OverworldGroundMat", this.Scene);
     GroundMaterial.diffuseColor = Color3.FromHexString(USceneBridge.OverworldGroundColorHex);
+    this.ApplyGroundSurfaceMaterial(GroundMaterial);
     Ground.material = GroundMaterial;
     return Ground;
   }
@@ -246,8 +320,15 @@ export class USceneBridge {
     );
     const GroundMaterial = new StandardMaterial("BattleGroundMat", this.Scene);
     GroundMaterial.diffuseColor = Color3.FromHexString(USceneBridge.BattleGroundColorHex);
+    this.ApplyGroundSurfaceMaterial(GroundMaterial);
     Ground.material = GroundMaterial;
     return Ground;
+  }
+
+  private ApplyGroundSurfaceMaterial(Material: StandardMaterial): void {
+    Material.roughness = 0.8;
+    Material.specularColor = new Color3(0.12, 0.12, 0.12);
+    Material.specularPower = 16;
   }
 
   private CreatePlayerMesh(): Mesh {
@@ -603,6 +684,7 @@ export class USceneBridge {
     this.OverworldGrid.setEnabled(true);
     this.BattleGround.setEnabled(false);
     this.BattleGrid.setEnabled(false);
+    this.HideAllCharacterModels();
     this.PlayerMesh.setEnabled(true);
     this.PlayerForwardArrowMesh.setEnabled(true);
 
@@ -614,6 +696,7 @@ export class USceneBridge {
       0
     );
 
+    this.SyncOverworldPlayerModel(ViewModel);
     this.SyncOverworldEnemies(ViewModel);
     this.HideAllBattleUnits();
   }
@@ -625,6 +708,7 @@ export class USceneBridge {
     this.BattleGrid.setEnabled(true);
     this.PlayerMesh.setEnabled(false);
     this.PlayerForwardArrowMesh.setEnabled(false);
+    this.HideAllCharacterModels();
     this.HideAllOverworldEnemies();
     const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
     this.SyncBattleUnits(ViewModel, DropOffsetCm);
@@ -639,6 +723,13 @@ export class USceneBridge {
   private HideAllBattleUnits(): void {
     this.BattleUnitMeshMap.forEach((UnitMesh) => {
       UnitMesh.setEnabled(false);
+    });
+  }
+
+  private HideAllCharacterModels(): void {
+    this.CharacterModelVisualMap.forEach((Visual) => {
+      Visual.RootNode.setEnabled(false);
+      this.SetMuzzleGizmoVisible(Visual.UnitId, false);
     });
   }
 
@@ -680,15 +771,23 @@ export class USceneBridge {
     const ExistingIds = new Set(this.BattleUnitMeshMap.keys());
     ViewModel.Battle3CState.Units.forEach((Unit) => {
       const Mesh = this.BattleUnitMeshMap.get(Unit.UnitId) ?? this.CreateBattleUnitMesh(Unit);
-      Mesh.setEnabled(true);
       Mesh.position = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
       Mesh.rotation = new Vector3(0, (Unit.YawDeg * Math.PI) / 180, 0);
+      const IsPlayer = Unit.TeamId === "Player";
+      const IsModelReady = IsPlayer
+        ? this.SyncBattlePlayerModel(Unit, ViewModel, DropOffsetCm)
+        : false;
+      const ShouldShowFallback =
+        !IsPlayer || (!IsModelReady && ViewModel.DebugState.Config.FallbackToPlaceholderOnLoadFail);
+      Mesh.setEnabled(ShouldShowFallback);
 
-      const Material = Mesh.material as StandardMaterial;
-      if (!Unit.IsAlive) {
-        Material.diffuseColor = new Color3(0.24, 0.24, 0.24);
-      } else {
-        Material.diffuseColor = this.ResolveBattleUnitBaseColor(Unit);
+      if (ShouldShowFallback) {
+        const Material = Mesh.material as StandardMaterial;
+        if (!Unit.IsAlive) {
+          Material.diffuseColor = new Color3(0.24, 0.24, 0.24);
+        } else {
+          Material.diffuseColor = this.ResolveBattleUnitBaseColor(Unit);
+        }
       }
 
       ExistingIds.delete(Unit.UnitId);
@@ -701,6 +800,367 @@ export class USceneBridge {
       }
       this.BattleUnitMeshMap.delete(UnitId);
     });
+  }
+
+  private SyncOverworldPlayerModel(ViewModel: FHudViewModel): void {
+    const DisplayUnitId = ViewModel.OverworldState.ControlledTeamOverworldDisplayUnitId;
+    if (!DisplayUnitId) {
+      return;
+    }
+
+    const ModelPath = this.ResolvePlayerModelPathByUnitId(DisplayUnitId, null, ViewModel);
+    if (!ModelPath) {
+      return;
+    }
+
+    this.EnsureCharacterModelVisual(DisplayUnitId, ModelPath, ViewModel);
+    const Visual = this.CharacterModelVisualMap.get(DisplayUnitId);
+    if (!Visual || Visual.IsLoadFailed) {
+      this.SetMuzzleGizmoVisible(DisplayUnitId, false);
+      return;
+    }
+
+    const PlayerPosition = new Vector3(
+      this.ToMeters(ViewModel.OverworldState.PlayerPosition.X),
+      0,
+      this.ToMeters(ViewModel.OverworldState.PlayerPosition.Z)
+    );
+    this.ApplyCharacterVisualPose(
+      Visual,
+      PlayerPosition,
+      ViewModel.OverworldState.PlayerYawDegrees,
+      ViewModel.DebugState.Config.ModelAxisFixPreset
+    );
+    this.UpdateMuzzleGizmoForVisual(Visual, ViewModel);
+    this.PlayerMesh.setEnabled(false);
+  }
+
+  private SyncBattlePlayerModel(
+    Unit: FBattleUnitHudState,
+    ViewModel: FHudViewModel,
+    DropOffsetCm: number
+  ): boolean {
+    const ModelPath = this.ResolvePlayerModelPathByUnitId(Unit.UnitId, Unit, ViewModel);
+    if (!ModelPath) {
+      return false;
+    }
+
+    this.EnsureCharacterModelVisual(Unit.UnitId, ModelPath, ViewModel);
+    const Visual = this.CharacterModelVisualMap.get(Unit.UnitId);
+    if (!Visual || Visual.IsLoadFailed) {
+      this.SetMuzzleGizmoVisible(Unit.UnitId, false);
+      return false;
+    }
+
+    this.ApplyCharacterVisualPose(
+      Visual,
+      this.ResolveBattlePlayerModelPositionMeters(Unit, DropOffsetCm),
+      Unit.YawDeg,
+      ViewModel.DebugState.Config.ModelAxisFixPreset
+    );
+    this.UpdateMuzzleGizmoForVisual(Visual, ViewModel);
+    return true;
+  }
+
+  private ResolvePlayerModelPathByUnitId(
+    UnitId: string,
+    Unit: FBattleUnitHudState | null,
+    ViewModel: FHudViewModel
+  ): string | null {
+    if (Unit?.ModelAssetPath) {
+      return Unit.ModelAssetPath;
+    }
+
+    const ModelMap: Record<string, string> = {
+      char01: ViewModel.DebugState.Config.UnitModelChar01Path,
+      char02: ViewModel.DebugState.Config.UnitModelChar02Path,
+      char03: ViewModel.DebugState.Config.UnitModelChar03Path,
+      P_YELLOW: ViewModel.DebugState.Config.UnitModelChar01Path,
+      P_RED: ViewModel.DebugState.Config.UnitModelChar02Path
+    };
+    return ModelMap[UnitId] ?? null;
+  }
+
+  private EnsureCharacterModelVisual(
+    UnitId: string,
+    ModelPath: string,
+    ViewModel: FHudViewModel
+  ): void {
+    const ExistingVisual = this.CharacterModelVisualMap.get(UnitId);
+    if (ExistingVisual && ExistingVisual.ModelPath === ModelPath) {
+      return;
+    }
+
+    if (ExistingVisual && ExistingVisual.ModelPath !== ModelPath) {
+      ExistingVisual.RootNode.dispose();
+      this.CharacterModelVisualMap.delete(UnitId);
+      this.SetMuzzleGizmoVisible(UnitId, false);
+    }
+
+    if (this.CharacterModelLoadPromiseMap.has(UnitId)) {
+      return;
+    }
+
+    const LoadPromise = this.LoadCharacterModelVisual(
+      UnitId,
+      ModelPath,
+      ViewModel.DebugState.Config.MuzzleSocketPrefix,
+      ViewModel.DebugState.Config.UseFallbackMuzzleIfMissing
+    )
+      .then((Visual) => {
+        this.CharacterModelVisualMap.set(UnitId, Visual);
+      })
+      .catch((Error) => {
+        // 资源加载失败时保留占位兜底，不中断渲染循环。
+        console.warn(`[USceneBridge] 角色模型加载失败: ${ModelPath}`, Error);
+        this.CharacterModelVisualMap.set(
+          UnitId,
+          this.CreateFailedCharacterModelVisual(UnitId, ModelPath)
+        );
+      })
+      .finally(() => {
+        this.CharacterModelLoadPromiseMap.delete(UnitId);
+      });
+    this.CharacterModelLoadPromiseMap.set(UnitId, LoadPromise);
+  }
+
+  private async LoadCharacterModelVisual(
+    UnitId: string,
+    ModelPath: string,
+    MuzzleSocketPrefix: string,
+    UseFallbackMuzzleIfMissing: boolean
+  ): Promise<FCharacterModelVisual> {
+    const { RootUrl, FileName } = this.SplitModelPath(ModelPath);
+    const ImportResult = await SceneLoader.ImportMeshAsync("", RootUrl, FileName, this.Scene);
+    const RootNode = new TransformNode(`CharacterRoot_${UnitId}`, this.Scene);
+    const RootMeshes = ImportResult.meshes.filter((ImportedMesh) => ImportedMesh.parent === null);
+    RootMeshes.forEach((RootMesh) => {
+      RootMesh.parent = RootNode;
+      this.RegisterShadowCaster(RootMesh);
+    });
+    RootNode.setEnabled(false);
+    const GroundOffsetMeters = this.ResolveModelGroundOffsetMeters(RootMeshes);
+
+    const ResolvedSocket = this.ResolveMuzzleSocketNode({
+      UnitId,
+      RootNode,
+      Prefix: MuzzleSocketPrefix,
+      UseFallback: UseFallbackMuzzleIfMissing
+    });
+
+    return {
+      UnitId,
+      ModelPath,
+      RootNode,
+      RootMeshes,
+      GroundOffsetMeters,
+      MuzzleSocketNode: ResolvedSocket.Node,
+      UsesFallbackMuzzle: ResolvedSocket.UsedFallback,
+      IsLoadFailed: false
+    };
+  }
+
+  private CreateFailedCharacterModelVisual(
+    UnitId: string,
+    ModelPath: string
+  ): FCharacterModelVisual {
+    const RootNode = new TransformNode(`CharacterRootFailed_${UnitId}`, this.Scene);
+    RootNode.setEnabled(false);
+    return {
+      UnitId,
+      ModelPath,
+      RootNode,
+      RootMeshes: [],
+      GroundOffsetMeters: 0,
+      MuzzleSocketNode: RootNode,
+      UsesFallbackMuzzle: true,
+      IsLoadFailed: true
+    };
+  }
+
+  private ResolveMuzzleSocketNode(Options: {
+    UnitId: string;
+    RootNode: TransformNode;
+    Prefix: string;
+    UseFallback: boolean;
+  }): { Node: TransformNode; UsedFallback: boolean } {
+    const PrefixLower = Options.Prefix.toLowerCase();
+    const Candidates = Options.RootNode.getChildTransformNodes(false).filter((Node) =>
+      Node.name.toLowerCase().startsWith(PrefixLower)
+    );
+    if (Candidates.length > 0) {
+      const ExactMatch =
+        Candidates.find((Node) => Node.name.toLowerCase() === PrefixLower) ??
+        [...Candidates].sort((Left, Right) => Left.name.localeCompare(Right.name))[0];
+      return {
+        Node: ExactMatch,
+        UsedFallback: false
+      };
+    }
+
+    if (!Options.UseFallback) {
+      return {
+        Node: Options.RootNode,
+        UsedFallback: true
+      };
+    }
+
+    const FallbackSocket = new TransformNode(`FallbackMuzzle_${Options.UnitId}`, this.Scene);
+    FallbackSocket.parent = Options.RootNode;
+    FallbackSocket.position = new Vector3(0.35, 1.25, 0.55);
+    return {
+      Node: FallbackSocket,
+      UsedFallback: true
+    };
+  }
+
+  private ResolveModelGroundOffsetMeters(RootMeshes: AbstractMesh[]): number {
+    if (RootMeshes.length < 1) {
+      return 0;
+    }
+
+    let MinY = Number.POSITIVE_INFINITY;
+    RootMeshes.forEach((RootMesh) => {
+      RootMesh.computeWorldMatrix(true);
+      MinY = Math.min(MinY, RootMesh.getBoundingInfo().boundingBox.minimumWorld.y);
+    });
+    if (!Number.isFinite(MinY)) {
+      return 0;
+    }
+
+    return -MinY;
+  }
+
+  private ResolveBattlePlayerModelPositionMeters(
+    Unit: FBattleUnitHudState,
+    DropOffsetCm: number
+  ): Vector3 {
+    return new Vector3(
+      this.ToMeters(Unit.PositionCm.X),
+      this.ToMeters(Unit.PositionCm.Y + DropOffsetCm),
+      this.ToMeters(Unit.PositionCm.Z)
+    );
+  }
+
+  private ApplyCharacterVisualPose(
+    Visual: FCharacterModelVisual,
+    Position: Vector3,
+    YawDeg: number,
+    AxisFixPreset: FHudViewModel["DebugState"]["Config"]["ModelAxisFixPreset"]
+  ): void {
+    Visual.RootNode.position = new Vector3(
+      Position.x,
+      Position.y + Visual.GroundOffsetMeters,
+      Position.z
+    );
+    Visual.RootNode.rotation = new Vector3(
+      0,
+      (YawDeg * Math.PI) / 180 + this.ResolveAxisFixYawRadians(AxisFixPreset),
+      0
+    );
+    Visual.RootNode.setEnabled(true);
+  }
+
+  private ResolveAxisFixYawRadians(
+    AxisFixPreset: FHudViewModel["DebugState"]["Config"]["ModelAxisFixPreset"]
+  ): number {
+    switch (AxisFixPreset) {
+      case "RotateY90":
+        return Math.PI / 2;
+      case "RotateYMinus90":
+        return -Math.PI / 2;
+      case "RotateY180":
+        return Math.PI;
+      case "None":
+      default:
+        return 0;
+    }
+  }
+
+  private UpdateMuzzleGizmoForVisual(
+    Visual: FCharacterModelVisual,
+    ViewModel: FHudViewModel
+  ): void {
+    if (!ViewModel.DebugState.Config.ShowMuzzleSocketGizmo) {
+      this.SetMuzzleGizmoVisible(Visual.UnitId, false);
+      return;
+    }
+
+    const StartPosition = Visual.MuzzleSocketNode.getAbsolutePosition();
+    const Forward = Vector3.TransformNormal(
+      new Vector3(1, 0, 0),
+      Visual.MuzzleSocketNode.getWorldMatrix()
+    );
+    if (Forward.lengthSquared() <= 1e-8) {
+      this.SetMuzzleGizmoVisible(Visual.UnitId, false);
+      return;
+    }
+    const EndPosition = StartPosition.add(Forward.normalize().scale(0.45));
+
+    const Existing = this.MuzzleGizmoMap.get(Visual.UnitId);
+    if (!Existing) {
+      const Sphere = MeshBuilder.CreateSphere(
+        `MuzzleSocketSphere_${Visual.UnitId}`,
+        { diameter: 0.08 },
+        this.Scene
+      );
+      const SphereMaterial = new StandardMaterial(
+        `MuzzleSocketSphereMat_${Visual.UnitId}`,
+        this.Scene
+      );
+      SphereMaterial.diffuseColor = new Color3(1, 0.86, 0.1);
+      Sphere.material = SphereMaterial;
+      Sphere.isPickable = false;
+      const ForwardLine = MeshBuilder.CreateLines(
+        `MuzzleSocketLine_${Visual.UnitId}`,
+        {
+          points: [StartPosition, EndPosition]
+        },
+        this.Scene
+      );
+      ForwardLine.color = new Color3(1, 0.45, 0.15);
+      ForwardLine.isPickable = false;
+      this.MuzzleGizmoMap.set(Visual.UnitId, {
+        Sphere,
+        ForwardLine
+      });
+    } else {
+      Existing.Sphere.position.copyFrom(StartPosition);
+      const UpdatedLine = MeshBuilder.CreateLines(
+        `MuzzleSocketLine_${Visual.UnitId}`,
+        {
+          points: [StartPosition, EndPosition],
+          instance: Existing.ForwardLine
+        },
+        this.Scene
+      );
+      UpdatedLine.color = new Color3(1, 0.45, 0.15);
+    }
+
+    this.SetMuzzleGizmoVisible(Visual.UnitId, true);
+  }
+
+  private SetMuzzleGizmoVisible(UnitId: string, IsVisible: boolean): void {
+    const Gizmo = this.MuzzleGizmoMap.get(UnitId);
+    if (!Gizmo) {
+      return;
+    }
+    Gizmo.Sphere.setEnabled(IsVisible);
+    Gizmo.ForwardLine.setEnabled(IsVisible);
+  }
+
+  private SplitModelPath(ModelPath: string): { RootUrl: string; FileName: string } {
+    const LastSlashIndex = ModelPath.lastIndexOf("/");
+    if (LastSlashIndex < 0) {
+      return {
+        RootUrl: "/",
+        FileName: ModelPath
+      };
+    }
+    return {
+      RootUrl: ModelPath.slice(0, LastSlashIndex + 1),
+      FileName: ModelPath.slice(LastSlashIndex + 1)
+    };
   }
 
   private ResolveBattleUnitPositionMeters(
@@ -813,6 +1273,7 @@ export class USceneBridge {
     const Material = new StandardMaterial(`OverworldEnemyMat_${EnemyId}`, this.Scene);
     Material.diffuseColor = Color3.FromHexString(USceneBridge.OverworldEnemyColorHex);
     EnemyMesh.material = Material;
+    this.RegisterShadowCaster(EnemyMesh);
     this.OverworldEnemyMeshMap.set(EnemyId, EnemyMesh);
     return EnemyMesh;
   }
@@ -842,6 +1303,7 @@ export class USceneBridge {
     const Material = new StandardMaterial(`BattleUnitMat_${Unit.UnitId}`, this.Scene);
     Material.diffuseColor = new Color3(0.7, 0.7, 0.7);
     UnitMesh.material = Material;
+    this.RegisterShadowCaster(UnitMesh);
 
     this.BattleUnitMeshMap.set(Unit.UnitId, UnitMesh);
     return UnitMesh;
@@ -903,9 +1365,13 @@ export class USceneBridge {
 
   private ResolveBattleUnitBaseColor(Unit: FBattleUnitHudState): Color3 {
     if (Unit.TeamId === "Player") {
-      return Unit.UnitId === "P_YELLOW"
-        ? Color3.FromHexString(USceneBridge.OverworldPlayerColorHex)
-        : Color3.FromHexString(USceneBridge.BattlePlayerSecondaryColorHex);
+      if (Unit.UnitId === "char01" || Unit.UnitId === "P_YELLOW") {
+        return Color3.FromHexString(USceneBridge.OverworldPlayerColorHex);
+      }
+      if (Unit.UnitId === "char02" || Unit.UnitId === "P_RED") {
+        return Color3.FromHexString(USceneBridge.BattlePlayerSecondaryColorHex);
+      }
+      return Color3.FromHexString(USceneBridge.BattlePlayerTertiaryColorHex);
     }
 
     return Unit.IsEncounterPrimaryEnemy

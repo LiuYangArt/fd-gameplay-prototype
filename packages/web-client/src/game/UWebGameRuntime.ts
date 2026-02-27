@@ -2,6 +2,9 @@ import {
   EOverworldCommandType,
   EOverworldEventType,
   UOverworldSimulation,
+  type FTeamPackageSnapshot,
+  type FUnitCombatRuntimeSnapshot,
+  type FUnitStaticConfig,
   type FOverworldEnemyState,
   type FOverworldVector2
 } from "@fd/gameplay-core";
@@ -26,7 +29,8 @@ type FRuntimeEventType =
   | "EBattle3CActionRequested"
   | "ESettlementPreviewRequested"
   | "ESettlementPreviewConfirmed"
-  | "EBattleFleeRequested";
+  | "EBattleFleeRequested"
+  | "ETeamValidationFailed";
 
 interface FImportDebugConfigResult {
   IsSuccess: boolean;
@@ -34,7 +38,10 @@ interface FImportDebugConfigResult {
 }
 
 interface FEncounterContext {
+  EncounterId: string;
   EncounterEnemyId: string;
+  PlayerTeamId: string;
+  EnemyTeamId: string;
   PlayerPosition: FOverworldVector2;
   EnemyPosition: FOverworldVector2;
   BattleAnchorCm: FVector3Cm;
@@ -45,14 +52,23 @@ interface FBattleUnitRuntimeState {
   UnitId: string;
   DisplayName: string;
   TeamId: "Player" | "Enemy";
+  ModelAssetPath: string | null;
   PositionCm: FVector3Cm;
   YawDeg: number;
+  MaxHp: number;
+  CurrentHp: number;
+  MaxMp: number;
+  CurrentMp: number;
   IsAlive: boolean;
   IsEncounterPrimaryEnemy: boolean;
 }
 
 interface FBattle3CSession {
   SessionId: string;
+  PlayerTeamId: string;
+  EnemyTeamId: string;
+  PlayerActiveUnitIds: string[];
+  EnemyActiveUnitIds: string[];
   ControlledCharacterId: string;
   CameraMode: FBattleCameraMode;
   CrosshairScreenPosition: {
@@ -83,6 +99,18 @@ const CrosshairMax = 1;
 const CrosshairReferenceWidth = 1600;
 const CrosshairReferenceHeight = 900;
 const EnemyScriptCameraHoldMs = 680;
+const BattleLaneTableByTeam: Record<"Player" | "Enemy", Record<number, number[]>> = {
+  Player: {
+    1: [0],
+    2: [95, -95],
+    3: [165, 0, -165]
+  },
+  Enemy: {
+    1: [0],
+    2: [-120, 120],
+    3: [-240, 0, 240]
+  }
+};
 
 export class UWebGameRuntime {
   private readonly RuntimeListeners: Set<TRuntimeListener>;
@@ -245,8 +273,17 @@ export class UWebGameRuntime {
       return;
     }
 
-    this.ActiveBattleSession.ControlledCharacterId =
-      this.ActiveBattleSession.ControlledCharacterId === "P_YELLOW" ? "P_RED" : "P_YELLOW";
+    const AlivePlayerUnitIds = this.ActiveBattleSession.PlayerActiveUnitIds.filter((UnitId) => {
+      const Unit = this.FindBattleUnit(UnitId);
+      return Unit?.IsAlive ?? false;
+    });
+    if (AlivePlayerUnitIds.length <= 1) {
+      return;
+    }
+
+    const CurrentIndex = AlivePlayerUnitIds.indexOf(this.ActiveBattleSession.ControlledCharacterId);
+    const NextIndex = CurrentIndex < 0 ? 0 : (CurrentIndex + 1) % AlivePlayerUnitIds.length;
+    this.ActiveBattleSession.ControlledCharacterId = AlivePlayerUnitIds[NextIndex];
     this.ActiveBattleSession.CameraMode = this.ResolveBattleControlCameraMode(
       this.ActiveBattleSession
     );
@@ -409,66 +446,10 @@ export class UWebGameRuntime {
   }
 
   public GetViewModel(): FHudViewModel {
-    const OverworldState = this.OverworldSimulation.GetState();
-    const BattleSession = this.ActiveBattleSession;
-    const EnemyTargets = BattleSession ? this.GetEnemyBattleUnits(BattleSession.Units) : [];
-    const SelectedTargetId =
-      BattleSession && EnemyTargets.length > 0
-        ? (EnemyTargets[BattleSession.SelectedTargetIndex % EnemyTargets.length]?.UnitId ?? null)
-        : null;
-    const RemainingTransitionMs =
-      this.RuntimePhase === "EncounterTransition" && this.EncounterTransitionEndAtMs
-        ? Math.max(this.EncounterTransitionEndAtMs - Date.now(), 0)
-        : 0;
-    const Battle3CHudState: FBattle3CHudState = BattleSession
-      ? {
-          ControlledCharacterId: BattleSession.ControlledCharacterId,
-          CameraMode: BattleSession.CameraMode,
-          CrosshairScreenPosition: { ...BattleSession.CrosshairScreenPosition },
-          ScriptStepIndex: BattleSession.ScriptStepIndex,
-          IsAimMode: BattleSession.IsAimMode,
-          IsSkillTargetMode: BattleSession.IsSkillTargetMode,
-          SelectedTargetId,
-          Units: BattleSession.Units.map((Unit) => ({
-            UnitId: Unit.UnitId,
-            DisplayName: Unit.DisplayName,
-            TeamId: Unit.TeamId,
-            PositionCm: { ...Unit.PositionCm },
-            YawDeg: Unit.YawDeg,
-            IsAlive: Unit.IsAlive,
-            IsControlled: Unit.UnitId === BattleSession.ControlledCharacterId,
-            IsSelectedTarget: Unit.UnitId === SelectedTargetId,
-            IsEncounterPrimaryEnemy: Unit.IsEncounterPrimaryEnemy
-          })),
-          ScriptFocus: BattleSession.ScriptFocus
-            ? {
-                AttackerUnitId: BattleSession.ScriptFocus.AttackerUnitId,
-                TargetUnitIds: [...BattleSession.ScriptFocus.TargetUnitIds]
-              }
-            : null
-        }
-      : {
-          ControlledCharacterId: null,
-          CameraMode: "PlayerFollow",
-          CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
-          ScriptStepIndex: 0,
-          IsAimMode: false,
-          IsSkillTargetMode: false,
-          SelectedTargetId: null,
-          Units: [],
-          ScriptFocus: null
-        };
-
+    const RemainingTransitionMs = this.ResolveRemainingTransitionMs();
     return {
       RuntimePhase: this.RuntimePhase,
-      OverworldState: {
-        Phase: OverworldState.Phase,
-        PlayerPosition: { ...OverworldState.Player.Position },
-        PlayerYawDegrees: OverworldState.Player.YawDegrees,
-        Enemies: Object.values(OverworldState.Enemies),
-        PendingEncounterEnemyId: OverworldState.PendingEncounterEnemyId,
-        LastEncounterEnemyId: this.LastEncounterEnemyId
-      },
+      OverworldState: this.BuildOverworldHudState(),
       EncounterState: {
         EncounterEnemyId: this.ActiveEncounterContext?.EncounterEnemyId ?? null,
         PromptText: this.EncounterPromptText,
@@ -478,7 +459,7 @@ export class UWebGameRuntime {
         DropDurationSec: this.DebugConfig.BattleDropDurationSec,
         RemainingTransitionMs
       },
-      Battle3CState: Battle3CHudState,
+      Battle3CState: this.BuildBattle3CHudState(this.ActiveBattleSession),
       SettlementState: {
         SummaryText: this.SettlementSummaryText,
         ConfirmHintText: "确认键：Enter / 手柄 A"
@@ -492,6 +473,96 @@ export class UWebGameRuntime {
         LastUpdatedAtIso: this.LastDebugUpdatedAtIso
       },
       EventLogs: this.EventLogs
+    };
+  }
+
+  private ResolveRemainingTransitionMs(): number {
+    if (this.RuntimePhase !== "EncounterTransition" || !this.EncounterTransitionEndAtMs) {
+      return 0;
+    }
+    return Math.max(this.EncounterTransitionEndAtMs - Date.now(), 0);
+  }
+
+  private BuildOverworldHudState(): FHudViewModel["OverworldState"] {
+    const OverworldState = this.OverworldSimulation.GetState();
+    const ControlledTeam =
+      OverworldState.ControlledTeamId !== null
+        ? (OverworldState.TeamPackages[OverworldState.ControlledTeamId] ?? null)
+        : null;
+
+    return {
+      Phase: OverworldState.Phase,
+      ControlledTeamId: OverworldState.ControlledTeamId,
+      ControlledTeamActiveUnitIds: ControlledTeam?.Formation.ActiveUnitIds ?? [],
+      ControlledTeamOverworldDisplayUnitId:
+        ControlledTeam?.Formation.OverworldDisplayUnitId ?? null,
+      PlayerPosition: { ...OverworldState.Player.Position },
+      PlayerYawDegrees: OverworldState.Player.YawDegrees,
+      Enemies: Object.values(OverworldState.Enemies),
+      PendingEncounterEnemyId: OverworldState.PendingEncounterEnemyId,
+      LastEncounterEnemyId: this.LastEncounterEnemyId
+    };
+  }
+
+  private BuildBattle3CHudState(BattleSession: FBattle3CSession | null): FBattle3CHudState {
+    if (!BattleSession) {
+      return {
+        PlayerTeamId: null,
+        EnemyTeamId: null,
+        PlayerActiveUnitIds: [],
+        EnemyActiveUnitIds: [],
+        ControlledCharacterId: null,
+        CameraMode: "PlayerFollow",
+        CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+        ScriptStepIndex: 0,
+        IsAimMode: false,
+        IsSkillTargetMode: false,
+        SelectedTargetId: null,
+        Units: [],
+        ScriptFocus: null
+      };
+    }
+
+    const EnemyTargets = this.GetEnemyBattleUnits(BattleSession.Units);
+    const SelectedTargetId =
+      EnemyTargets.length > 0
+        ? (EnemyTargets[BattleSession.SelectedTargetIndex % EnemyTargets.length]?.UnitId ?? null)
+        : null;
+
+    return {
+      PlayerTeamId: BattleSession.PlayerTeamId,
+      EnemyTeamId: BattleSession.EnemyTeamId,
+      PlayerActiveUnitIds: [...BattleSession.PlayerActiveUnitIds],
+      EnemyActiveUnitIds: [...BattleSession.EnemyActiveUnitIds],
+      ControlledCharacterId: BattleSession.ControlledCharacterId,
+      CameraMode: BattleSession.CameraMode,
+      CrosshairScreenPosition: { ...BattleSession.CrosshairScreenPosition },
+      ScriptStepIndex: BattleSession.ScriptStepIndex,
+      IsAimMode: BattleSession.IsAimMode,
+      IsSkillTargetMode: BattleSession.IsSkillTargetMode,
+      SelectedTargetId,
+      Units: BattleSession.Units.map((Unit) => ({
+        UnitId: Unit.UnitId,
+        DisplayName: Unit.DisplayName,
+        TeamId: Unit.TeamId,
+        ModelAssetPath: Unit.ModelAssetPath,
+        PositionCm: { ...Unit.PositionCm },
+        YawDeg: Unit.YawDeg,
+        MaxHp: Unit.MaxHp,
+        CurrentHp: Unit.CurrentHp,
+        MaxMp: Unit.MaxMp,
+        CurrentMp: Unit.CurrentMp,
+        IsAlive: Unit.IsAlive,
+        IsControlled: Unit.UnitId === BattleSession.ControlledCharacterId,
+        IsSelectedTarget: Unit.UnitId === SelectedTargetId,
+        IsEncounterPrimaryEnemy: Unit.IsEncounterPrimaryEnemy
+      })),
+      ScriptFocus: BattleSession.ScriptFocus
+        ? {
+            AttackerUnitId: BattleSession.ScriptFocus.AttackerUnitId,
+            TargetUnitIds: [...BattleSession.ScriptFocus.TargetUnitIds]
+          }
+        : null
     };
   }
 
@@ -596,15 +667,28 @@ export class UWebGameRuntime {
 
     this.OverworldSimulation.On(EOverworldEventType.EncounterTriggered, (Event) => {
       this.StartEncounterPrompt(
+        Event.Payload.EncounterId,
         Event.Payload.EnemyId,
+        Event.Payload.PlayerTeamId,
+        Event.Payload.EnemyTeamId,
         Event.Payload.PlayerPosition,
         Event.Payload.EnemyPosition
+      );
+    });
+
+    this.OverworldSimulation.On(EOverworldEventType.TeamValidationFailed, (Event) => {
+      this.EmitRuntimeEvent(
+        "ETeamValidationFailed",
+        `${Event.Payload.TeamId}:${Event.Payload.FailureReason}`
       );
     });
   }
 
   private StartEncounterPrompt(
+    EncounterId: string,
     EncounterEnemyId: string,
+    PlayerTeamId: string,
+    EnemyTeamId: string,
     PlayerPosition: FOverworldVector2,
     EnemyPosition: FOverworldVector2
   ): void {
@@ -616,7 +700,10 @@ export class UWebGameRuntime {
     const StartedAtMs = Date.now();
     const PromptMs = Math.max(Math.round(this.DebugConfig.BattlePromptDurationSec * 1000), 1);
     this.ActiveEncounterContext = {
+      EncounterId,
       EncounterEnemyId,
+      PlayerTeamId,
+      EnemyTeamId,
       PlayerPosition: { ...PlayerPosition },
       EnemyPosition: { ...EnemyPosition },
       BattleAnchorCm: { ...BattleAnchorCm },
@@ -628,17 +715,17 @@ export class UWebGameRuntime {
     this.EncounterTransitionStartedAtMs = null;
     this.EncounterTransitionEndAtMs = null;
     this.EncounterPromptTimerHandle = window.setTimeout(() => {
-      this.StartEncounterTransition(EncounterEnemyId);
+      this.StartEncounterTransition(EncounterId);
     }, PromptMs);
 
     this.NotifyRuntimeUpdated();
   }
 
-  private StartEncounterTransition(EncounterEnemyId: string): void {
+  private StartEncounterTransition(EncounterId: string): void {
     if (
       this.RuntimePhase !== "Overworld" ||
       !this.ActiveEncounterContext ||
-      this.ActiveEncounterContext.EncounterEnemyId !== EncounterEnemyId
+      this.ActiveEncounterContext.EncounterId !== EncounterId
     ) {
       return;
     }
@@ -647,27 +734,35 @@ export class UWebGameRuntime {
     const IntroMs = Math.max(Math.round(this.DebugConfig.BattleIntroDurationSec * 1000), 1);
     const DropMs = Math.max(Math.round(this.DebugConfig.BattleDropDurationSec * 1000), 1);
     const TransitionTotalMs = Math.max(IntroMs, DropMs);
+    const BattleSession = this.CreateBattle3CSession(this.ActiveEncounterContext);
+    if (!BattleSession) {
+      this.BlockBattleSessionTransition(this.ActiveEncounterContext);
+      return;
+    }
 
-    this.ActiveBattleSession = this.CreateBattle3CSession(EncounterEnemyId);
+    this.ActiveBattleSession = BattleSession;
     this.ActiveBattleSession.CameraMode = "IntroDropIn";
     this.RuntimePhase = "EncounterTransition";
     this.EncounterPromptText = null;
     this.EncounterTransitionStartedAtMs = StartedAtMs;
     this.EncounterTransitionEndAtMs = StartedAtMs + TransitionTotalMs;
-    this.EmitRuntimeEvent("EEncounterTransitionStarted", EncounterEnemyId);
+    this.EmitRuntimeEvent(
+      "EEncounterTransitionStarted",
+      this.ActiveEncounterContext.EncounterEnemyId
+    );
 
     this.EncounterFinishTimerHandle = window.setTimeout(() => {
-      this.FinishEncounterTransition(EncounterEnemyId);
+      this.FinishEncounterTransition(EncounterId);
     }, TransitionTotalMs);
 
     this.NotifyRuntimeUpdated();
   }
 
-  private FinishEncounterTransition(EncounterEnemyId: string): void {
+  private FinishEncounterTransition(EncounterId: string): void {
     if (
       this.RuntimePhase !== "EncounterTransition" ||
       !this.ActiveBattleSession ||
-      this.ActiveEncounterContext?.EncounterEnemyId !== EncounterEnemyId
+      this.ActiveEncounterContext?.EncounterId !== EncounterId
     ) {
       return;
     }
@@ -679,17 +774,83 @@ export class UWebGameRuntime {
     this.ActiveBattleSession.CameraMode = this.ResolveBattleControlCameraMode(
       this.ActiveBattleSession
     );
-    this.EmitRuntimeEvent("EEncounterTransitionFinished", EncounterEnemyId);
+    this.EmitRuntimeEvent(
+      "EEncounterTransitionFinished",
+      this.ActiveEncounterContext.EncounterEnemyId
+    );
     this.NotifyRuntimeUpdated();
   }
 
-  private CreateBattle3CSession(EncounterEnemyId: string): FBattle3CSession {
-    const MainEnemyId = `${EncounterEnemyId}_MAIN`;
-    const GuardEnemyId = `${EncounterEnemyId}_GUARD`;
-    const SupportEnemyId = `${EncounterEnemyId}_SUPPORT`;
+  private BlockBattleSessionTransition(Context: FEncounterContext): void {
+    this.EmitRuntimeEvent(
+      "ETeamValidationFailed",
+      `阻断遭遇 ${Context.EncounterId}（${Context.EncounterEnemyId}）`
+    );
+    this.OverworldSimulation.SubmitCommand({
+      Type: EOverworldCommandType.ResolveEncounter
+    });
+    this.OverworldSimulation.SubmitCommand({
+      Type: EOverworldCommandType.ResetPlayerToSafePoint
+    });
+    this.LastEncounterEnemyId = Context.EncounterEnemyId;
+    this.ClearPhaseTimers();
+    this.RuntimePhase = "Overworld";
+    this.ActiveEncounterContext = null;
+    this.ActiveBattleSession = null;
+    this.EncounterPromptText = "队伍配置非法，已阻断进入战斗";
+    this.EncounterTransitionStartedAtMs = null;
+    this.EncounterTransitionEndAtMs = null;
+    this.NotifyRuntimeUpdated();
+  }
+
+  private CreateBattle3CSession(Context: FEncounterContext): FBattle3CSession | null {
+    const OverworldState = this.OverworldSimulation.GetState();
+    const PlayerTeam = OverworldState.TeamPackages[Context.PlayerTeamId];
+    const EnemyTeam = OverworldState.TeamPackages[Context.EnemyTeamId];
+    if (!PlayerTeam || !EnemyTeam) {
+      this.EmitRuntimeEvent(
+        "ETeamValidationFailed",
+        `创建战斗会话失败：缺少 TeamPackage（Player=${Context.PlayerTeamId}, Enemy=${Context.EnemyTeamId}）`
+      );
+      return null;
+    }
+
+    if (!this.IsFormationValid(PlayerTeam) || !this.IsFormationValid(EnemyTeam)) {
+      this.EmitRuntimeEvent("ETeamValidationFailed", "创建战斗会话失败：Formation 非法");
+      return null;
+    }
+
+    const PlayerUnits = this.BuildBattleTeamUnits({
+      TeamPackage: PlayerTeam,
+      TeamRole: "Player",
+      UnitStaticConfigMap: OverworldState.UnitStaticConfigs,
+      UnitRuntimeSnapshotMap: OverworldState.UnitRuntimeSnapshots
+    });
+    const EnemyUnits = this.BuildBattleTeamUnits({
+      TeamPackage: EnemyTeam,
+      TeamRole: "Enemy",
+      UnitStaticConfigMap: OverworldState.UnitStaticConfigs,
+      UnitRuntimeSnapshotMap: OverworldState.UnitRuntimeSnapshots
+    });
+    if (PlayerUnits.length < 1 || EnemyUnits.length < 1) {
+      this.EmitRuntimeEvent("ETeamValidationFailed", "创建战斗会话失败：缺少可展开战斗单位");
+      return null;
+    }
+
+    const AlivePlayerUnitIds = PlayerUnits.filter((Unit) => Unit.IsAlive).map(
+      (Unit) => Unit.UnitId
+    );
+    const ControlledCharacterId = AlivePlayerUnitIds.includes(PlayerTeam.Formation.LeaderUnitId)
+      ? PlayerTeam.Formation.LeaderUnitId
+      : (AlivePlayerUnitIds[0] ?? PlayerUnits[0].UnitId);
+
     return {
-      SessionId: `B3C_${EncounterEnemyId}_${Date.now()}`,
-      ControlledCharacterId: "P_YELLOW",
+      SessionId: `B3C_${Context.EncounterId}_${Date.now()}`,
+      PlayerTeamId: PlayerTeam.TeamId,
+      EnemyTeamId: EnemyTeam.TeamId,
+      PlayerActiveUnitIds: [...PlayerTeam.Formation.ActiveUnitIds],
+      EnemyActiveUnitIds: [...EnemyTeam.Formation.ActiveUnitIds],
+      ControlledCharacterId,
       CameraMode: "IntroPullOut",
       CrosshairScreenPosition: {
         X: 0.5,
@@ -699,75 +860,96 @@ export class UWebGameRuntime {
       IsSkillTargetMode: false,
       SelectedTargetIndex: 0,
       ScriptStepIndex: 0,
-      Units: [
-        {
-          UnitId: "P_YELLOW",
-          DisplayName: "Yellow",
-          TeamId: "Player",
-          PositionCm: {
-            X: -220,
-            Y: 0,
-            Z: -90
-          },
-          YawDeg: 90,
-          IsAlive: true,
-          IsEncounterPrimaryEnemy: false
-        },
-        {
-          UnitId: "P_RED",
-          DisplayName: "Red",
-          TeamId: "Player",
-          PositionCm: {
-            X: -220,
-            Y: 0,
-            Z: 90
-          },
-          YawDeg: 90,
-          IsAlive: true,
-          IsEncounterPrimaryEnemy: false
-        },
-        {
-          UnitId: MainEnemyId,
-          DisplayName: "Enemy Main",
-          TeamId: "Enemy",
-          PositionCm: {
-            X: 250,
-            Y: 0,
-            Z: 0
-          },
-          YawDeg: 270,
-          IsAlive: true,
-          IsEncounterPrimaryEnemy: true
-        },
-        {
-          UnitId: GuardEnemyId,
-          DisplayName: "Enemy Guard",
-          TeamId: "Enemy",
-          PositionCm: {
-            X: 300,
-            Y: 0,
-            Z: -150
-          },
-          YawDeg: 250,
-          IsAlive: true,
-          IsEncounterPrimaryEnemy: false
-        },
-        {
-          UnitId: SupportEnemyId,
-          DisplayName: "Enemy Support",
-          TeamId: "Enemy",
-          PositionCm: {
-            X: 300,
-            Y: 0,
-            Z: 150
-          },
-          YawDeg: 290,
-          IsAlive: true,
-          IsEncounterPrimaryEnemy: false
-        }
-      ],
+      Units: [...PlayerUnits, ...EnemyUnits],
       ScriptFocus: null
     };
+  }
+
+  private IsFormationValid(TeamPackage: FTeamPackageSnapshot): boolean {
+    const ActiveIds = TeamPackage.Formation.ActiveUnitIds;
+    if (ActiveIds.length < 1 || ActiveIds.length > 3) {
+      return false;
+    }
+
+    const RosterSet = new Set(TeamPackage.Roster.MemberUnitIds);
+    const ActiveSet = new Set<string>();
+    for (const ActiveUnitId of ActiveIds) {
+      if (ActiveSet.has(ActiveUnitId) || !RosterSet.has(ActiveUnitId)) {
+        return false;
+      }
+      ActiveSet.add(ActiveUnitId);
+    }
+
+    return (
+      ActiveSet.has(TeamPackage.Formation.LeaderUnitId) &&
+      ActiveSet.has(TeamPackage.Formation.OverworldDisplayUnitId)
+    );
+  }
+
+  private BuildBattleTeamUnits(Options: {
+    TeamPackage: FTeamPackageSnapshot;
+    TeamRole: "Player" | "Enemy";
+    UnitStaticConfigMap: Record<string, FUnitStaticConfig>;
+    UnitRuntimeSnapshotMap: Record<string, FUnitCombatRuntimeSnapshot>;
+  }): FBattleUnitRuntimeState[] {
+    const ActiveUnitIds = Options.TeamPackage.Formation.ActiveUnitIds;
+    return ActiveUnitIds.map((UnitId, Index) => {
+      const UnitConfig = Options.UnitStaticConfigMap[UnitId];
+      const RuntimeSnapshot = Options.UnitRuntimeSnapshotMap[UnitId];
+      if (!UnitConfig || !RuntimeSnapshot) {
+        return null;
+      }
+
+      const PositionCm = this.ResolveBattleSlotPositionCm(
+        Options.TeamRole,
+        Index,
+        ActiveUnitIds.length
+      );
+      const IsEnemyPrimary =
+        Options.TeamRole === "Enemy" && UnitId === Options.TeamPackage.Formation.LeaderUnitId;
+      return {
+        UnitId,
+        DisplayName: UnitConfig.DisplayName,
+        TeamId: Options.TeamRole,
+        ModelAssetPath:
+          Options.TeamRole === "Player" ? this.ResolveModelAssetPathByUnitId(UnitId) : null,
+        PositionCm,
+        YawDeg: Options.TeamRole === "Player" ? 90 : 270,
+        MaxHp: UnitConfig.BaseMaxHp,
+        CurrentHp: this.Clamp(RuntimeSnapshot.CurrentHp, 0, UnitConfig.BaseMaxHp),
+        MaxMp: UnitConfig.BaseMaxMp,
+        CurrentMp: this.Clamp(RuntimeSnapshot.CurrentMp, 0, UnitConfig.BaseMaxMp),
+        IsAlive: RuntimeSnapshot.IsAlive && RuntimeSnapshot.CurrentHp > 0,
+        IsEncounterPrimaryEnemy: IsEnemyPrimary
+      };
+    }).filter((Unit): Unit is FBattleUnitRuntimeState => Unit !== null);
+  }
+
+  private ResolveBattleSlotPositionCm(
+    TeamRole: "Player" | "Enemy",
+    Index: number,
+    TotalCount: number
+  ): FVector3Cm {
+    const LaneTable = BattleLaneTableByTeam[TeamRole];
+    const Lane = LaneTable[TotalCount] ?? LaneTable[3];
+    const SafeLaneIndex = Math.min(Math.max(Index, 0), Lane.length - 1);
+
+    return {
+      X: TeamRole === "Player" ? -220 : 280,
+      Y: 0,
+      Z: Lane[SafeLaneIndex]
+    };
+  }
+
+  private ResolveModelAssetPathByUnitId(UnitId: string): string | null {
+    const Mapping: Record<string, string> = {
+      char01: this.DebugConfig.UnitModelChar01Path,
+      char02: this.DebugConfig.UnitModelChar02Path,
+      char03: this.DebugConfig.UnitModelChar03Path,
+      P_YELLOW: this.DebugConfig.UnitModelChar01Path,
+      P_RED: this.DebugConfig.UnitModelChar02Path
+    };
+    return Mapping[UnitId] ?? null;
   }
 
   private AdvanceEnemyScriptStep(): void {
@@ -776,32 +958,23 @@ export class UWebGameRuntime {
     }
 
     const EnemyUnits = this.GetEnemyBattleUnits(this.ActiveBattleSession.Units);
-    const YellowPlayer = this.FindBattleUnit("P_YELLOW");
-    const RedPlayer = this.FindBattleUnit("P_RED");
-    const MainEnemy = EnemyUnits[0];
-    const GuardEnemy = EnemyUnits[1] ?? MainEnemy;
-    const SupportEnemy = EnemyUnits[2] ?? GuardEnemy;
-    if (!YellowPlayer || !RedPlayer || !MainEnemy || !GuardEnemy || !SupportEnemy) {
+    const PlayerUnits = this.GetPlayerBattleUnits(this.ActiveBattleSession.Units).filter(
+      (Unit) => Unit.IsAlive
+    );
+    if (EnemyUnits.length < 1 || PlayerUnits.length < 1) {
       return;
     }
 
-    const Steps: FBattleScriptStep[] = [
-      {
-        CameraMode: "EnemyAttackSingle",
-        AttackerUnitId: MainEnemy.UnitId,
-        TargetUnitIds: [YellowPlayer.UnitId]
-      },
-      {
-        CameraMode: "EnemyAttackSingle",
-        AttackerUnitId: GuardEnemy.UnitId,
-        TargetUnitIds: [RedPlayer.UnitId]
-      },
-      {
-        CameraMode: "EnemyAttackAOE",
-        AttackerUnitId: SupportEnemy.UnitId,
-        TargetUnitIds: [YellowPlayer.UnitId, RedPlayer.UnitId]
-      }
-    ];
+    const Steps: FBattleScriptStep[] = EnemyUnits.map((EnemyUnit, Index) => {
+      const IsAOE = Index === EnemyUnits.length - 1 && PlayerUnits.length > 1;
+      return {
+        CameraMode: IsAOE ? "EnemyAttackAOE" : "EnemyAttackSingle",
+        AttackerUnitId: EnemyUnit.UnitId,
+        TargetUnitIds: IsAOE
+          ? PlayerUnits.map((Unit) => Unit.UnitId)
+          : [PlayerUnits[Index % PlayerUnits.length].UnitId]
+      };
+    });
     const CurrentStep = Steps[this.ActiveBattleSession.ScriptStepIndex % Steps.length];
     this.ActiveBattleSession.ScriptFocus = {
       AttackerUnitId: CurrentStep.AttackerUnitId,
@@ -879,6 +1052,10 @@ export class UWebGameRuntime {
 
   private GetEnemyBattleUnits(Units: FBattleUnitRuntimeState[]): FBattleUnitRuntimeState[] {
     return Units.filter((Unit) => Unit.TeamId === "Enemy" && Unit.IsAlive);
+  }
+
+  private GetPlayerBattleUnits(Units: FBattleUnitRuntimeState[]): FBattleUnitRuntimeState[] {
+    return Units.filter((Unit) => Unit.TeamId === "Player");
   }
 
   private NotifyRuntimeUpdated(): void {

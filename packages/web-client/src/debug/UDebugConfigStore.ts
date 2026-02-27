@@ -1,5 +1,7 @@
 const DebugConfigStorageKeyV2 = "FD_DEBUG_CONFIG_V2";
 const DebugConfigStorageKeyV3 = "FD_DEBUG_CONFIG_V3";
+const DebugConfigStorageKeyV4 = "FD_DEBUG_CONFIG_V4";
+const DebugConfigStorageKeyV5 = "FD_DEBUG_CONFIG_V5";
 
 interface FDebugConfigStoragePayload {
   Config: FDebugConfig;
@@ -35,6 +37,14 @@ export interface FDebugConfig {
   EnemyAttackCamHeightCm: number;
   SettlementCamDistanceCm: number;
   SettlementCamHeightCm: number;
+  UnitModelChar01Path: string;
+  UnitModelChar02Path: string;
+  UnitModelChar03Path: string;
+  ModelAxisFixPreset: "None" | "RotateY90" | "RotateYMinus90" | "RotateY180";
+  FallbackToPlaceholderOnLoadFail: boolean;
+  MuzzleSocketPrefix: string;
+  ShowMuzzleSocketGizmo: boolean;
+  UseFallbackMuzzleIfMissing: boolean;
 }
 
 const DefaultDebugConfig: FDebugConfig = {
@@ -65,7 +75,15 @@ const DefaultDebugConfig: FDebugConfig = {
   EnemyAttackCamDistanceCm: 360,
   EnemyAttackCamHeightCm: 130,
   SettlementCamDistanceCm: 760,
-  SettlementCamHeightCm: 280
+  SettlementCamHeightCm: 280,
+  UnitModelChar01Path: "/assets/models/characters/SM_Char01.glb",
+  UnitModelChar02Path: "/assets/models/characters/SM_Char02.glb",
+  UnitModelChar03Path: "/assets/models/characters/SM_Char03.glb",
+  ModelAxisFixPreset: "None",
+  FallbackToPlaceholderOnLoadFail: true,
+  MuzzleSocketPrefix: "SOCKET_Muzzle",
+  ShowMuzzleSocketGizmo: false,
+  UseFallbackMuzzleIfMissing: true
 };
 
 export class UDebugConfigStore {
@@ -82,12 +100,40 @@ export class UDebugConfigStore {
       return DefaultPayload;
     }
 
+    const V5Payload = this.TryReadPayload(DebugConfigStorageKeyV5);
+    if (V5Payload) {
+      return {
+        Config: this.SanitizeConfig(V5Payload.Config, this.GetDefaultConfig()),
+        LastUpdatedAtIso: V5Payload.LastUpdatedAtIso
+      };
+    }
+
+    const V4Payload = this.TryReadPayload(DebugConfigStorageKeyV4);
+    if (V4Payload) {
+      const MigratedConfig = this.MigrateConfigToV5(
+        this.SanitizeConfig(V4Payload.Config, this.GetDefaultConfig())
+      );
+      const MigratedPayload: FDebugConfigStoragePayload = {
+        Config: MigratedConfig,
+        LastUpdatedAtIso: V4Payload.LastUpdatedAtIso
+      };
+      window.localStorage.setItem(DebugConfigStorageKeyV5, JSON.stringify(MigratedPayload));
+      return {
+        Config: MigratedConfig,
+        LastUpdatedAtIso: MigratedPayload.LastUpdatedAtIso
+      };
+    }
+
     const V3Payload = this.TryReadPayload(DebugConfigStorageKeyV3);
     if (V3Payload) {
-      return {
-        Config: this.SanitizeConfig(V3Payload.Config, this.GetDefaultConfig()),
+      const MigratedPayload: FDebugConfigStoragePayload = {
+        Config: this.MigrateConfigToV5(
+          this.SanitizeConfig(V3Payload.Config, this.GetDefaultConfig())
+        ),
         LastUpdatedAtIso: V3Payload.LastUpdatedAtIso
       };
+      window.localStorage.setItem(DebugConfigStorageKeyV5, JSON.stringify(MigratedPayload));
+      return MigratedPayload;
     }
 
     const V2Payload = this.TryReadPayload(DebugConfigStorageKeyV2);
@@ -96,10 +142,12 @@ export class UDebugConfigStore {
     }
 
     const MigratedPayload: FDebugConfigStoragePayload = {
-      Config: this.SanitizeConfig(V2Payload.Config, this.GetDefaultConfig()),
+      Config: this.MigrateConfigToV5(
+        this.SanitizeConfig(V2Payload.Config, this.GetDefaultConfig())
+      ),
       LastUpdatedAtIso: V2Payload.LastUpdatedAtIso
     };
-    window.localStorage.setItem(DebugConfigStorageKeyV3, JSON.stringify(MigratedPayload));
+    window.localStorage.setItem(DebugConfigStorageKeyV5, JSON.stringify(MigratedPayload));
     return MigratedPayload;
   }
 
@@ -110,7 +158,7 @@ export class UDebugConfigStore {
     };
 
     if (this.CanUseStorage()) {
-      window.localStorage.setItem(DebugConfigStorageKeyV3, JSON.stringify(Payload));
+      window.localStorage.setItem(DebugConfigStorageKeyV5, JSON.stringify(Payload));
     }
 
     return Payload.LastUpdatedAtIso ?? "";
@@ -314,8 +362,54 @@ export class UDebugConfigStore {
         this.ResolveNumber(Source, "SettlementCamHeightCm", Base.SettlementCamHeightCm),
         40,
         1800
+      ),
+      UnitModelChar01Path: this.ResolveString(
+        Source,
+        "UnitModelChar01Path",
+        Base.UnitModelChar01Path
+      ),
+      UnitModelChar02Path: this.ResolveString(
+        Source,
+        "UnitModelChar02Path",
+        Base.UnitModelChar02Path
+      ),
+      UnitModelChar03Path: this.ResolveString(
+        Source,
+        "UnitModelChar03Path",
+        Base.UnitModelChar03Path
+      ),
+      ModelAxisFixPreset: this.ResolveModelAxisFixPreset(
+        Source.ModelAxisFixPreset,
+        Base.ModelAxisFixPreset
+      ),
+      FallbackToPlaceholderOnLoadFail: this.ResolveBoolean(
+        Source,
+        "FallbackToPlaceholderOnLoadFail",
+        Base.FallbackToPlaceholderOnLoadFail
+      ),
+      MuzzleSocketPrefix: this.ResolveString(Source, "MuzzleSocketPrefix", Base.MuzzleSocketPrefix),
+      ShowMuzzleSocketGizmo: this.ResolveBoolean(
+        Source,
+        "ShowMuzzleSocketGizmo",
+        Base.ShowMuzzleSocketGizmo
+      ),
+      UseFallbackMuzzleIfMissing: this.ResolveBoolean(
+        Source,
+        "UseFallbackMuzzleIfMissing",
+        Base.UseFallbackMuzzleIfMissing
       )
     };
+  }
+
+  private MigrateConfigToV5(Config: FDebugConfig): FDebugConfig {
+    // V5: 统一把历史默认的 RotateYMinus90 调整为 None（整体右转 90 度）。
+    if (Config.ModelAxisFixPreset === "RotateYMinus90") {
+      return {
+        ...Config,
+        ModelAxisFixPreset: "None"
+      };
+    }
+    return Config;
   }
 
   private ResolveNumber(
@@ -326,8 +420,48 @@ export class UDebugConfigStore {
     return this.PickNumber(Source[Key], Fallback);
   }
 
+  private ResolveString(
+    Source: Partial<FDebugConfig>,
+    Key: keyof FDebugConfig,
+    Fallback: string
+  ): string {
+    return this.PickString(Source[Key], Fallback);
+  }
+
+  private ResolveBoolean(
+    Source: Partial<FDebugConfig>,
+    Key: keyof FDebugConfig,
+    Fallback: boolean
+  ): boolean {
+    return this.PickBoolean(Source[Key], Fallback);
+  }
+
+  private ResolveModelAxisFixPreset(
+    Value: unknown,
+    Fallback: FDebugConfig["ModelAxisFixPreset"]
+  ): FDebugConfig["ModelAxisFixPreset"] {
+    if (
+      Value === "None" ||
+      Value === "RotateY90" ||
+      Value === "RotateYMinus90" ||
+      Value === "RotateY180"
+    ) {
+      return Value;
+    }
+
+    return Fallback;
+  }
+
   private PickNumber(Value: unknown, Fallback: number): number {
     return typeof Value === "number" && Number.isFinite(Value) ? Value : Fallback;
+  }
+
+  private PickString(Value: unknown, Fallback: string): string {
+    return typeof Value === "string" ? Value : Fallback;
+  }
+
+  private PickBoolean(Value: unknown, Fallback: boolean): boolean {
+    return typeof Value === "boolean" ? Value : Fallback;
   }
 
   private Clamp(Value: number, Min: number, Max: number): number {

@@ -4,5 +4,6 @@ export enum EOverworldEventType {
   EnemyMoved = "EnemyMoved",
   EncounterTriggered = "EncounterTriggered",
   EncounterResolved = "EncounterResolved",
-  PlayerResetToSafePoint = "PlayerResetToSafePoint"
+  PlayerResetToSafePoint = "PlayerResetToSafePoint",
+  TeamValidationFailed = "ETeamValidationFailed"
 }

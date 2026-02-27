@@ -26,6 +26,9 @@ export interface FCrosshairScreenPosition {
 
 export interface FOverworldHudState {
   Phase: EOverworldPhase;
+  ControlledTeamId: string | null;
+  ControlledTeamActiveUnitIds: string[];
+  ControlledTeamOverworldDisplayUnitId: string | null;
   PlayerPosition: FOverworldVector2;
   PlayerYawDegrees: number;
   Enemies: FOverworldEnemyState[];
@@ -47,8 +50,13 @@ export interface FBattleUnitHudState {
   UnitId: string;
   DisplayName: string;
   TeamId: "Player" | "Enemy";
+  ModelAssetPath: string | null;
   PositionCm: FVector3Cm;
   YawDeg: number;
+  MaxHp: number;
+  CurrentHp: number;
+  MaxMp: number;
+  CurrentMp: number;
   IsAlive: boolean;
   IsControlled: boolean;
   IsSelectedTarget: boolean;
@@ -61,6 +69,10 @@ export interface FBattleScriptFocusHudState {
 }
 
 export interface FBattle3CHudState {
+  PlayerTeamId: string | null;
+  EnemyTeamId: string | null;
+  PlayerActiveUnitIds: string[];
+  EnemyActiveUnitIds: string[];
   ControlledCharacterId: string | null;
   CameraMode: FBattleCameraMode;
   CrosshairScreenPosition: FCrosshairScreenPosition;

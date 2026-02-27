@@ -70,6 +70,18 @@
 - [ ] `Alt+Q` 结算预览 + Enter/A 返回探索闭环通过手动冒烟。
 - [ ] Battle Tab 参数修改后刷新页面仍保留（手动冒烟）。
 
+## I. TeamPackage 到 BattleTeam 重构（2026-02-27）
+
+- [x] `LeaderUnitId` 不在 `ActiveUnitIds` 时触发 `ETeamValidationFailed`（`UOverworldSimulation.test.ts`）。
+- [x] `OverworldDisplayUnitId` 不在 `ActiveUnitIds` 时触发 `ETeamValidationFailed`（`UOverworldSimulation.test.ts`）。
+- [x] `ActiveUnitIds` 超过 3 时严格模式阻断（`UOverworldSimulation.test.ts`）。
+- [x] 遭遇事件缺失 `EnemyTeamId` 时阻断进入战斗（`UOverworldSimulation.test.ts`）。
+- [x] 切换可控角色只在“上阵且存活”成员内循环（`UWebGameRuntime.test.ts`）。
+- [x] `FD_DEBUG_CONFIG_V4` 升级并兼容 V2/V3 读取（`UDebugConfigStore.ts`）。
+- [ ] 模型路径错误时回退占位体并输出日志（待补自动化或手动冒烟）。
+- [ ] `SOCKET_Muzzle*` 缺失时使用默认发射点且不崩溃（待补自动化或手动冒烟）。
+- [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
+
 ## F. 本次修复记录
 
 - 问题描述：实现“遭遇 -> 战斗 3C -> 结算回图”的事件驱动链路（功能开发，非缺陷修复）。
@@ -106,5 +118,19 @@
 - 验证命令与结果：
   - `pnpm --filter @fd/web-client test`：通过
   - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：按 TeamPackage -> BattleTeam 方案完成 Team/Unit 真源下沉、遭遇上下文升级、非硬编码切人、角色 GLB 模型接入与枪口挂点扫描。
+- 对应测试文件：
+  - `packages/gameplay-core/tests/UOverworldSimulation.test.ts`
+  - `packages/gameplay-core/tests/UTeamPackageValidator.test.ts`
+  - `packages/web-client/src/game/UWebGameRuntime.test.ts`
+- 新增/修改条目：新增 I 节“TeamPackage 到 BattleTeam 重构（2026-02-27）”共 9 项，其中 6 项自动化已完成。
+- 验证命令与结果：
+  - `pnpm typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm test`：通过（`gameplay-core` 15 项）
+  - `pnpm --filter @fd/web-client test`：通过（5 项）
   - `pnpm verify`：通过（typecheck + lint + test + build）
 - 是否新增 postmortem：`否`

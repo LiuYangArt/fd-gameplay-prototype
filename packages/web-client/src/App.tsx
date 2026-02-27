@@ -19,7 +19,7 @@ interface FRangeFieldProps {
 }
 
 interface FRangeSpec {
-  Key: keyof FDebugConfig;
+  Key: FDebugNumberKey;
   Label: string;
   Min: number;
   Max: number;
@@ -44,6 +44,18 @@ interface FControlledUnitAnchor {
   X: number;
   Y: number;
 }
+
+type FDebugNumberKey = {
+  [K in keyof FDebugConfig]: FDebugConfig[K] extends number ? K : never;
+}[keyof FDebugConfig];
+
+type FDebugStringKey = {
+  [K in keyof FDebugConfig]: FDebugConfig[K] extends string ? K : never;
+}[keyof FDebugConfig];
+
+type FDebugBooleanKey = {
+  [K in keyof FDebugConfig]: FDebugConfig[K] extends boolean ? K : never;
+}[keyof FDebugConfig];
 
 const OverworldRangeGroups: FRangeGroup[] = [
   {
@@ -323,7 +335,19 @@ export function App() {
     };
   }, [DebugMenuLayoutStore]);
 
-  const ApplyDebugNumber = <TKey extends keyof FDebugConfig>(Key: TKey, Value: number) => {
+  const ApplyDebugNumber = <TKey extends FDebugNumberKey>(Key: TKey, Value: number) => {
+    Runtime.ApplyDebugConfig({
+      [Key]: Value
+    } as Pick<FDebugConfig, TKey>);
+  };
+
+  const ApplyDebugString = <TKey extends FDebugStringKey>(Key: TKey, Value: string) => {
+    Runtime.ApplyDebugConfig({
+      [Key]: Value
+    } as Pick<FDebugConfig, TKey>);
+  };
+
+  const ApplyDebugBoolean = <TKey extends FDebugBooleanKey>(Key: TKey, Value: boolean) => {
     Runtime.ApplyDebugConfig({
       [Key]: Value
     } as Pick<FDebugConfig, TKey>);
@@ -530,6 +554,21 @@ export function App() {
             Phase: <strong>{Hud.OverworldState.Phase}</strong>
           </p>
           <p>
+            Controlled Team: <strong>{Hud.OverworldState.ControlledTeamId ?? "None"}</strong>
+          </p>
+          <p>
+            Active Units:{" "}
+            <strong>
+              {Hud.OverworldState.ControlledTeamActiveUnitIds.length > 0
+                ? Hud.OverworldState.ControlledTeamActiveUnitIds.join(", ")
+                : "None"}
+            </strong>
+          </p>
+          <p>
+            Display Unit:{" "}
+            <strong>{Hud.OverworldState.ControlledTeamOverworldDisplayUnitId ?? "None"}</strong>
+          </p>
+          <p>
             Player (cm): X {Hud.OverworldState.PlayerPosition.X.toFixed(1)} / Z{" "}
             {Hud.OverworldState.PlayerPosition.Z.toFixed(1)}
           </p>
@@ -557,6 +596,10 @@ export function App() {
 
         <section className="PanelBlock">
           <h2>Battle 3C</h2>
+          <p>
+            Team: <strong>{Hud.Battle3CState.PlayerTeamId ?? "None"}</strong> vs{" "}
+            <strong>{Hud.Battle3CState.EnemyTeamId ?? "None"}</strong>
+          </p>
           <p>
             Controlled: <strong>{Hud.Battle3CState.ControlledCharacterId ?? "None"}</strong>
           </p>
@@ -633,8 +676,10 @@ export function App() {
             {Hud.Battle3CState.Units.map((Unit) => (
               <li key={Unit.UnitId}>
                 {Unit.UnitId} | {Unit.TeamId} | Pos ({Unit.PositionCm.X.toFixed(0)},{" "}
-                {Unit.PositionCm.Y.toFixed(0)}, {Unit.PositionCm.Z.toFixed(0)}) |{" "}
-                {Unit.IsControlled ? "Controlled" : Unit.IsSelectedTarget ? "Targeted" : "Idle"}
+                {Unit.PositionCm.Y.toFixed(0)}, {Unit.PositionCm.Z.toFixed(0)}) | HP{" "}
+                {Unit.CurrentHp}/{Unit.MaxHp} | MP {Unit.CurrentMp}/{Unit.MaxMp} |{" "}
+                {Unit.IsControlled ? "Controlled" : Unit.IsSelectedTarget ? "Targeted" : "Idle"} |{" "}
+                {Unit.ModelAssetPath ?? "NoModel"}
               </li>
             ))}
           </ul>
@@ -722,6 +767,120 @@ export function App() {
                   </div>
                 )
               )}
+
+              <div className="DebugRangeGroup">
+                <h3>Team 调试</h3>
+                <p>
+                  ControlledTeamId: <strong>{Hud.OverworldState.ControlledTeamId ?? "None"}</strong>
+                </p>
+                <p>
+                  ActiveUnitIds:{" "}
+                  <strong>
+                    {Hud.OverworldState.ControlledTeamActiveUnitIds.length > 0
+                      ? Hud.OverworldState.ControlledTeamActiveUnitIds.join(", ")
+                      : "None"}
+                  </strong>
+                </p>
+                <p>
+                  OverworldDisplayUnitId:{" "}
+                  <strong>
+                    {Hud.OverworldState.ControlledTeamOverworldDisplayUnitId ?? "None"}
+                  </strong>
+                </p>
+              </div>
+
+              <div className="DebugRangeGroup">
+                <h3>模型调试</h3>
+                <label className="DebugField">
+                  <span>char01 模型路径</span>
+                  <input
+                    type="text"
+                    value={Hud.DebugState.Config.UnitModelChar01Path}
+                    onChange={(Event) =>
+                      ApplyDebugString("UnitModelChar01Path", Event.target.value)
+                    }
+                  />
+                </label>
+                <label className="DebugField">
+                  <span>char02 模型路径</span>
+                  <input
+                    type="text"
+                    value={Hud.DebugState.Config.UnitModelChar02Path}
+                    onChange={(Event) =>
+                      ApplyDebugString("UnitModelChar02Path", Event.target.value)
+                    }
+                  />
+                </label>
+                <label className="DebugField">
+                  <span>char03 模型路径</span>
+                  <input
+                    type="text"
+                    value={Hud.DebugState.Config.UnitModelChar03Path}
+                    onChange={(Event) =>
+                      ApplyDebugString("UnitModelChar03Path", Event.target.value)
+                    }
+                  />
+                </label>
+                <label className="DebugField">
+                  <span>轴向修正预设</span>
+                  <select
+                    value={Hud.DebugState.Config.ModelAxisFixPreset}
+                    onChange={(Event) =>
+                      ApplyDebugString(
+                        "ModelAxisFixPreset",
+                        Event.target.value as FDebugConfig["ModelAxisFixPreset"]
+                      )
+                    }
+                  >
+                    <option value="None">None</option>
+                    <option value="RotateY90">RotateY90</option>
+                    <option value="RotateYMinus90">RotateYMinus90</option>
+                    <option value="RotateY180">RotateY180</option>
+                  </select>
+                </label>
+                <label className="DebugField">
+                  <span>加载失败回退占位体</span>
+                  <input
+                    type="checkbox"
+                    checked={Hud.DebugState.Config.FallbackToPlaceholderOnLoadFail}
+                    onChange={(Event) =>
+                      ApplyDebugBoolean("FallbackToPlaceholderOnLoadFail", Event.target.checked)
+                    }
+                  />
+                </label>
+              </div>
+
+              <div className="DebugRangeGroup">
+                <h3>挂点调试</h3>
+                <label className="DebugField">
+                  <span>MuzzleSocketPrefix</span>
+                  <input
+                    type="text"
+                    value={Hud.DebugState.Config.MuzzleSocketPrefix}
+                    onChange={(Event) => ApplyDebugString("MuzzleSocketPrefix", Event.target.value)}
+                  />
+                </label>
+                <label className="DebugField">
+                  <span>显示枪口挂点 Gizmo</span>
+                  <input
+                    type="checkbox"
+                    checked={Hud.DebugState.Config.ShowMuzzleSocketGizmo}
+                    onChange={(Event) =>
+                      ApplyDebugBoolean("ShowMuzzleSocketGizmo", Event.target.checked)
+                    }
+                  />
+                </label>
+                <label className="DebugField">
+                  <span>缺失挂点时使用兜底</span>
+                  <input
+                    type="checkbox"
+                    checked={Hud.DebugState.Config.UseFallbackMuzzleIfMissing}
+                    onChange={(Event) =>
+                      ApplyDebugBoolean("UseFallbackMuzzleIfMissing", Event.target.checked)
+                    }
+                  />
+                </label>
+              </div>
 
               <div className="ControlsInline">
                 <button type="button" onClick={HandleExportDebugJson}>

@@ -4,8 +4,51 @@ import {
   EOverworldCommandType,
   EOverworldEventType,
   EOverworldPhase,
-  UOverworldSimulation
+  UOverworldSimulation,
+  type FTeamPackageSnapshot
 } from "../src";
+
+function CreatePlayerTeamPackage(Override?: Partial<FTeamPackageSnapshot>): FTeamPackageSnapshot {
+  const BaseTeamPackage: FTeamPackageSnapshot = {
+    Meta: {
+      SchemaVersion: "1.0.0",
+      DataRevision: 1
+    },
+    TeamId: "TEAM_PLAYER_01",
+    DisplayName: "Player Team",
+    MoveConfig: {
+      WalkSpeedCmPerSec: 420,
+      RunSpeedCmPerSec: 750
+    },
+    Roster: {
+      TeamId: "TEAM_PLAYER_01",
+      MemberUnitIds: ["char01", "char02", "char03"]
+    },
+    Formation: {
+      TeamId: "TEAM_PLAYER_01",
+      ActiveUnitIds: ["char01", "char02", "char03"],
+      LeaderUnitId: "char01",
+      OverworldDisplayUnitId: "char01"
+    }
+  };
+
+  return {
+    ...BaseTeamPackage,
+    ...Override,
+    Roster: {
+      TeamId: "TEAM_PLAYER_01",
+      MemberUnitIds: ["char01", "char02", "char03"],
+      ...Override?.Roster
+    },
+    Formation: {
+      TeamId: "TEAM_PLAYER_01",
+      ActiveUnitIds: ["char01", "char02", "char03"],
+      LeaderUnitId: "char01",
+      OverworldDisplayUnitId: "char01",
+      ...Override?.Formation
+    }
+  };
+}
 
 describe("UOverworldSimulation", () => {
   it("InitializeWorld 后应进入 Exploring 阶段", () => {
@@ -166,5 +209,137 @@ describe("UOverworldSimulation", () => {
     expect(IsAccepted).toBe(true);
     expect(PositionBeforeReset.X !== 0 || PositionBeforeReset.Z !== 0).toBe(true);
     expect(PositionAfterReset).toEqual({ X: 0, Z: 0 });
+  });
+
+  it("LeaderUnitId 不在 ActiveUnitIds 时应触发 ETeamValidationFailed", () => {
+    const Simulation = new UOverworldSimulation();
+
+    const IsAccepted = Simulation.SubmitCommand({
+      Type: EOverworldCommandType.InitializeWorld,
+      Config: {
+        TeamSeed: {
+          TeamPackages: [
+            CreatePlayerTeamPackage({
+              Formation: {
+                TeamId: "TEAM_PLAYER_01",
+                ActiveUnitIds: ["char01", "char02", "char03"],
+                LeaderUnitId: "char99",
+                OverworldDisplayUnitId: "char01"
+              }
+            })
+          ]
+        }
+      }
+    });
+
+    const ValidationFailedEvent = Simulation.GetEventHistory().find(
+      (Event) => Event.Type === EOverworldEventType.TeamValidationFailed
+    );
+
+    expect(IsAccepted).toBe(false);
+    expect(ValidationFailedEvent?.Type).toBe(EOverworldEventType.TeamValidationFailed);
+    expect(ValidationFailedEvent?.Payload.TeamId).toBe("TEAM_PLAYER_01");
+  });
+
+  it("OverworldDisplayUnitId 不在 ActiveUnitIds 时应触发 ETeamValidationFailed", () => {
+    const Simulation = new UOverworldSimulation();
+
+    const IsAccepted = Simulation.SubmitCommand({
+      Type: EOverworldCommandType.InitializeWorld,
+      Config: {
+        TeamSeed: {
+          TeamPackages: [
+            CreatePlayerTeamPackage({
+              Formation: {
+                TeamId: "TEAM_PLAYER_01",
+                ActiveUnitIds: ["char01", "char02", "char03"],
+                LeaderUnitId: "char01",
+                OverworldDisplayUnitId: "char88"
+              }
+            })
+          ]
+        }
+      }
+    });
+
+    const ValidationFailedEvent = Simulation.GetEventHistory().find(
+      (Event) => Event.Type === EOverworldEventType.TeamValidationFailed
+    );
+
+    expect(IsAccepted).toBe(false);
+    expect(ValidationFailedEvent?.Type).toBe(EOverworldEventType.TeamValidationFailed);
+    expect(ValidationFailedEvent?.Payload.TeamId).toBe("TEAM_PLAYER_01");
+  });
+
+  it("ActiveUnitIds 超过 3 人时严格模式应阻断 InitializeWorld", () => {
+    const Simulation = new UOverworldSimulation();
+
+    const IsAccepted = Simulation.SubmitCommand({
+      Type: EOverworldCommandType.InitializeWorld,
+      Config: {
+        TeamSeed: {
+          TeamPackages: [
+            CreatePlayerTeamPackage({
+              Roster: {
+                TeamId: "TEAM_PLAYER_01",
+                MemberUnitIds: ["char01", "char02", "char03", "char04"]
+              },
+              Formation: {
+                TeamId: "TEAM_PLAYER_01",
+                ActiveUnitIds: ["char01", "char02", "char03", "char04"],
+                LeaderUnitId: "char01",
+                OverworldDisplayUnitId: "char01"
+              }
+            })
+          ]
+        }
+      }
+    });
+
+    const ValidationFailedEvent = Simulation.GetEventHistory().find(
+      (Event) => Event.Type === EOverworldEventType.TeamValidationFailed
+    );
+
+    expect(IsAccepted).toBe(false);
+    expect(ValidationFailedEvent?.Type).toBe(EOverworldEventType.TeamValidationFailed);
+    expect(
+      ValidationFailedEvent?.Payload.Violations.some((Message) => Message.includes("1..3"))
+    ).toBe(true);
+  });
+
+  it("遭遇事件缺失 EnemyTeamId 时应阻断进入战斗", () => {
+    const Simulation = new UOverworldSimulation();
+    Simulation.SubmitCommand({
+      Type: EOverworldCommandType.InitializeWorld,
+      Config: {
+        EnemyCount: 1,
+        WorldHalfSize: 400,
+        Tuning: {
+          EncounterDistance: 500
+        },
+        TeamSeed: {
+          EnemyTeamBindings: {}
+        }
+      }
+    });
+
+    const StepAccepted = Simulation.SubmitCommand({
+      Type: EOverworldCommandType.Step,
+      MoveAxis: { X: 0, Y: 1 },
+      LookYawDeltaDegrees: 0,
+      DeltaSeconds: 0.3,
+      IsSprinting: true
+    });
+
+    const EncounterEvent = Simulation.GetEventHistory().find(
+      (Event) => Event.Type === EOverworldEventType.EncounterTriggered
+    );
+    const ValidationFailedEvent = Simulation.GetEventHistory().find(
+      (Event) => Event.Type === EOverworldEventType.TeamValidationFailed
+    );
+
+    expect(StepAccepted).toBe(false);
+    expect(EncounterEvent).toBeUndefined();
+    expect(ValidationFailedEvent?.Payload.FailureReason).toContain("EnemyTeamId");
   });
 });

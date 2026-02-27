@@ -1,5 +1,11 @@
 import { EOverworldPhase } from "../enums/EOverworldPhase";
 
+import type {
+  FTeamPackageSnapshot,
+  FUnitCombatRuntimeSnapshot,
+  FUnitStaticConfig
+} from "../../team/state/FTeamPackageSnapshot";
+
 export interface FOverworldVector2 {
   X: number;
   Z: number;
@@ -33,12 +39,26 @@ export interface FOverworldWorldConfig {
   WorldHalfSize: number;
   SafePoint: FOverworldVector2;
   Tuning: Partial<FOverworldTuningSnapshot>;
+  TeamSeed?: FOverworldTeamSeedConfig;
+}
+
+export interface FOverworldTeamSeedConfig {
+  ControlledTeamId?: string;
+  TeamPackages?: FTeamPackageSnapshot[];
+  UnitStaticConfigs?: FUnitStaticConfig[];
+  UnitRuntimeSnapshots?: FUnitCombatRuntimeSnapshot[];
+  EnemyTeamBindings?: Record<string, string>;
 }
 
 export interface FOverworldState {
   Phase: EOverworldPhase;
+  ControlledTeamId: string | null;
   Player: FOverworldPlayerState;
   Enemies: Record<string, FOverworldEnemyState>;
+  TeamPackages: Record<string, FTeamPackageSnapshot>;
+  UnitStaticConfigs: Record<string, FUnitStaticConfig>;
+  UnitRuntimeSnapshots: Record<string, FUnitCombatRuntimeSnapshot>;
+  EnemyTeamBindings: Record<string, string>;
   SafePoint: FOverworldVector2;
   Tuning: FOverworldTuningSnapshot;
   PendingEncounterEnemyId: string | null;
@@ -63,18 +83,24 @@ export function CreateDefaultOverworldWorldConfig(): FOverworldWorldConfig {
     EnemyCount: 4,
     WorldHalfSize: 3000,
     SafePoint: { X: 0, Z: 0 },
-    Tuning: {}
+    Tuning: {},
+    TeamSeed: undefined
   };
 }
 
 export function CreateEmptyOverworldState(): FOverworldState {
   return {
     Phase: EOverworldPhase.Idle,
+    ControlledTeamId: null,
     Player: {
       Position: { X: 0, Z: 0 },
       YawDegrees: 0
     },
     Enemies: {},
+    TeamPackages: {},
+    UnitStaticConfigs: {},
+    UnitRuntimeSnapshots: {},
+    EnemyTeamBindings: {},
     SafePoint: { X: 0, Z: 0 },
     Tuning: CreateDefaultOverworldTuning(),
     PendingEncounterEnemyId: null,

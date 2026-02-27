@@ -1,3 +1,4 @@
+import { UTeamPackageValidator } from "../../team/validator/UTeamPackageValidator";
 import { EOverworldCommandType } from "../commands/EOverworldCommandType";
 import { EOverworldPhase } from "../enums/EOverworldPhase";
 import { EOverworldEventType } from "../events/EOverworldEventType";
@@ -7,12 +8,18 @@ import {
   CreateEmptyOverworldState,
   type FOverworldEnemyState,
   type FOverworldPlayerState,
+  type FOverworldTeamSeedConfig,
   type FOverworldTuningSnapshot,
   type FOverworldVector2,
   type FOverworldWorldConfig
 } from "../state/FOverworldState";
 import { UOverworldStateStore } from "../state/UOverworldStateStore";
 
+import type {
+  FTeamPackageSnapshot,
+  FUnitCombatRuntimeSnapshot,
+  FUnitStaticConfig
+} from "../../team/state/FTeamPackageSnapshot";
 import type { FOverworldCommand, FStepCommand } from "../commands/FOverworldCommand";
 import type {
   FOverworldEvent,
@@ -24,9 +31,22 @@ type FOverworldEventListener<TType extends EOverworldEventType> = (
   Event: FTypedOverworldEvent<TType>
 ) => void;
 
+interface FResolvedWorldConfig extends Omit<FOverworldWorldConfig, "Tuning"> {
+  Tuning: FOverworldTuningSnapshot;
+}
+
+interface FTeamSeedContext {
+  ControlledTeamId: string;
+  TeamPackages: FTeamPackageSnapshot[];
+  UnitStaticConfigs: FUnitStaticConfig[];
+  UnitRuntimeSnapshots: FUnitCombatRuntimeSnapshot[];
+  EnemyTeamBindings: Record<string, string>;
+}
+
 export class UOverworldSimulation {
   private readonly StateStore: UOverworldStateStore;
   private readonly EventHistory: FOverworldEvent[];
+  private readonly TeamPackageValidator: UTeamPackageValidator;
   private readonly Listeners: {
     [K in EOverworldEventType]: Set<FOverworldEventListener<K>>;
   };
@@ -35,6 +55,7 @@ export class UOverworldSimulation {
   public constructor() {
     this.StateStore = new UOverworldStateStore(CreateEmptyOverworldState());
     this.EventHistory = [];
+    this.TeamPackageValidator = new UTeamPackageValidator();
     this.NextEventId = 1;
     this.Listeners = {
       [EOverworldEventType.WorldInitialized]: new Set(),
@@ -42,7 +63,8 @@ export class UOverworldSimulation {
       [EOverworldEventType.EnemyMoved]: new Set(),
       [EOverworldEventType.EncounterTriggered]: new Set(),
       [EOverworldEventType.EncounterResolved]: new Set(),
-      [EOverworldEventType.PlayerResetToSafePoint]: new Set()
+      [EOverworldEventType.PlayerResetToSafePoint]: new Set(),
+      [EOverworldEventType.TeamValidationFailed]: new Set()
     };
   }
 
@@ -93,12 +115,49 @@ export class UOverworldSimulation {
       YawDegrees: 0
     };
 
+    const TeamSeedContext = this.CreateTeamSeedContext(WorldConfig.TeamSeed, Enemies, WorldConfig);
+    const InvalidTeam = TeamSeedContext.TeamPackages.find((TeamPackage) => {
+      const ValidationResult = this.TeamPackageValidator.Validate(TeamPackage);
+      if (ValidationResult.IsValid) {
+        return false;
+      }
+
+      this.EmitTeamValidationFailed(
+        TeamPackage.TeamId,
+        "InitializeWorld 校验失败",
+        ValidationResult.Issues.map((Issue) => Issue.Message),
+        null
+      );
+      return true;
+    });
+    if (InvalidTeam) {
+      return false;
+    }
+
+    const ControlledTeamExists = TeamSeedContext.TeamPackages.some(
+      (TeamPackage) => TeamPackage.TeamId === TeamSeedContext.ControlledTeamId
+    );
+    if (!ControlledTeamExists) {
+      this.EmitTeamValidationFailed(
+        TeamSeedContext.ControlledTeamId,
+        "InitializeWorld 缺少 ControlledTeamId 对应队伍",
+        ["ControlledTeamId 不存在于 TeamPackages"],
+        null
+      );
+      return false;
+    }
+
     this.EmitEvent(EOverworldEventType.WorldInitialized, {
       WorldHalfSize: WorldConfig.WorldHalfSize,
       SafePoint: { ...WorldConfig.SafePoint },
+      ControlledTeamId: TeamSeedContext.ControlledTeamId,
       Player,
       Enemies,
-      Tuning: { ...WorldConfig.Tuning }
+      Tuning: { ...WorldConfig.Tuning },
+      TeamPackages: TeamSeedContext.TeamPackages,
+      UnitStaticConfigs: TeamSeedContext.UnitStaticConfigs,
+      UnitRuntimeSnapshots: TeamSeedContext.UnitRuntimeSnapshots,
+      EnemyTeamBindings: { ...TeamSeedContext.EnemyTeamBindings }
     });
 
     return true;
@@ -110,13 +169,43 @@ export class UOverworldSimulation {
       return false;
     }
 
+    const ControlledTeamId = State.ControlledTeamId;
+    if (!ControlledTeamId) {
+      this.EmitTeamValidationFailed(
+        "UNKNOWN",
+        "Step 缺少 ControlledTeamId",
+        ["状态中 ControlledTeamId 为空"],
+        null
+      );
+      return false;
+    }
+
+    const ControlledTeam = State.TeamPackages[ControlledTeamId];
+    if (!ControlledTeam) {
+      this.EmitTeamValidationFailed(
+        ControlledTeamId,
+        "Step 找不到 ControlledTeam",
+        ["ControlledTeamId 不存在于 TeamPackages"],
+        null
+      );
+      return false;
+    }
+
     const DeltaSeconds = this.Clamp(Command.DeltaSeconds, 0, 0.25);
     if (DeltaSeconds <= 0) {
       return true;
     }
 
-    const WalkSpeed = this.Clamp(Command.WalkSpeed ?? State.Tuning.WalkSpeed, 10, 10000);
-    const RunSpeed = this.Clamp(Command.RunSpeed ?? State.Tuning.RunSpeed, WalkSpeed, 16000);
+    const WalkSpeed = this.Clamp(
+      Command.WalkSpeed ?? ControlledTeam.MoveConfig.WalkSpeedCmPerSec,
+      10,
+      10000
+    );
+    const RunSpeed = this.Clamp(
+      Command.RunSpeed ?? ControlledTeam.MoveConfig.RunSpeedCmPerSec,
+      WalkSpeed,
+      16000
+    );
     const MoveAxis = this.NormalizeAxis(Command.MoveAxis.X, Command.MoveAxis.Y);
     const MoveSpeed = Command.IsSprinting ? RunSpeed : WalkSpeed;
     const MoveDistance = MoveSpeed * DeltaSeconds;
@@ -134,6 +223,7 @@ export class UOverworldSimulation {
     );
 
     this.EmitEvent(EOverworldEventType.PlayerMoved, {
+      TeamId: ControlledTeamId,
       Position: NextPosition,
       YawDegrees: NextYawDegrees,
       IsSprinting: Command.IsSprinting,
@@ -155,7 +245,44 @@ export class UOverworldSimulation {
       return true;
     }
 
+    const EncounterId = this.CreateEncounterId(EncounterEnemy.EnemyId);
+    const EnemyTeamId = NextState.EnemyTeamBindings[EncounterEnemy.EnemyId];
+    if (!EnemyTeamId) {
+      this.EmitTeamValidationFailed(
+        "UNKNOWN_ENEMY_TEAM",
+        `遭遇敌人 ${EncounterEnemy.EnemyId} 时缺少 EnemyTeamId`,
+        ["EncounterTriggered 需要 EnemyTeamId"],
+        EncounterId
+      );
+      return false;
+    }
+
+    const EnemyTeam = NextState.TeamPackages[EnemyTeamId];
+    if (!EnemyTeam) {
+      this.EmitTeamValidationFailed(
+        EnemyTeamId,
+        "遭遇敌人时 EnemyTeamId 未找到对应 TeamPackage",
+        ["EnemyTeamId 不存在于 TeamPackages"],
+        EncounterId
+      );
+      return false;
+    }
+
+    const EnemyValidation = this.TeamPackageValidator.Validate(EnemyTeam);
+    if (!EnemyValidation.IsValid) {
+      this.EmitTeamValidationFailed(
+        EnemyTeamId,
+        "遭遇敌人时 EnemyTeam 配置非法",
+        EnemyValidation.Issues.map((Issue) => Issue.Message),
+        EncounterId
+      );
+      return false;
+    }
+
     this.EmitEvent(EOverworldEventType.EncounterTriggered, {
+      EncounterId,
+      PlayerTeamId: ControlledTeamId,
+      EnemyTeamId,
       EnemyId: EncounterEnemy.EnemyId,
       PlayerPosition: { ...NextPosition },
       EnemyPosition: { ...EncounterEnemy.Position }
@@ -184,9 +311,7 @@ export class UOverworldSimulation {
     return true;
   }
 
-  private ResolveWorldConfig(
-    Config?: Partial<FOverworldWorldConfig>
-  ): Omit<FOverworldWorldConfig, "Tuning"> & { Tuning: FOverworldTuningSnapshot } {
+  private ResolveWorldConfig(Config?: Partial<FOverworldWorldConfig>): FResolvedWorldConfig {
     const DefaultConfig = CreateDefaultOverworldWorldConfig();
     const DefaultTuning = CreateDefaultOverworldTuning();
     const NextWorldHalfSize = this.ResolveWorldHalfSize(Config, DefaultConfig);
@@ -198,7 +323,8 @@ export class UOverworldSimulation {
       EnemyCount: NextEnemyCount,
       WorldHalfSize: NextWorldHalfSize,
       SafePoint,
-      Tuning
+      Tuning,
+      TeamSeed: Config?.TeamSeed
     };
   }
 
@@ -313,6 +439,180 @@ export class UOverworldSimulation {
     });
   }
 
+  private CreateTeamSeedContext(
+    TeamSeed: FOverworldTeamSeedConfig | undefined,
+    Enemies: FOverworldEnemyState[],
+    WorldConfig: FResolvedWorldConfig
+  ): FTeamSeedContext {
+    const PlayerUnitIds = ["char01", "char02", "char03"];
+    const UnitStaticConfigMap = new Map<string, FUnitStaticConfig>();
+    const UnitRuntimeSnapshotMap = new Map<string, FUnitCombatRuntimeSnapshot>();
+    const TeamPackageMap = new Map<string, FTeamPackageSnapshot>();
+
+    const AddUnitSnapshotPair = (
+      UnitConfig: FUnitStaticConfig,
+      RuntimeSnapshot: FUnitCombatRuntimeSnapshot
+    ) => {
+      UnitStaticConfigMap.set(UnitConfig.UnitId, UnitConfig);
+      UnitRuntimeSnapshotMap.set(RuntimeSnapshot.UnitId, RuntimeSnapshot);
+    };
+
+    PlayerUnitIds.forEach((UnitId, Index) => {
+      AddUnitSnapshotPair(
+        {
+          UnitId,
+          DisplayName: `Player ${Index + 1}`,
+          BaseMaxHp: 140,
+          BaseMaxMp: 90,
+          BaseAttack: 32,
+          BaseDefense: 18,
+          BaseSpeed: 24,
+          SkillIds: ["SKL_BASIC_SHOT", "SKL_POWER_SHOT"],
+          Tags: ["Player"]
+        },
+        {
+          UnitId,
+          CurrentHp: 140,
+          CurrentMp: 90,
+          IsAlive: true,
+          Cooldowns: {},
+          StatusEffects: []
+        }
+      );
+    });
+
+    const PlayerTeamId = "TEAM_PLAYER_01";
+    TeamPackageMap.set(PlayerTeamId, {
+      Meta: {
+        SchemaVersion: "1.0.0",
+        DataRevision: 1
+      },
+      TeamId: PlayerTeamId,
+      DisplayName: "Player Team",
+      MoveConfig: {
+        WalkSpeedCmPerSec: WorldConfig.Tuning.WalkSpeed,
+        RunSpeedCmPerSec: WorldConfig.Tuning.RunSpeed
+      },
+      Roster: {
+        TeamId: PlayerTeamId,
+        MemberUnitIds: [...PlayerUnitIds]
+      },
+      Formation: {
+        TeamId: PlayerTeamId,
+        ActiveUnitIds: [...PlayerUnitIds],
+        LeaderUnitId: PlayerUnitIds[0],
+        OverworldDisplayUnitId: PlayerUnitIds[0]
+      }
+    });
+
+    const EnemyTeamBindings: Record<string, string> = {};
+    Enemies.forEach((Enemy, Index) => {
+      const EnemyTeamId = `TEAM_${Enemy.EnemyId}`;
+      const EnemyMainId = `${Enemy.EnemyId}_MAIN`;
+      const EnemyGuardId = `${Enemy.EnemyId}_GUARD`;
+      const EnemySupportId = `${Enemy.EnemyId}_SUPPORT`;
+      const EnemyUnitIds = [EnemyMainId, EnemyGuardId, EnemySupportId];
+
+      EnemyUnitIds.forEach((UnitId, UnitIndex) => {
+        AddUnitSnapshotPair(
+          {
+            UnitId,
+            DisplayName: `Enemy ${Index + 1}-${UnitIndex + 1}`,
+            BaseMaxHp: UnitIndex === 0 ? 180 : 120,
+            BaseMaxMp: 0,
+            BaseAttack: UnitIndex === 2 ? 22 : 28,
+            BaseDefense: UnitIndex === 0 ? 16 : 10,
+            BaseSpeed: 14,
+            SkillIds: ["SKL_ENEMY_BITE"],
+            Tags: ["Enemy"]
+          },
+          {
+            UnitId,
+            CurrentHp: UnitIndex === 0 ? 180 : 120,
+            CurrentMp: 0,
+            IsAlive: true,
+            Cooldowns: {},
+            StatusEffects: []
+          }
+        );
+      });
+
+      TeamPackageMap.set(EnemyTeamId, {
+        Meta: {
+          SchemaVersion: "1.0.0",
+          DataRevision: 1
+        },
+        TeamId: EnemyTeamId,
+        DisplayName: `${Enemy.EnemyId} Team`,
+        MoveConfig: {
+          WalkSpeedCmPerSec: 260,
+          RunSpeedCmPerSec: 420
+        },
+        Roster: {
+          TeamId: EnemyTeamId,
+          MemberUnitIds: EnemyUnitIds
+        },
+        Formation: {
+          TeamId: EnemyTeamId,
+          ActiveUnitIds: EnemyUnitIds,
+          LeaderUnitId: EnemyMainId,
+          OverworldDisplayUnitId: EnemyMainId
+        }
+      });
+
+      EnemyTeamBindings[Enemy.EnemyId] = EnemyTeamId;
+    });
+
+    TeamSeed?.UnitStaticConfigs?.forEach((UnitConfig) => {
+      UnitStaticConfigMap.set(UnitConfig.UnitId, { ...UnitConfig });
+    });
+
+    TeamSeed?.UnitRuntimeSnapshots?.forEach((RuntimeSnapshot) => {
+      UnitRuntimeSnapshotMap.set(RuntimeSnapshot.UnitId, {
+        ...RuntimeSnapshot,
+        Cooldowns: { ...RuntimeSnapshot.Cooldowns },
+        StatusEffects: [...RuntimeSnapshot.StatusEffects],
+        ReactionWindowMs: RuntimeSnapshot.ReactionWindowMs
+          ? { ...RuntimeSnapshot.ReactionWindowMs }
+          : undefined
+      });
+    });
+
+    TeamSeed?.TeamPackages?.forEach((TeamPackage) => {
+      TeamPackageMap.set(TeamPackage.TeamId, {
+        ...TeamPackage,
+        Meta: { ...TeamPackage.Meta },
+        MoveConfig: { ...TeamPackage.MoveConfig },
+        Roster: {
+          ...TeamPackage.Roster,
+          MemberUnitIds: [...TeamPackage.Roster.MemberUnitIds]
+        },
+        Formation: {
+          ...TeamPackage.Formation,
+          ActiveUnitIds: [...TeamPackage.Formation.ActiveUnitIds]
+        }
+      });
+    });
+
+    const ControlledTeamId = TeamSeed?.ControlledTeamId ?? PlayerTeamId;
+
+    return {
+      ControlledTeamId,
+      TeamPackages: [...TeamPackageMap.values()].sort((Left, Right) =>
+        Left.TeamId.localeCompare(Right.TeamId)
+      ),
+      UnitStaticConfigs: [...UnitStaticConfigMap.values()].sort((Left, Right) =>
+        Left.UnitId.localeCompare(Right.UnitId)
+      ),
+      UnitRuntimeSnapshots: [...UnitRuntimeSnapshotMap.values()].sort((Left, Right) =>
+        Left.UnitId.localeCompare(Right.UnitId)
+      ),
+      EnemyTeamBindings: TeamSeed?.EnemyTeamBindings
+        ? { ...TeamSeed.EnemyTeamBindings }
+        : EnemyTeamBindings
+    };
+  }
+
   private CalculatePlayerPosition(
     Position: FOverworldVector2,
     YawDegrees: number,
@@ -420,6 +720,24 @@ export class UOverworldSimulation {
 
   private Round(Value: number): number {
     return Number(Value.toFixed(4));
+  }
+
+  private CreateEncounterId(EnemyId: string): string {
+    return `ENC_${EnemyId}_${this.NextEventId}`;
+  }
+
+  private EmitTeamValidationFailed(
+    TeamId: string,
+    FailureReason: string,
+    Violations: string[],
+    EncounterId: string | null
+  ): void {
+    this.EmitEvent(EOverworldEventType.TeamValidationFailed, {
+      TeamId,
+      EncounterId,
+      FailureReason,
+      Violations
+    });
   }
 
   private EmitEvent<TType extends EOverworldEventType>(

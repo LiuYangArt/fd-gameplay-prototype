@@ -26,21 +26,55 @@ export class UOverworldStateStore {
         const Enemies = Object.fromEntries(
           Event.Payload.Enemies.map((Enemy) => [Enemy.EnemyId, { ...Enemy }])
         );
+        const TeamPackages = Object.fromEntries(
+          Event.Payload.TeamPackages.map((TeamPackage) => [TeamPackage.TeamId, { ...TeamPackage }])
+        );
+        const UnitStaticConfigs = Object.fromEntries(
+          Event.Payload.UnitStaticConfigs.map((UnitConfig) => [
+            UnitConfig.UnitId,
+            { ...UnitConfig }
+          ])
+        );
+        const UnitRuntimeSnapshots = Object.fromEntries(
+          Event.Payload.UnitRuntimeSnapshots.map((RuntimeSnapshot) => [
+            RuntimeSnapshot.UnitId,
+            { ...RuntimeSnapshot }
+          ])
+        );
         this.State = {
           ...this.State,
           Phase: EOverworldPhase.Exploring,
+          ControlledTeamId: Event.Payload.ControlledTeamId,
           Player: {
             ...Event.Payload.Player,
             Position: { ...Event.Payload.Player.Position }
           },
           SafePoint: { ...Event.Payload.SafePoint },
           Enemies,
+          TeamPackages,
+          UnitStaticConfigs,
+          UnitRuntimeSnapshots,
+          EnemyTeamBindings: { ...Event.Payload.EnemyTeamBindings },
           PendingEncounterEnemyId: null,
           Tuning: { ...Event.Payload.Tuning, WorldHalfSize: Event.Payload.WorldHalfSize }
         };
         break;
       }
-      case EOverworldEventType.PlayerMoved:
+      case EOverworldEventType.PlayerMoved: {
+        const CurrentTeamPackage = this.State.TeamPackages[Event.Payload.TeamId];
+        const TeamPackages = {
+          ...this.State.TeamPackages
+        };
+        if (CurrentTeamPackage) {
+          TeamPackages[Event.Payload.TeamId] = {
+            ...CurrentTeamPackage,
+            MoveConfig: {
+              ...CurrentTeamPackage.MoveConfig,
+              WalkSpeedCmPerSec: Event.Payload.WalkSpeed,
+              RunSpeedCmPerSec: Event.Payload.RunSpeed
+            }
+          };
+        }
         this.State = {
           ...this.State,
           Player: {
@@ -51,9 +85,11 @@ export class UOverworldStateStore {
             ...this.State.Tuning,
             WalkSpeed: Event.Payload.WalkSpeed,
             RunSpeed: Event.Payload.RunSpeed
-          }
+          },
+          TeamPackages
         };
         break;
+      }
       case EOverworldEventType.EnemyMoved: {
         const NextEnemies = {
           ...this.State.Enemies
@@ -78,12 +114,17 @@ export class UOverworldStateStore {
         const NextEnemies = {
           ...this.State.Enemies
         };
+        const NextEnemyTeamBindings = {
+          ...this.State.EnemyTeamBindings
+        };
         delete NextEnemies[Event.Payload.EnemyId];
+        delete NextEnemyTeamBindings[Event.Payload.EnemyId];
         this.State = {
           ...this.State,
           Phase: EOverworldPhase.Exploring,
           PendingEncounterEnemyId: null,
-          Enemies: NextEnemies
+          Enemies: NextEnemies,
+          EnemyTeamBindings: NextEnemyTeamBindings
         };
         break;
       }
@@ -95,6 +136,8 @@ export class UOverworldStateStore {
             Position: { ...Event.Payload.Position }
           }
         };
+        break;
+      case EOverworldEventType.TeamValidationFailed:
         break;
       default:
         break;

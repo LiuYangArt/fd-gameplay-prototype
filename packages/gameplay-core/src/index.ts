@@ -11,6 +11,20 @@ export type { FGameplayEvent, FTypedGameplayEvent } from "./events/FGameplayEven
 export type { FSkillPayload } from "./types/FSkillPayload";
 export type { FTeamId, FUnitSnapshot } from "./types/FUnitSnapshot";
 export { UBattleSimulation } from "./facade/UBattleSimulation";
+export { UTeamPackageValidator } from "./team/validator/UTeamPackageValidator";
+export type {
+  FSchemaMeta,
+  FTeamFormationSnapshot,
+  FTeamMoveConfig,
+  FTeamPackageSnapshot,
+  FTeamRosterSnapshot,
+  FUnitCombatRuntimeSnapshot,
+  FUnitStaticConfig
+} from "./team/state/FTeamPackageSnapshot";
+export type {
+  FTeamValidationIssue,
+  FTeamValidationResult
+} from "./team/validator/UTeamPackageValidator";
 export { EOverworldPhase } from "./overworld/enums/EOverworldPhase";
 export { EOverworldCommandType } from "./overworld/commands/EOverworldCommandType";
 export type {
@@ -26,6 +40,7 @@ export type { FOverworldEvent, FTypedOverworldEvent } from "./overworld/events/F
 export type {
   FOverworldEnemyState,
   FOverworldPlayerState,
+  FOverworldTeamSeedConfig,
   FOverworldState,
   FOverworldTuningSnapshot,
   FOverworldVector2,
