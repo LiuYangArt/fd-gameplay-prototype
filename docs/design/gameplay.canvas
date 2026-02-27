@@ -26,7 +26,9 @@
 		{"id":"b484f951a7a1d1f8","type":"file","file":"fd_prototype_docs/design/_assets/20260226111206_1.jpg","x":-353,"y":1495,"width":400,"height":225},
 		{"id":"49f647182307109e","type":"text","text":"1. 胜利/失败结算界面\n2. 返回地图/移动探索\n3. hud上显示获得物","x":122,"y":1611,"width":250,"height":109},
 		{"id":"0cdce55eadefd23a","type":"file","file":"fd_prototype_docs/design/_assets/20260226111219_1.jpg","x":-355,"y":1787,"width":400,"height":225},
-		{"id":"118cff313103dbe8","x":-972,"y":681,"width":400,"height":236,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227213724.png"}
+		{"id":"02cd00ef26b9f685","x":-1540,"y":951,"width":447,"height":283,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227214216.png"},
+		{"id":"118cff313103dbe8","x":-1388,"y":643,"width":400,"height":236,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227213724.png"},
+		{"id":"a3236c3b5a7a9796","x":-1078,"y":951,"width":400,"height":285,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227214336.png"}
 	],
 	"edges":[
 		{"id":"ccbf3f1c2e8a8bf6","fromNode":"de545118cf52a11e","fromSide":"bottom","toNode":"7b3738d50d1569fc","toSide":"top"},
