@@ -5,6 +5,7 @@ interface FGamepadSnapshot {
   LookAxis: FInputVector2;
   SprintHold: boolean;
   ToggleAimEdge: boolean;
+  CancelAimEdge: boolean;
   FireEdge: boolean;
   SwitchCharacterEdge: boolean;
   ToggleSkillTargetModeEdge: boolean;
@@ -16,6 +17,7 @@ interface FGamepadSnapshot {
 
 interface FGamepadButtonState {
   A: boolean;
+  B: boolean;
   LB: boolean;
   RB: boolean;
   LT: boolean;
@@ -34,6 +36,9 @@ const GamepadYawDegreesPerSecond = 180;
 const GamepadPitchDegreesPerSecond = 135;
 const GamepadAimPixelsPerSecond = 520;
 const GamepadCycleAxisThreshold = 0.65;
+const IgnoreFireInputSelector = '[data-ignore-fire-input="true"]';
+const InteractiveInputSelector =
+  "button, input, textarea, select, option, label, a, [role='button']";
 
 interface FInputControllerOptions {
   ResolveAimViewportRect?: () => DOMRect | null;
@@ -50,6 +55,7 @@ export class UInputController {
   private MouseDeltaY: number;
   private PendingAimScreenPosition: FInputVector2 | null;
   private PendingToggleAimEdge: boolean;
+  private PendingCancelAimEdge: boolean;
   private PendingFireEdge: boolean;
   private PendingSwitchCharacterEdge: boolean;
   private PendingToggleSkillTargetModeEdge: boolean;
@@ -59,6 +65,7 @@ export class UInputController {
   private PendingRestartEdge: boolean;
   private PendingToggleDebugEdge: boolean;
   private PreviousGamepadA: boolean;
+  private PreviousGamepadB: boolean;
   private PreviousGamepadLB: boolean;
   private PreviousGamepadRB: boolean;
   private PreviousGamepadLT: boolean;
@@ -83,6 +90,7 @@ export class UInputController {
     this.MouseDeltaY = 0;
     this.PendingAimScreenPosition = null;
     this.PendingToggleAimEdge = false;
+    this.PendingCancelAimEdge = false;
     this.PendingFireEdge = false;
     this.PendingSwitchCharacterEdge = false;
     this.PendingToggleSkillTargetModeEdge = false;
@@ -92,6 +100,7 @@ export class UInputController {
     this.PendingRestartEdge = false;
     this.PendingToggleDebugEdge = false;
     this.PreviousGamepadA = false;
+    this.PreviousGamepadB = false;
     this.PreviousGamepadLB = false;
     this.PreviousGamepadRB = false;
     this.PreviousGamepadLT = false;
@@ -155,6 +164,7 @@ export class UInputController {
           this.PressedKeys.has("ShiftRight") ||
           GamepadSnapshot.SprintHold,
         ToggleAimEdge: this.PendingToggleAimEdge || GamepadSnapshot.ToggleAimEdge,
+        CancelAimEdge: this.PendingCancelAimEdge || GamepadSnapshot.CancelAimEdge,
         FireEdge: this.PendingFireEdge || GamepadSnapshot.FireEdge,
         SwitchCharacterEdge: this.PendingSwitchCharacterEdge || GamepadSnapshot.SwitchCharacterEdge,
         ToggleSkillTargetModeEdge:
@@ -220,9 +230,10 @@ export class UInputController {
   }
 
   private HandleMouseDown(Event: MouseEvent): void {
-    if (Event.button === 0) {
-      this.PendingFireEdge = true;
+    if (Event.button !== 0 || this.ShouldIgnoreMouseFire(Event.target)) {
+      return;
     }
+    this.PendingFireEdge = true;
   }
 
   private HandleWindowBlur(): void {
@@ -270,6 +281,7 @@ export class UInputController {
       LookAxis: this.ReadGamepadLookAxis(ActiveGamepad),
       SprintHold: ActiveGamepad.buttons[10]?.pressed ?? false,
       ToggleAimEdge: this.ResolvePressedEdge(Buttons.LT, this.PreviousGamepadLT),
+      CancelAimEdge: this.ResolvePressedEdge(Buttons.B, this.PreviousGamepadB),
       FireEdge: FireFromA || FireFromRT,
       SwitchCharacterEdge: this.ResolvePressedEdge(Buttons.LB, this.PreviousGamepadLB),
       ToggleSkillTargetModeEdge: this.ResolvePressedEdge(Buttons.RB, this.PreviousGamepadRB),
@@ -280,6 +292,7 @@ export class UInputController {
     };
 
     this.PreviousGamepadA = Buttons.A;
+    this.PreviousGamepadB = Buttons.B;
     this.PreviousGamepadLB = Buttons.LB;
     this.PreviousGamepadRB = Buttons.RB;
     this.PreviousGamepadLT = Buttons.LT;
@@ -298,6 +311,7 @@ export class UInputController {
       LookAxis: { X: 0, Y: 0 },
       SprintHold: false,
       ToggleAimEdge: false,
+      CancelAimEdge: false,
       FireEdge: false,
       SwitchCharacterEdge: false,
       ToggleSkillTargetModeEdge: false,
@@ -313,6 +327,7 @@ export class UInputController {
     const RTValue = this.ReadGamepadButtonValue(Pad, 7);
     return {
       A: this.ReadGamepadButtonPressed(Pad, 0),
+      B: this.ReadGamepadButtonPressed(Pad, 1),
       LB: this.ReadGamepadButtonPressed(Pad, 4),
       RB: this.ReadGamepadButtonPressed(Pad, 5),
       LT: LTValue > 0.5,
@@ -370,6 +385,9 @@ export class UInputController {
     return {
       KeyQ: () => {
         this.PendingToggleAimEdge = true;
+      },
+      Escape: () => {
+        this.PendingCancelAimEdge = true;
       },
       KeyC: () => {
         this.PendingSwitchCharacterEdge = true;
@@ -518,6 +536,17 @@ export class UInputController {
     return Current && !Previous;
   }
 
+  private ShouldIgnoreMouseFire(Target: EventTarget | null): boolean {
+    if (!(Target instanceof Element)) {
+      return false;
+    }
+
+    return (
+      Target.closest(IgnoreFireInputSelector) !== null ||
+      Target.closest(InteractiveInputSelector) !== null
+    );
+  }
+
   private Clamp(Value: number, Min: number, Max: number): number {
     return Math.min(Math.max(Value, Min), Max);
   }
@@ -531,6 +560,7 @@ export class UInputController {
 
   private ClearFrameEdges(): void {
     this.PendingToggleAimEdge = false;
+    this.PendingCancelAimEdge = false;
     this.PendingFireEdge = false;
     this.PendingSwitchCharacterEdge = false;
     this.PendingToggleSkillTargetModeEdge = false;
@@ -543,6 +573,7 @@ export class UInputController {
 
   private ResetGamepadEdges(): void {
     this.PreviousGamepadA = false;
+    this.PreviousGamepadB = false;
     this.PreviousGamepadLB = false;
     this.PreviousGamepadRB = false;
     this.PreviousGamepadLT = false;

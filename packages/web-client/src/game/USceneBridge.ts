@@ -4,6 +4,7 @@ import {
   Color4,
   Engine,
   HemisphericLight,
+  Matrix,
   Mesh,
   MeshBuilder,
   Scene,
@@ -50,6 +51,15 @@ interface FBattleFollowCameraPose {
   Position: Vector3;
 }
 
+interface FScreenAnchor {
+  X: number;
+  Y: number;
+}
+
+interface FSceneBridgeOptions {
+  OnControlledUnitAnchorUpdated?: (Anchor: FScreenAnchor | null) => void;
+}
+
 export class USceneBridge {
   private static readonly CentimetersToMeters = 0.01;
   private static readonly OverworldGroundColorHex = "#333a41";
@@ -83,14 +93,18 @@ export class USceneBridge {
   private LastCameraUpdateTimeMs: number | null;
   private LastCameraRuntimePhase: FRuntimePhase | null;
   private CurrentViewModel: FHudViewModel | null;
+  private readonly OnControlledUnitAnchorUpdated: ((Anchor: FScreenAnchor | null) => void) | null;
+  private LastControlledUnitAnchor: FScreenAnchor | null;
 
-  public constructor(Canvas: HTMLCanvasElement) {
+  public constructor(Canvas: HTMLCanvasElement, Options?: FSceneBridgeOptions) {
     this.Engine = new Engine(Canvas, true);
     this.Scene = new Scene(this.Engine);
     this.Scene.clearColor = new Color4(0.47, 0.71, 0.94, 1);
     this.OverworldEnemyMeshMap = new Map();
     this.BattleUnitMeshMap = new Map();
     this.CurrentViewModel = null;
+    this.OnControlledUnitAnchorUpdated = Options?.OnControlledUnitAnchorUpdated ?? null;
+    this.LastControlledUnitAnchor = null;
 
     this.Camera = this.CreateCamera();
     this.OverworldGround = this.CreateOverworldGround();
@@ -149,6 +163,7 @@ export class USceneBridge {
       this.ApplyBattlePocketView(ViewModel);
     }
     this.ApplyCamera(ViewModel);
+    this.SyncControlledUnitAnchor(ViewModel);
   }
 
   private CreateCamera(): ArcRotateCamera {
@@ -673,14 +688,7 @@ export class USceneBridge {
       if (!Unit.IsAlive) {
         Material.diffuseColor = new Color3(0.24, 0.24, 0.24);
       } else {
-        const BaseColor = this.ResolveBattleUnitBaseColor(Unit);
-        if (Unit.IsSelectedTarget) {
-          Material.diffuseColor = this.AdjustColorBrightness(BaseColor, 0.34);
-        } else if (Unit.IsControlled) {
-          Material.diffuseColor = this.AdjustColorBrightness(BaseColor, 0.2);
-        } else {
-          Material.diffuseColor = BaseColor;
-        }
+        Material.diffuseColor = this.ResolveBattleUnitBaseColor(Unit);
       }
 
       ExistingIds.delete(Unit.UnitId);
@@ -905,12 +913,83 @@ export class USceneBridge {
       : Color3.FromHexString(USceneBridge.BattleEnemyColorHex);
   }
 
-  private AdjustColorBrightness(Color: Color3, Delta: number): Color3 {
-    return new Color3(
-      this.Clamp(Color.r + Delta, 0, 1),
-      this.Clamp(Color.g + Delta, 0, 1),
-      this.Clamp(Color.b + Delta, 0, 1)
+  private SyncControlledUnitAnchor(ViewModel: FHudViewModel): void {
+    if (!this.OnControlledUnitAnchorUpdated) {
+      return;
+    }
+
+    if (ViewModel.RuntimePhase !== "Battle3C") {
+      this.EmitControlledUnitAnchorIfChanged(null);
+      return;
+    }
+
+    const ControlledUnit = this.FindBattleUnit(
+      ViewModel,
+      ViewModel.Battle3CState.ControlledCharacterId
     );
+    if (!ControlledUnit || !ControlledUnit.IsAlive) {
+      this.EmitControlledUnitAnchorIfChanged(null);
+      return;
+    }
+
+    const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
+    const UnitWorldPos = this.ResolveBattleUnitPositionMeters(ControlledUnit, DropOffsetCm).add(
+      new Vector3(0, 0.45, 0)
+    );
+    const Anchor = this.ProjectWorldToScreenAnchor(UnitWorldPos);
+    this.EmitControlledUnitAnchorIfChanged(Anchor);
+  }
+
+  private ProjectWorldToScreenAnchor(WorldPosition: Vector3): FScreenAnchor | null {
+    const RenderWidth = this.Engine.getRenderWidth();
+    const RenderHeight = this.Engine.getRenderHeight();
+    if (RenderWidth <= 0 || RenderHeight <= 0) {
+      return null;
+    }
+
+    const Viewport = this.Camera.viewport.toGlobal(RenderWidth, RenderHeight);
+    const ScreenPosition = Vector3.Project(
+      WorldPosition,
+      Matrix.IdentityReadOnly,
+      this.Scene.getTransformMatrix(),
+      Viewport
+    );
+    if (!Number.isFinite(ScreenPosition.x) || !Number.isFinite(ScreenPosition.y)) {
+      return null;
+    }
+
+    const X = ScreenPosition.x / RenderWidth;
+    const Y = ScreenPosition.y / RenderHeight;
+    if (X < 0 || X > 1 || Y < 0 || Y > 1 || ScreenPosition.z < 0 || ScreenPosition.z > 1) {
+      return null;
+    }
+
+    return {
+      X,
+      Y
+    };
+  }
+
+  private EmitControlledUnitAnchorIfChanged(Anchor: FScreenAnchor | null): void {
+    if (this.AreAnchorsEqual(this.LastControlledUnitAnchor, Anchor)) {
+      return;
+    }
+
+    this.LastControlledUnitAnchor = Anchor ? { ...Anchor } : null;
+    this.OnControlledUnitAnchorUpdated?.(Anchor ? { ...Anchor } : null);
+  }
+
+  private AreAnchorsEqual(Left: FScreenAnchor | null, Right: FScreenAnchor | null): boolean {
+    if (!Left && !Right) {
+      return true;
+    }
+
+    if (!Left || !Right) {
+      return false;
+    }
+
+    const Epsilon = 0.0006;
+    return Math.abs(Left.X - Right.X) <= Epsilon && Math.abs(Left.Y - Right.Y) <= Epsilon;
   }
 
   private UpdateSkyClouds(DeltaSeconds: number): void {

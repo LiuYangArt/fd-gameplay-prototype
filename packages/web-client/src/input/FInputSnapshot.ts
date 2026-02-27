@@ -11,6 +11,7 @@ export interface FInputSnapshot {
   AimScreenPosition: FInputVector2 | null;
   SprintHold: boolean;
   ToggleAimEdge: boolean;
+  CancelAimEdge: boolean;
   FireEdge: boolean;
   SwitchCharacterEdge: boolean;
   ToggleSkillTargetModeEdge: boolean;

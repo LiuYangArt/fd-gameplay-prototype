@@ -314,9 +314,124 @@ ul {
   margin-top: -1px;
 }
 
+.BattleActionHudAnchor {
+  position: absolute;
+  transform: translate(-50%, -42%);
+  pointer-events: none;
+  z-index: 18;
+}
+
+.BattleActionHudLeft,
+.BattleActionHudRight {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  gap: 10px;
+  transform: translateY(-50%);
+  pointer-events: auto;
+}
+
+.BattleActionHudLeft {
+  right: calc(100% + 132px);
+}
+
+.BattleActionHudRight {
+  left: calc(100% + 132px);
+}
+
+.BattleAimReturnGroup {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 72px);
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+.BattleActionButton {
+  width: auto;
+  min-width: 146px;
+  padding: 11px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(210, 230, 255, 0.32);
+  background: linear-gradient(120deg, rgba(8, 16, 28, 0.9), rgba(18, 36, 58, 0.76));
+  text-align: left;
+  display: grid;
+  gap: 4px;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.BattleActionButton span {
+  font-size: 11px;
+  color: #bfd4ea;
+}
+
+.BattleActionButton:hover {
+  background: linear-gradient(120deg, rgba(12, 24, 41, 0.95), rgba(24, 47, 74, 0.82));
+}
+
+.BattleActionButton.IsActive {
+  border-color: rgba(255, 216, 138, 0.8);
+  box-shadow: 0 0 0 1px rgba(255, 197, 86, 0.35);
+}
+
+.BattleActionButton--Aim {
+  min-width: 128px;
+}
+
+.BattleActionButton--Return {
+  min-width: 120px;
+}
+
+.BattleCornerActions {
+  position: absolute;
+  left: 18px;
+  bottom: 18px;
+  display: flex;
+  gap: 10px;
+  z-index: 20;
+}
+
+.BattleCornerButton {
+  width: auto;
+  min-width: 126px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(231, 237, 248, 0.3);
+  background: rgba(11, 20, 32, 0.82);
+  backdrop-filter: blur(3px);
+}
+
+.BattleCornerButton:hover {
+  background: rgba(18, 34, 54, 0.9);
+}
+
 @media (max-width: 1280px) {
   .ControlsGrid {
     grid-template-columns: 1fr;
+  }
+
+  .BattleActionButton {
+    min-width: 118px;
+    padding: 9px 11px;
+    font-size: 14px;
+  }
+
+  .BattleActionHudLeft {
+    right: calc(100% + 88px);
+  }
+
+  .BattleActionHudRight {
+    left: calc(100% + 88px);
+  }
+
+  .BattleAimReturnGroup {
+    top: calc(100% + 56px);
+  }
+
+  .BattleCornerButton {
+    min-width: 108px;
+    padding: 8px 11px;
   }
 }
 
@@ -327,5 +442,23 @@ ul {
 
   .BattleCanvas {
     max-height: 52vh;
+  }
+
+  .BattleCornerActions {
+    left: 12px;
+    bottom: 12px;
+    gap: 8px;
+  }
+
+  .BattleActionHudLeft {
+    right: calc(100% + 56px);
+  }
+
+  .BattleActionHudRight {
+    left: calc(100% + 56px);
+  }
+
+  .BattleAimReturnGroup {
+    top: calc(100% + 44px);
   }
 }

@@ -32,6 +32,9 @@
 - [ ] 输入边沿触发无连发问题（按住不会重复触发一次性动作）。
 - [ ] 战斗结束后 UI 与 3D 表现同步到完成态。
 - [x] 瞄准模式下鼠标驱动准星使用绝对坐标，且隐藏系统鼠标光标（`PlayerAim`）。
+- [x] 战斗 HUD 点击不会误触发开火输入（`mousedown` 过滤 UI 元素）。
+- [x] 瞄准模式下支持 `Esc / 手柄 B / HUD 返回按钮` 退出瞄准并回到跟随镜头。
+- [x] 战斗结束回到 `Overworld` 后，左下角战斗 HUD（逃跑/跳过回合）会完全清理。
 
 ## D. 分层边界与命名约束
 
@@ -84,6 +87,24 @@
 - 验证命令与结果：
   - `pnpm --filter @fd/web-client test`：通过（新增回归 1 项）
   - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：修复战斗 HUD 交互与瞄准返回链路（按钮点击不应误开火、瞄准中仅显示返回并支持 `Esc/B` 退出）。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增“CancelAimEdge 退出瞄准”回归）。
+- 新增/修改条目：C 节新增 2 项并置为已完成（HUD 点击过滤、Esc/B/返回按钮退出瞄准）。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（2 项）
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：修复战斗结束后左下角战斗 HUD 未清理（仍显示禁用按钮）的问题。
+- 对应测试文件：`packages/web-client/src/ui/UBattleHudVisibility.test.ts`（新增回归）。
+- 新增/修改条目：C 节新增“Overworld 清理左下角战斗 HUD”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过
   - `pnpm lint`：通过
   - `pnpm verify`：通过（typecheck + lint + test + build）
 - 是否新增 postmortem：`否`

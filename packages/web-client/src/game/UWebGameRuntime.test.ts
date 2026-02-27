@@ -48,6 +48,7 @@ function CreateSnapshot(): FInputSnapshot {
     AimScreenPosition: null,
     SprintHold: false,
     ToggleAimEdge: false,
+    CancelAimEdge: false,
     FireEdge: false,
     SwitchCharacterEdge: false,
     ToggleSkillTargetModeEdge: false,
@@ -97,5 +98,42 @@ describe("UWebGameRuntime", () => {
       X: 0.77,
       Y: 0.22
     });
+  });
+
+  it("瞄准状态收到取消输入后应退出瞄准并返回跟随镜头", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_TEST_CANCEL_AIM",
+      ControlledCharacterId: "P_YELLOW",
+      CameraMode: "PlayerAim",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: true,
+      IsSkillTargetMode: false,
+      SelectedTargetIndex: 0,
+      ScriptStepIndex: 0,
+      Units: [
+        {
+          UnitId: "P_YELLOW",
+          DisplayName: "Yellow",
+          TeamId: "Player",
+          PositionCm: { X: 0, Y: 0, Z: 0 },
+          YawDeg: 0,
+          IsAlive: true,
+          IsEncounterPrimaryEnemy: false
+        }
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      CancelAimEdge: true
+    });
+
+    const Battle3CState = Runtime.GetViewModel().Battle3CState;
+    expect(Battle3CState.IsAimMode).toBe(false);
+    expect(Battle3CState.CameraMode).toBe("PlayerFollow");
   });
 });

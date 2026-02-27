@@ -4,6 +4,7 @@ import { UDebugMenuLayoutStore, type FDebugMenuLayoutState } from "./debug/UDebu
 import { USceneBridge } from "./game/USceneBridge";
 import { UWebGameRuntime } from "./game/UWebGameRuntime";
 import { UInputController } from "./input/UInputController";
+import { ShouldShowBattleCornerActions } from "./ui/UBattleHudVisibility";
 
 import type { FDebugConfig } from "./debug/UDebugConfigStore";
 import type { FHudViewModel } from "./ui/FHudViewModel";
@@ -38,6 +39,11 @@ interface FDebugMenuPointerAction {
 }
 
 type FDebugTabKey = "Overworld" | "Battle";
+
+interface FControlledUnitAnchor {
+  X: number;
+  Y: number;
+}
 
 const OverworldRangeGroups: FRangeGroup[] = [
   {
@@ -203,6 +209,9 @@ export function App() {
   const [DebugBuffer, SetDebugBuffer] = useState("");
   const [DebugMessage, SetDebugMessage] = useState<string | null>(null);
   const [ActiveDebugTab, SetActiveDebugTab] = useState<FDebugTabKey>("Overworld");
+  const [ControlledUnitAnchor, SetControlledUnitAnchor] = useState<FControlledUnitAnchor | null>(
+    null
+  );
   const [DebugMenuLayout, SetDebugMenuLayout] = useState<FDebugMenuLayoutState>(() =>
     DebugMenuLayoutStore.Load()
   );
@@ -213,7 +222,23 @@ export function App() {
       return;
     }
 
-    const SceneBridge = new USceneBridge(Canvas);
+    const SceneBridge = new USceneBridge(Canvas, {
+      OnControlledUnitAnchorUpdated: (Anchor) => {
+        SetControlledUnitAnchor((PreviousAnchor) => {
+          if (!Anchor && !PreviousAnchor) {
+            return PreviousAnchor;
+          }
+          if (!Anchor || !PreviousAnchor) {
+            return Anchor;
+          }
+          const Epsilon = 0.0006;
+          const IsUnchanged =
+            Math.abs(PreviousAnchor.X - Anchor.X) <= Epsilon &&
+            Math.abs(PreviousAnchor.Y - Anchor.Y) <= Epsilon;
+          return IsUnchanged ? PreviousAnchor : Anchor;
+        });
+      }
+    });
     const InputController = new UInputController(
       (Snapshot) => Runtime.ConsumeInputSnapshot(Snapshot),
       {
@@ -233,6 +258,7 @@ export function App() {
       UnsubscribeRuntime();
       UnbindInput();
       SceneBridge.Dispose();
+      SetControlledUnitAnchor(null);
     };
   }, [Runtime]);
 
@@ -342,7 +368,22 @@ export function App() {
     IsBattle3CPhase &&
     (Hud.Battle3CState.CameraMode === "PlayerAim" ||
       Hud.Battle3CState.CameraMode === "SkillTargetZoom");
+  const IsBattleAimMode = IsBattle3CPhase && Hud.Battle3CState.IsAimMode;
   const IsAimCursorHidden = IsBattle3CPhase && Hud.Battle3CState.CameraMode === "PlayerAim";
+  const IsBattleCornerActionsVisible = ShouldShowBattleCornerActions(Hud.RuntimePhase);
+  const ControlledUnit =
+    Hud.Battle3CState.Units.find(
+      (Unit) => Unit.UnitId === Hud.Battle3CState.ControlledCharacterId
+    ) ?? null;
+  const IsBattleActionHudVisible =
+    IsBattle3CPhase && ControlledUnit !== null && ControlledUnitAnchor !== null;
+  const ControlledUnitHudStyle: React.CSSProperties | undefined =
+    ControlledUnitAnchor !== null
+      ? {
+          left: `${(ControlledUnitAnchor.X * 100).toFixed(2)}%`,
+          top: `${(ControlledUnitAnchor.Y * 100).toFixed(2)}%`
+        }
+      : undefined;
   const DebugMenuStyle: React.CSSProperties = {
     left: `${DebugMenuLayout.X}px`,
     top: `${DebugMenuLayout.Y}px`,
@@ -379,6 +420,82 @@ export function App() {
               }}
             />
           ) : null}
+
+          {IsBattleActionHudVisible && ControlledUnitHudStyle ? (
+            <div
+              className="BattleActionHudAnchor"
+              style={ControlledUnitHudStyle}
+              data-ignore-fire-input="true"
+            >
+              {IsBattleAimMode ? (
+                <div className="BattleAimReturnGroup">
+                  <button
+                    type="button"
+                    className="BattleActionButton BattleActionButton--Return"
+                    onClick={() => Runtime.ExitBattleAimMode()}
+                  >
+                    返回
+                    <span>B / Esc</span>
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="BattleActionHudLeft">
+                    <button
+                      type="button"
+                      className="BattleActionButton BattleActionButton--Aim"
+                      onClick={() => Runtime.ToggleBattleAim()}
+                    >
+                      瞄准
+                      <span>Q / LT</span>
+                    </button>
+                  </div>
+
+                  <div className="BattleActionHudRight">
+                    <button
+                      type="button"
+                      className="BattleActionButton"
+                      onClick={() => Runtime.FireBattleAction()}
+                    >
+                      攻击
+                      <span>LMB / RT / A</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`BattleActionButton${Hud.Battle3CState.IsSkillTargetMode ? " IsActive" : ""}`}
+                      onClick={() => Runtime.ToggleBattleSkillTargetMode()}
+                    >
+                      技能
+                      <span>Tab / RB</span>
+                    </button>
+                    <button type="button" className="BattleActionButton" disabled>
+                      物品
+                      <span>开发中</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
+
+          {IsBattleCornerActionsVisible ? (
+            <div className="BattleCornerActions" data-ignore-fire-input="true">
+              <button
+                type="button"
+                className="BattleCornerButton"
+                onClick={() => Runtime.FleeBattleToOverworld()}
+              >
+                逃跑
+              </button>
+              <button
+                type="button"
+                className="BattleCornerButton"
+                onClick={() => Runtime.SwitchControlledCharacter()}
+              >
+                跳过回合
+              </button>
+            </div>
+          ) : null}
         </div>
       </section>
 
@@ -403,7 +520,7 @@ export function App() {
           </div>
           <p className="HintText">
             战斗输入：Q/LT 切瞄准，鼠标/右摇杆控准星，LMB/RT/A 开火，C/LB 切角色，Tab/RB
-            切目标模式，Alt+Q 结算。
+            切目标模式，Esc/B 返回。左下 HUD：逃跑（返回探索）、跳过回合（切下一个我方）。
           </p>
         </section>
 

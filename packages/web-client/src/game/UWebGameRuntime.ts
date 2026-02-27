@@ -25,7 +25,8 @@ type FRuntimeEventType =
   | "EEncounterTransitionFinished"
   | "EBattle3CActionRequested"
   | "ESettlementPreviewRequested"
-  | "ESettlementPreviewConfirmed";
+  | "ESettlementPreviewConfirmed"
+  | "EBattleFleeRequested";
 
 interface FImportDebugConfigResult {
   IsSuccess: boolean;
@@ -214,6 +215,22 @@ export class UWebGameRuntime {
     this.NotifyRuntimeUpdated();
   }
 
+  public ExitBattleAimMode(): void {
+    if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
+      return;
+    }
+    if (!this.ActiveBattleSession.IsAimMode) {
+      return;
+    }
+
+    this.ActiveBattleSession.IsAimMode = false;
+    this.ActiveBattleSession.CameraMode = this.ResolveBattleControlCameraMode(
+      this.ActiveBattleSession
+    );
+    this.EmitRuntimeEvent("EBattle3CActionRequested", "CancelAim");
+    this.NotifyRuntimeUpdated();
+  }
+
   public FireBattleAction(): void {
     if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
       return;
@@ -305,6 +322,24 @@ export class UWebGameRuntime {
       return;
     }
 
+    this.ReturnToOverworldFromBattle("ESettlementPreviewConfirmed");
+  }
+
+  public FleeBattleToOverworld(): void {
+    if (
+      this.RuntimePhase !== "Battle3C" &&
+      this.RuntimePhase !== "EncounterTransition" &&
+      this.RuntimePhase !== "SettlementPreview"
+    ) {
+      return;
+    }
+
+    this.ReturnToOverworldFromBattle("EBattleFleeRequested");
+  }
+
+  private ReturnToOverworldFromBattle(
+    EventType: "ESettlementPreviewConfirmed" | "EBattleFleeRequested"
+  ): void {
     if (this.ActiveEncounterContext) {
       this.OverworldSimulation.SubmitCommand({
         Type: EOverworldCommandType.ResolveEncounter
@@ -322,7 +357,7 @@ export class UWebGameRuntime {
     this.EncounterPromptText = null;
     this.EncounterTransitionStartedAtMs = null;
     this.EncounterTransitionEndAtMs = null;
-    this.EmitRuntimeEvent("ESettlementPreviewConfirmed");
+    this.EmitRuntimeEvent(EventType);
     this.NotifyRuntimeUpdated();
   }
 
@@ -493,29 +528,11 @@ export class UWebGameRuntime {
       return;
     }
 
+    if (this.TryHandleBattle3CImmediateActions(InputSnapshot)) {
+      return;
+    }
+
     let IsDirty = false;
-    if (InputSnapshot.ToggleAimEdge) {
-      this.ToggleBattleAim();
-      return;
-    }
-    if (InputSnapshot.SwitchCharacterEdge) {
-      this.SwitchControlledCharacter();
-      return;
-    }
-    if (InputSnapshot.ToggleSkillTargetModeEdge) {
-      this.ToggleBattleSkillTargetMode();
-      return;
-    }
-
-    if (InputSnapshot.CycleTargetAxis !== 0) {
-      this.CycleBattleTarget(InputSnapshot.CycleTargetAxis);
-      return;
-    }
-
-    if (InputSnapshot.FireEdge) {
-      this.FireBattleAction();
-      return;
-    }
 
     const NextCrosshair = InputSnapshot.AimScreenPosition
       ? this.ResolveAbsoluteCrosshairPosition(InputSnapshot.AimScreenPosition)
@@ -534,6 +551,39 @@ export class UWebGameRuntime {
     if (IsDirty) {
       this.NotifyRuntimeUpdated();
     }
+  }
+
+  private TryHandleBattle3CImmediateActions(InputSnapshot: FInputSnapshot): boolean {
+    if (!this.ActiveBattleSession) {
+      return false;
+    }
+
+    if (InputSnapshot.CancelAimEdge && this.ActiveBattleSession.IsAimMode) {
+      this.ExitBattleAimMode();
+      return true;
+    }
+    if (InputSnapshot.ToggleAimEdge) {
+      this.ToggleBattleAim();
+      return true;
+    }
+    if (InputSnapshot.SwitchCharacterEdge) {
+      this.SwitchControlledCharacter();
+      return true;
+    }
+    if (InputSnapshot.ToggleSkillTargetModeEdge) {
+      this.ToggleBattleSkillTargetMode();
+      return true;
+    }
+    if (InputSnapshot.CycleTargetAxis !== 0) {
+      this.CycleBattleTarget(InputSnapshot.CycleTargetAxis);
+      return true;
+    }
+    if (InputSnapshot.FireEdge) {
+      this.FireBattleAction();
+      return true;
+    }
+
+    return false;
   }
 
   private BindOverworldEvents(): void {
