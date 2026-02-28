@@ -42,6 +42,8 @@
 - [x] 战斗开火会产出 Shot 可视化事件（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准模式开火不会切到敌方攻击机位（避免 camera 乱飞）（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准时角色朝向由 `LookYawDelta` 连续驱动，左右限位采用“敌人中心中轴扇区”（`UWebGameRuntime.test.ts`）。
+- [x] 鼠标瞄准时进入 `Battle3C` 瞄准会请求 Pointer Lock，退出瞄准自动释放，避免屏幕边界造成左右旋转“假限位”（`UInputController.test.ts`）。
+- [x] Pointer Lock 状态下按 `Esc` 一次应直接退出瞄准（锁释放后自动注入 `CancelAimEdge`），不需要按两次（`UInputController.test.ts`）。
 - [x] 瞄准状态下不允许“跳过回合/切角色”，输入应被忽略（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准状态下不允许“逃跑”，仅待机状态允许（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准时 `AimCameraYawDeg` 应与当前操控角色 `YawDeg` 同步更新（`UWebGameRuntime.test.ts`）。
@@ -111,6 +113,26 @@
 - [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
 
 ## F. 本次修复记录
+
+- 问题描述：修复“瞄准左右旋转看似受奇怪限位（先右再左可转范围更大）”；根因是鼠标未锁指针时 `movementX` 仍受屏幕边界影响，导致输入增量路径依赖。
+- 对应测试文件：`packages/web-client/src/input/UInputController.test.ts`（新增“按 Q 进入瞄准请求指针锁定”回归）。
+- 新增/修改条目：C 节新增“Pointer Lock 防假限位”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/input/UInputController.test.ts`：通过
+  - `pnpm --filter @fd/web-client test`：通过（25 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+- 是否新增 postmortem：`是`（`docs/postmortems/2026-02-28-battle-aim-pointer-lock-escape-regression.md`）
+
+- 问题描述：修复“Pointer Lock 下按 Esc 退出瞄准需要按两次”；根因是首次 Esc 只释放浏览器 Pointer Lock，未向运行时派发取消瞄准边沿。
+- 对应测试文件：`packages/web-client/src/input/UInputController.test.ts`（新增“锁释放自动注入 CancelAimEdge”回归）。
+- 新增/修改条目：C 节新增“Esc 一次退出瞄准”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/input/UInputController.test.ts`：通过
+  - `pnpm --filter @fd/web-client test`：通过（26 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+- 是否新增 postmortem：`是`（`docs/postmortems/2026-02-28-battle-aim-pointer-lock-escape-regression.md`）
 
 - 问题描述：修复“瞄准起手左右极限体感不一致（先右再左左侧可转范围变大）”；根因是进入瞄准时仅在“扇区外”才回中轴，扇区内偏轴会造成起手单侧行程偏窄。
 - 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增“扇区内偏轴进入瞄准也回中轴”回归）。

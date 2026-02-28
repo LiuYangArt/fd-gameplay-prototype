@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { UDebugMenuLayoutStore, type FDebugMenuLayoutState } from "./debug/UDebugMenuLayoutStore";
 import { USceneBridge } from "./game/USceneBridge";
@@ -296,6 +296,7 @@ export function App() {
   const [DebugBuffer, SetDebugBuffer] = useState("");
   const [DebugMessage, SetDebugMessage] = useState<string | null>(null);
   const [ActiveDebugTab, SetActiveDebugTab] = useState<FDebugTabKey>("Overworld");
+  const [IsBattlePointerLocked, SetIsBattlePointerLocked] = useState(false);
   const [ControlledUnitAnchor, SetControlledUnitAnchor] = useState<FControlledUnitAnchor | null>(
     null
   );
@@ -305,6 +306,50 @@ export function App() {
   const [DebugMenuLayout, SetDebugMenuLayout] = useState<FDebugMenuLayoutState>(() =>
     DebugMenuLayoutStore.Load()
   );
+  const HudRef = useRef(Hud);
+  const AttachPointerLockAsyncErrorLog = useCallback((Result: unknown, Prefix: string) => {
+    if (typeof Result !== "object" || Result === null || !("catch" in Result)) {
+      return;
+    }
+
+    const CatchFn = Result.catch;
+    if (typeof CatchFn !== "function") {
+      return;
+    }
+
+    void CatchFn.call(Result, (Err: unknown) => {
+      const ErrorMessage =
+        Err instanceof globalThis.Error ? `${Err.name}: ${Err.message}` : String(Err);
+      console.warn(`[App] ${Prefix}: ${ErrorMessage}`);
+    });
+  }, []);
+  const TryRequestBattlePointerLock = useCallback(() => {
+    const CurrentHud = HudRef.current;
+    if (CurrentHud.RuntimePhase !== "Battle3C") {
+      return;
+    }
+
+    const PointerTarget = CanvasRef.current ?? BattleViewportRef.current;
+    if (!PointerTarget || typeof PointerTarget.requestPointerLock !== "function") {
+      return;
+    }
+    if (document.pointerLockElement === PointerTarget) {
+      return;
+    }
+
+    try {
+      const RequestResult = PointerTarget.requestPointerLock();
+      AttachPointerLockAsyncErrorLog(RequestResult, "Pointer lock request rejected");
+    } catch (Err) {
+      const ErrorMessage =
+        Err instanceof globalThis.Error ? `${Err.name}: ${Err.message}` : String(Err);
+      console.warn(`[App] Pointer lock request threw: ${ErrorMessage}`);
+    }
+  }, [AttachPointerLockAsyncErrorLog]);
+
+  useEffect(() => {
+    HudRef.current = Hud;
+  }, [Hud]);
 
   useEffect(() => {
     const Canvas = CanvasRef.current;
@@ -349,7 +394,16 @@ export function App() {
     const InputController = new UInputController(
       (Snapshot) => Runtime.ConsumeInputSnapshot(Snapshot),
       {
-        ResolveAimViewportRect: () => BattleViewportRef.current?.getBoundingClientRect() ?? null
+        ResolveAimViewportRect: () => BattleViewportRef.current?.getBoundingClientRect() ?? null,
+        ResolvePointerLockElement: () => CanvasRef.current ?? BattleViewportRef.current,
+        ShouldLockPointer: () => {
+          const CurrentHud = HudRef.current;
+          return CurrentHud.RuntimePhase === "Battle3C" && CurrentHud.Battle3CState.IsAimMode;
+        },
+        ShouldRequestPointerLockOnToggleAim: () => {
+          const CurrentHud = HudRef.current;
+          return CurrentHud.RuntimePhase === "Battle3C" && !CurrentHud.Battle3CState.IsAimMode;
+        }
       }
     );
 
@@ -368,6 +422,36 @@ export function App() {
       SetControlledUnitAnchor(null);
     };
   }, [Runtime]);
+
+  useEffect(() => {
+    const HandlePointerLockChange = () => {
+      const Target = CanvasRef.current ?? BattleViewportRef.current;
+      const IsLocked = Target !== null && document.pointerLockElement === Target;
+      SetIsBattlePointerLocked(IsLocked);
+      console.info(`[App] pointerlockchange: ${IsLocked ? "locked" : "unlocked"}`);
+    };
+    const HandlePointerLockError = () => {
+      console.warn("[App] pointerlockerror");
+    };
+    const HandleKeyDown = (Event: KeyboardEvent) => {
+      if (Event.code !== "KeyQ" || Event.altKey || Event.repeat) {
+        return;
+      }
+      const CurrentHud = HudRef.current;
+      if (CurrentHud.RuntimePhase === "Battle3C" && !CurrentHud.Battle3CState.IsAimMode) {
+        TryRequestBattlePointerLock();
+      }
+    };
+
+    document.addEventListener("pointerlockchange", HandlePointerLockChange);
+    document.addEventListener("pointerlockerror", HandlePointerLockError);
+    window.addEventListener("keydown", HandleKeyDown);
+    return () => {
+      document.removeEventListener("pointerlockchange", HandlePointerLockChange);
+      document.removeEventListener("pointerlockerror", HandlePointerLockError);
+      window.removeEventListener("keydown", HandleKeyDown);
+    };
+  }, [TryRequestBattlePointerLock]);
 
   useEffect(() => {
     if (!Hud.DebugState.IsMenuOpen) {
@@ -496,11 +580,19 @@ export function App() {
     if (Event.button !== 0 || !IsBattle3CPhase) {
       return;
     }
+    if (Hud.Battle3CState.IsAimMode) {
+      TryRequestBattlePointerLock();
+    }
     if (ShouldIgnoreBattleViewportFireTarget(Event.target)) {
       return;
     }
 
     Runtime.FireBattleAction();
+  };
+
+  const HandleToggleBattleAimWithPointerLock = () => {
+    TryRequestBattlePointerLock();
+    Runtime.ToggleBattleAim();
   };
 
   const IsBattle3CPhase = Hud.RuntimePhase === "Battle3C";
@@ -620,7 +712,7 @@ export function App() {
                     <button
                       type="button"
                       className="BattleActionButton BattleActionButton--Aim"
-                      onClick={() => Runtime.ToggleBattleAim()}
+                      onClick={HandleToggleBattleAimWithPointerLock}
                     >
                       瞄准
                       <span>Q / LT</span>
@@ -809,6 +901,9 @@ export function App() {
             </strong>
           </p>
           <p>
+            Pointer Lock: <strong>{IsBattlePointerLocked ? "Locked" : "Unlocked"}</strong>
+          </p>
+          <p>
             Selected Target: <strong>{Hud.Battle3CState.SelectedTargetId ?? "None"}</strong>
           </p>
           <p>
@@ -826,7 +921,7 @@ export function App() {
             <button
               type="button"
               disabled={!IsBattle3CPhase}
-              onClick={() => Runtime.ToggleBattleAim()}
+              onClick={HandleToggleBattleAimWithPointerLock}
             >
               切换瞄准（Q / LT）
             </button>

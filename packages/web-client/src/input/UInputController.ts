@@ -42,11 +42,17 @@ const InteractiveInputSelector =
 
 interface FInputControllerOptions {
   ResolveAimViewportRect?: () => DOMRect | null;
+  ResolvePointerLockElement?: () => HTMLElement | null;
+  ShouldLockPointer?: () => boolean;
+  ShouldRequestPointerLockOnToggleAim?: () => boolean;
 }
 
 export class UInputController {
   private readonly OnInputFrame: (Snapshot: FInputSnapshot) => void;
   private readonly ResolveAimViewportRect: () => DOMRect | null;
+  private readonly ResolvePointerLockElement: () => HTMLElement | null;
+  private readonly ShouldLockPointer: () => boolean;
+  private readonly ShouldRequestPointerLockOnToggleAim: () => boolean;
   private readonly PressedKeys: Set<string>;
   private readonly KeyDownEdgeHandlers: Record<string, () => void>;
   private FrameHandle: number | null;
@@ -64,6 +70,7 @@ export class UInputController {
   private PendingConfirmSettlementEdge: boolean;
   private PendingRestartEdge: boolean;
   private PendingToggleDebugEdge: boolean;
+  private WasPointerLockedToBattleViewport: boolean;
   private PreviousGamepadA: boolean;
   private PreviousGamepadB: boolean;
   private PreviousGamepadLB: boolean;
@@ -82,6 +89,10 @@ export class UInputController {
   ) {
     this.OnInputFrame = OnInputFrame;
     this.ResolveAimViewportRect = Options?.ResolveAimViewportRect ?? (() => null);
+    this.ResolvePointerLockElement = Options?.ResolvePointerLockElement ?? (() => null);
+    this.ShouldLockPointer = Options?.ShouldLockPointer ?? (() => false);
+    this.ShouldRequestPointerLockOnToggleAim =
+      Options?.ShouldRequestPointerLockOnToggleAim ?? (() => false);
     this.PressedKeys = new Set();
     this.KeyDownEdgeHandlers = this.CreateKeyDownEdgeHandlers();
     this.FrameHandle = null;
@@ -99,6 +110,7 @@ export class UInputController {
     this.PendingConfirmSettlementEdge = false;
     this.PendingRestartEdge = false;
     this.PendingToggleDebugEdge = false;
+    this.WasPointerLockedToBattleViewport = false;
     this.PreviousGamepadA = false;
     this.PreviousGamepadB = false;
     this.PreviousGamepadLB = false;
@@ -139,6 +151,7 @@ export class UInputController {
   private StartLoop(): void {
     const Tick = (Timestamp: number) => {
       const DeltaSeconds = this.ResolveDeltaSeconds(Timestamp);
+      this.SyncPointerLockState();
       const GamepadSnapshot = this.ReadGamepadSnapshot();
       const KeyboardMoveAxis = this.ReadKeyboardMoveAxis();
       const MoveAxis = this.NormalizeAxis(
@@ -198,6 +211,9 @@ export class UInputController {
     if (Event.code === "Tab" || Event.code === "F3") {
       Event.preventDefault();
     }
+    if (Event.code === "KeyQ" && !Event.altKey && this.ShouldRequestPointerLockOnToggleAim()) {
+      this.TryRequestPointerLock();
+    }
 
     if (this.IsStateKey(Event.code)) {
       this.PressedKeys.add(Event.code);
@@ -230,7 +246,11 @@ export class UInputController {
   }
 
   private HandleMouseDown(Event: MouseEvent): void {
-    if (Event.button !== 0 || this.ShouldIgnoreMouseFire(Event.target)) {
+    const ShouldIgnoreFire = this.ShouldIgnoreMouseFire(Event.target);
+    if (Event.button === 0 && this.ShouldLockPointer() && !ShouldIgnoreFire) {
+      this.TryRequestPointerLock();
+    }
+    if (Event.button !== 0 || ShouldIgnoreFire) {
       return;
     }
     this.PendingAimScreenPosition = this.ResolveAimScreenPosition(Event.clientX, Event.clientY);
@@ -551,6 +571,82 @@ export class UInputController {
 
   private Clamp(Value: number, Min: number, Max: number): number {
     return Math.min(Math.max(Value, Min), Max);
+  }
+
+  private AttachPointerLockAsyncErrorLog(Result: unknown, Prefix: string): void {
+    if (typeof Result !== "object" || Result === null || !("catch" in Result)) {
+      return;
+    }
+
+    const CatchFn = Result.catch;
+    if (typeof CatchFn !== "function") {
+      return;
+    }
+
+    void CatchFn.call(Result, (Err: unknown) => {
+      const ErrorMessage =
+        Err instanceof globalThis.Error ? `${Err.name}: ${Err.message}` : String(Err);
+      console.warn(`[Input] ${Prefix}: ${ErrorMessage}`);
+    });
+  }
+
+  private TryRequestPointerLock(): void {
+    const PointerLockElement = this.ResolvePointerLockElement();
+    if (!PointerLockElement || typeof PointerLockElement.requestPointerLock !== "function") {
+      return;
+    }
+
+    const CurrentPointerLockElement =
+      typeof document !== "undefined" ? document.pointerLockElement : null;
+    if (CurrentPointerLockElement === PointerLockElement) {
+      return;
+    }
+
+    try {
+      const RequestResult = PointerLockElement.requestPointerLock();
+      this.AttachPointerLockAsyncErrorLog(RequestResult, "Pointer lock request rejected");
+    } catch (Err) {
+      const ErrorMessage =
+        Err instanceof globalThis.Error ? `${Err.name}: ${Err.message}` : String(Err);
+      console.warn(`[Input] Pointer lock request threw: ${ErrorMessage}`);
+    }
+  }
+
+  private SyncPointerLockState(): void {
+    if (typeof document === "undefined") {
+      this.WasPointerLockedToBattleViewport = false;
+      return;
+    }
+
+    const PointerLockElement = this.ResolvePointerLockElement();
+    if (!PointerLockElement) {
+      this.WasPointerLockedToBattleViewport = false;
+      return;
+    }
+    const IsPointerLockedToBattleViewport = document.pointerLockElement === PointerLockElement;
+
+    if (this.ShouldLockPointer()) {
+      if (this.WasPointerLockedToBattleViewport && !IsPointerLockedToBattleViewport) {
+        this.PendingCancelAimEdge = true;
+      }
+      this.WasPointerLockedToBattleViewport = IsPointerLockedToBattleViewport;
+      return;
+    }
+
+    if (!IsPointerLockedToBattleViewport) {
+      this.WasPointerLockedToBattleViewport = false;
+      return;
+    }
+
+    try {
+      const ExitResult = document.exitPointerLock();
+      this.AttachPointerLockAsyncErrorLog(ExitResult, "Pointer lock exit rejected");
+    } catch (Err) {
+      const ErrorMessage =
+        Err instanceof globalThis.Error ? `${Err.name}: ${Err.message}` : String(Err);
+      console.warn(`[Input] Pointer lock exit threw: ${ErrorMessage}`);
+    }
+    this.WasPointerLockedToBattleViewport = false;
   }
 
   private ClearFrameAccumulation(): void {
