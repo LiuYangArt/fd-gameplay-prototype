@@ -31,6 +31,7 @@ type FRuntimeEventType =
   | "EEncounterTransitionStarted"
   | "EEncounterTransitionFinished"
   | "EBattle3CActionRequested"
+  | "EPlayerActionResolved"
   | "ESettlementPreviewRequested"
   | "ESettlementPreviewConfirmed"
   | "EBattleFleeRequested"
@@ -92,6 +93,11 @@ interface FBattle3CSession {
   SelectedSkillOptionIndex?: number;
   SelectedItemOptionIndex?: number;
   SelectedSkillOptionId?: string | null;
+  TargetSelectOrderedEnemyUnitIds?: string[];
+  PendingActionResolvedDetail?: string | null;
+  ActionResolveEndsAtMs?: number | null;
+  ActionToastText?: string | null;
+  ActionToastEndsAtMs?: number | null;
   ScriptStepIndex: number;
   ShotSequence: number;
   LastShot: FBattleShotHudState | null;
@@ -120,6 +126,7 @@ const AimYawCenterFanMinHalfAngleDeg = 85;
 const AimYawCenterFanMaxHalfAngleDeg = 130;
 const AimYawCenterFanPaddingDeg = 8;
 const EnemyScriptCameraHoldMs = 680;
+const TargetSelectProjectionDepthEpsilonCm = 1;
 const BattleSkillPlaceholderOptions: FBattleCommandOption[] = [
   { OptionId: "skill01", DisplayName: "技能1" },
   { OptionId: "skill02", DisplayName: "技能2" }
@@ -160,6 +167,8 @@ export class UWebGameRuntime {
   private EncounterPromptTimerHandle: number | null;
   private EncounterFinishTimerHandle: number | null;
   private EnemyScriptReturnTimerHandle: number | null;
+  private ActionResolveTimerHandle: number | null;
+  private ActionToastTimerHandle: number | null;
   private SettlementSummaryText: string;
 
   public constructor() {
@@ -182,6 +191,8 @@ export class UWebGameRuntime {
     this.EncounterPromptTimerHandle = null;
     this.EncounterFinishTimerHandle = null;
     this.EnemyScriptReturnTimerHandle = null;
+    this.ActionResolveTimerHandle = null;
+    this.ActionToastTimerHandle = null;
     this.SettlementSummaryText = "按 Enter 或手柄 A 返回大地图探索";
 
     this.SyncCameraPitchFromConfig();
@@ -339,6 +350,8 @@ export class UWebGameRuntime {
       case "TargetSelect":
         this.CommitTargetSelectionAction(this.ActiveBattleSession);
         return;
+      case "ActionResolve":
+        return;
       default:
         return;
     }
@@ -445,6 +458,34 @@ export class UWebGameRuntime {
     this.NotifyRuntimeUpdated();
   }
 
+  public ActivateBattleSkillOption(OptionIndex: number): void {
+    if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
+      return;
+    }
+
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (this.ActiveBattleSession.CommandStage !== "SkillMenu") {
+      return;
+    }
+
+    this.SetSkillMenuOptionIndex(this.ActiveBattleSession, OptionIndex);
+    this.ConfirmSkillSelectionAndEnterTargetSelection(this.ActiveBattleSession);
+  }
+
+  public ActivateBattleItemOption(OptionIndex: number): void {
+    if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
+      return;
+    }
+
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (this.ActiveBattleSession.CommandStage !== "ItemMenu") {
+      return;
+    }
+
+    this.SetItemMenuOptionIndex(this.ActiveBattleSession, OptionIndex);
+    this.ConfirmItemPlaceholderSelection(this.ActiveBattleSession);
+  }
+
   public CycleBattleTarget(Direction: number): void {
     if (
       !this.ActiveBattleSession ||
@@ -459,7 +500,7 @@ export class UWebGameRuntime {
       return;
     }
 
-    const EnemyTargets = this.GetEnemyBattleUnits(this.ActiveBattleSession.Units);
+    const EnemyTargets = this.ResolveSelectableEnemyTargets(this.ActiveBattleSession);
     if (EnemyTargets.length <= 1) {
       return;
     }
@@ -580,6 +621,11 @@ export class UWebGameRuntime {
       Session.ItemOptions.length
     );
     Session.SelectedSkillOptionId = Session.SelectedSkillOptionId ?? null;
+    Session.TargetSelectOrderedEnemyUnitIds = Session.TargetSelectOrderedEnemyUnitIds ?? [];
+    Session.PendingActionResolvedDetail = Session.PendingActionResolvedDetail ?? null;
+    Session.ActionResolveEndsAtMs = Session.ActionResolveEndsAtMs ?? null;
+    Session.ActionToastText = Session.ActionToastText ?? null;
+    Session.ActionToastEndsAtMs = Session.ActionToastEndsAtMs ?? null;
     Session.IsSkillTargetMode = Session.CommandStage === "TargetSelect";
   }
 
@@ -609,6 +655,14 @@ export class UWebGameRuntime {
     this.NotifyRuntimeUpdated();
   }
 
+  private SetSkillMenuOptionIndex(Session: FBattle3CSession, NextIndex: number): void {
+    const SkillOptions = Session.SkillOptions ?? [];
+    if (SkillOptions.length < 1) {
+      return;
+    }
+    Session.SelectedSkillOptionIndex = this.ResolveWrappedIndex(NextIndex, SkillOptions.length);
+  }
+
   private CycleItemMenuOption(Session: FBattle3CSession, Delta: number): void {
     const ItemOptions = Session.ItemOptions ?? [];
     if (ItemOptions.length <= 1) {
@@ -625,6 +679,14 @@ export class UWebGameRuntime {
     this.NotifyRuntimeUpdated();
   }
 
+  private SetItemMenuOptionIndex(Session: FBattle3CSession, NextIndex: number): void {
+    const ItemOptions = Session.ItemOptions ?? [];
+    if (ItemOptions.length < 1) {
+      return;
+    }
+    Session.SelectedItemOptionIndex = this.ResolveWrappedIndex(NextIndex, ItemOptions.length);
+  }
+
   private SetCommandStage(Session: FBattle3CSession, Stage: FBattleCommandStage): void {
     Session.CommandStage = Stage;
     Session.IsSkillTargetMode = Stage === "TargetSelect";
@@ -633,6 +695,9 @@ export class UWebGameRuntime {
   private ReturnToRootCommandStage(Session: FBattle3CSession): void {
     this.SetCommandStage(Session, "Root");
     Session.PendingActionKind = null;
+    Session.PendingActionResolvedDetail = null;
+    Session.TargetSelectOrderedEnemyUnitIds = [];
+    Session.ActionResolveEndsAtMs = null;
     Session.AimHoverTargetId = null;
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
   }
@@ -644,6 +709,8 @@ export class UWebGameRuntime {
     }
     this.SetCommandStage(Session, "SkillMenu");
     Session.PendingActionKind = null;
+    Session.TargetSelectOrderedEnemyUnitIds = [];
+    Session.ActionResolveEndsAtMs = null;
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
   }
 
@@ -654,6 +721,8 @@ export class UWebGameRuntime {
     }
     this.SetCommandStage(Session, "ItemMenu");
     Session.PendingActionKind = null;
+    Session.TargetSelectOrderedEnemyUnitIds = [];
+    Session.ActionResolveEndsAtMs = null;
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
   }
 
@@ -669,11 +738,7 @@ export class UWebGameRuntime {
       Session.IsAimMode = false;
       this.RestoreFacingAfterAim();
     }
-    this.SetCommandStage(Session, "TargetSelect");
-    Session.PendingActionKind = "Attack";
-    Session.AimHoverTargetId = null;
-    this.AlignSelectedTargetForControlledCharacter();
-    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+    this.EnterTargetSelectionStage(Session, "Attack");
     this.EmitRuntimeEvent("EBattle3CActionRequested", "TargetSelect:AttackStart");
     this.NotifyRuntimeUpdated();
   }
@@ -704,16 +769,26 @@ export class UWebGameRuntime {
       return;
     }
 
-    this.SetCommandStage(Session, "TargetSelect");
-    Session.PendingActionKind = "Skill";
-    Session.AimHoverTargetId = null;
-    this.AlignSelectedTargetForControlledCharacter();
-    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+    this.EnterTargetSelectionStage(Session, "Skill");
     this.EmitRuntimeEvent(
       "EBattle3CActionRequested",
       `TargetSelect:SkillStart:${SelectedSkill.OptionId}`
     );
     this.NotifyRuntimeUpdated();
+  }
+
+  private EnterTargetSelectionStage(
+    Session: FBattle3CSession,
+    PendingActionKind: Exclude<FBattlePendingActionKind, null>
+  ): void {
+    this.SetCommandStage(Session, "TargetSelect");
+    Session.PendingActionKind = PendingActionKind;
+    Session.PendingActionResolvedDetail = null;
+    Session.ActionResolveEndsAtMs = null;
+    Session.AimHoverTargetId = null;
+    this.RebuildTargetSelectOrder(Session);
+    this.AlignSelectedTargetForControlledCharacter();
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
   }
 
   private ConfirmItemPlaceholderSelection(Session: FBattle3CSession): void {
@@ -731,6 +806,7 @@ export class UWebGameRuntime {
     );
     Session.SelectedItemOptionIndex = SelectedIndex;
     const SelectedItem = ItemOptions[SelectedIndex];
+    this.ShowBattleActionToast(Session, `已执行 物品 -> ${SelectedItem.DisplayName}`);
     this.ReturnToRootCommandStage(Session);
     this.EmitRuntimeEvent(
       "EBattle3CActionRequested",
@@ -750,12 +826,13 @@ export class UWebGameRuntime {
     this.EmitBattleShotEvent();
     const TargetId = this.ResolveCurrentBattleTargetForFire() ?? "MISS";
     this.EmitRuntimeEvent("EBattle3CActionRequested", `ConfirmTarget:${PendingAction}:${TargetId}`);
-
-    this.ReturnToRootCommandStage(Session);
-    this.AdvanceEnemyScriptStep();
-    if (Session.ScriptFocus === null) {
-      this.NotifyRuntimeUpdated();
-    }
+    const ActionDisplayName =
+      PendingAction === "Skill" ? this.ResolveSelectedSkillDisplayName(Session) : "攻击";
+    const TargetDisplayName = this.ResolveBattleTargetDisplayName(TargetId);
+    Session.PendingActionResolvedDetail = `${PendingAction}:${TargetId}`;
+    this.ShowBattleActionToast(Session, `已执行 ${ActionDisplayName} -> ${TargetDisplayName}`);
+    this.EnterActionResolveStage(Session);
+    this.NotifyRuntimeUpdated();
   }
 
   private CancelBattleCommandStage(Session: FBattle3CSession): boolean {
@@ -767,6 +844,9 @@ export class UWebGameRuntime {
         this.SetCommandStage(Session, "Root");
       }
       Session.PendingActionKind = null;
+      Session.PendingActionResolvedDetail = null;
+      Session.TargetSelectOrderedEnemyUnitIds = [];
+      Session.ActionResolveEndsAtMs = null;
       Session.AimHoverTargetId = null;
       Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
       this.EmitRuntimeEvent("EBattle3CActionRequested", "CancelTargetSelect");
@@ -782,6 +862,198 @@ export class UWebGameRuntime {
     }
 
     return false;
+  }
+
+  private EnterActionResolveStage(Session: FBattle3CSession): void {
+    const DurationMs = Math.max(Math.round(this.DebugConfig.ActionResolveDurationSec * 1000), 1);
+    const SessionId = Session.SessionId;
+    Session.IsAimMode = false;
+    Session.ScriptFocus = null;
+    this.SetCommandStage(Session, "ActionResolve");
+    Session.PendingActionKind = null;
+    Session.AimHoverTargetId = null;
+    Session.ActionResolveEndsAtMs = Date.now() + DurationMs;
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+
+    this.ClearActionResolveTimer();
+    this.ActionResolveTimerHandle = this.SetRuntimeTimeout(() => {
+      this.ActionResolveTimerHandle = null;
+      if (
+        this.RuntimePhase !== "Battle3C" ||
+        !this.ActiveBattleSession ||
+        this.ActiveBattleSession.SessionId !== SessionId
+      ) {
+        return;
+      }
+      this.FinishActionResolveStage(this.ActiveBattleSession);
+    }, DurationMs);
+  }
+
+  private FinishActionResolveStage(Session: FBattle3CSession): void {
+    if (Session.CommandStage !== "ActionResolve") {
+      return;
+    }
+    const EventDetail = Session.PendingActionResolvedDetail ?? "Unknown";
+    this.ReturnToRootCommandStage(Session);
+    this.EmitRuntimeEvent("EPlayerActionResolved", EventDetail);
+    this.NotifyRuntimeUpdated();
+  }
+
+  private ShowBattleActionToast(Session: FBattle3CSession, ToastText: string): void {
+    const DurationMs = Math.max(
+      Math.round(this.DebugConfig.ActionResolveToastDurationSec * 1000),
+      1
+    );
+    const SessionId = Session.SessionId;
+    Session.ActionToastText = ToastText;
+    Session.ActionToastEndsAtMs = Date.now() + DurationMs;
+
+    this.ClearActionToastTimer();
+    this.ActionToastTimerHandle = this.SetRuntimeTimeout(() => {
+      this.ActionToastTimerHandle = null;
+      if (
+        this.RuntimePhase !== "Battle3C" ||
+        !this.ActiveBattleSession ||
+        this.ActiveBattleSession.SessionId !== SessionId
+      ) {
+        return;
+      }
+      if (
+        this.ActiveBattleSession.ActionToastEndsAtMs !== null &&
+        this.ActiveBattleSession.ActionToastEndsAtMs !== undefined &&
+        this.ActiveBattleSession.ActionToastEndsAtMs > Date.now()
+      ) {
+        return;
+      }
+      this.ActiveBattleSession.ActionToastText = null;
+      this.ActiveBattleSession.ActionToastEndsAtMs = null;
+      this.NotifyRuntimeUpdated();
+    }, DurationMs);
+  }
+
+  private ResolveSelectedSkillDisplayName(Session: FBattle3CSession): string {
+    const SkillOptions = Session.SkillOptions ?? [];
+    if (SkillOptions.length < 1) {
+      return "技能";
+    }
+    const SelectedById = SkillOptions.find(
+      (Option) => Option.OptionId === Session.SelectedSkillOptionId
+    );
+    if (SelectedById) {
+      return SelectedById.DisplayName;
+    }
+    const SelectedIndex = this.ResolveWrappedIndex(
+      Session.SelectedSkillOptionIndex ?? 0,
+      SkillOptions.length
+    );
+    return SkillOptions[SelectedIndex]?.DisplayName ?? "技能";
+  }
+
+  private ResolveBattleTargetDisplayName(TargetId: string): string {
+    if (TargetId === "MISS") {
+      return "未命中";
+    }
+    return this.FindBattleUnit(TargetId)?.DisplayName ?? TargetId;
+  }
+
+  private RebuildTargetSelectOrder(Session: FBattle3CSession): void {
+    const EnemyTargets = this.GetEnemyBattleUnits(Session.Units).filter((Unit) => Unit.IsAlive);
+    if (EnemyTargets.length < 1) {
+      Session.TargetSelectOrderedEnemyUnitIds = [];
+      return;
+    }
+
+    const PreferredByProjection = this.TryResolveTargetOrderByProjectedX(Session, EnemyTargets);
+    if (PreferredByProjection) {
+      Session.TargetSelectOrderedEnemyUnitIds = PreferredByProjection;
+      return;
+    }
+
+    Session.TargetSelectOrderedEnemyUnitIds = this.ResolveFallbackTargetOrder(EnemyTargets);
+  }
+
+  private TryResolveTargetOrderByProjectedX(
+    Session: FBattle3CSession,
+    EnemyTargets: FBattleUnitRuntimeState[]
+  ): string[] | null {
+    const ControlledUnit = this.FindBattleUnit(Session.ControlledCharacterId);
+    if (!ControlledUnit || !ControlledUnit.IsAlive) {
+      return null;
+    }
+
+    const Forward = this.ResolveForwardVectorFromYawDeg(ControlledUnit.YawDeg);
+    const Right = this.ResolveRightVectorFromYawDeg(ControlledUnit.YawDeg);
+    const Projected = EnemyTargets.map((EnemyUnit) => {
+      const DeltaX = EnemyUnit.PositionCm.X - ControlledUnit.PositionCm.X;
+      const DeltaZ = EnemyUnit.PositionCm.Z - ControlledUnit.PositionCm.Z;
+      const Depth = DeltaX * Forward.X + DeltaZ * Forward.Z;
+      if (Depth <= TargetSelectProjectionDepthEpsilonCm) {
+        return null;
+      }
+      const Lateral = DeltaX * Right.X + DeltaZ * Right.Z;
+      return {
+        UnitId: EnemyUnit.UnitId,
+        ScreenX: Lateral / Depth,
+        Z: EnemyUnit.PositionCm.Z
+      };
+    });
+    if (Projected.some((Entry) => Entry === null)) {
+      return null;
+    }
+
+    return Projected.filter((Entry): Entry is NonNullable<typeof Entry> => Entry !== null)
+      .sort((Left, RightItem) => {
+        if (Math.abs(Left.ScreenX - RightItem.ScreenX) > 1e-6) {
+          return Left.ScreenX - RightItem.ScreenX;
+        }
+        if (Math.abs(Left.Z - RightItem.Z) > 1e-6) {
+          return Left.Z - RightItem.Z;
+        }
+        return Left.UnitId.localeCompare(RightItem.UnitId);
+      })
+      .map((Entry) => Entry.UnitId);
+  }
+
+  private ResolveFallbackTargetOrder(EnemyTargets: FBattleUnitRuntimeState[]): string[] {
+    return [...EnemyTargets]
+      .sort((Left, Right) => {
+        if (Math.abs(Left.PositionCm.Z - Right.PositionCm.Z) > 1e-6) {
+          return Left.PositionCm.Z - Right.PositionCm.Z;
+        }
+        if (Math.abs(Left.PositionCm.X - Right.PositionCm.X) > 1e-6) {
+          return Left.PositionCm.X - Right.PositionCm.X;
+        }
+        return Left.UnitId.localeCompare(Right.UnitId);
+      })
+      .map((Unit) => Unit.UnitId);
+  }
+
+  private ResolveSelectableEnemyTargets(Session: FBattle3CSession): FBattleUnitRuntimeState[] {
+    const AliveTargets = this.GetEnemyBattleUnits(Session.Units).filter((Unit) => Unit.IsAlive);
+    const ShouldUseFrozenOrder =
+      Session.CommandStage === "TargetSelect" || Session.CommandStage === "ActionResolve";
+    if (!ShouldUseFrozenOrder || !Session.TargetSelectOrderedEnemyUnitIds) {
+      return AliveTargets;
+    }
+
+    const TargetMap = new Map(AliveTargets.map((Unit) => [Unit.UnitId, Unit] as const));
+    const OrderedTargets = Session.TargetSelectOrderedEnemyUnitIds.map((UnitId) =>
+      TargetMap.get(UnitId)
+    ).filter((Unit): Unit is FBattleUnitRuntimeState => Unit !== undefined);
+    if (OrderedTargets.length === 0) {
+      return AliveTargets;
+    }
+
+    const OrderedIdSet = new Set(OrderedTargets.map((Unit) => Unit.UnitId));
+    const MissingTargets = AliveTargets.filter((Unit) => !OrderedIdSet.has(Unit.UnitId));
+    if (MissingTargets.length > 0) {
+      OrderedTargets.push(
+        ...this.ResolveFallbackTargetOrder(MissingTargets)
+          .map((UnitId) => TargetMap.get(UnitId))
+          .filter((Unit): Unit is FBattleUnitRuntimeState => Unit !== undefined)
+      );
+    }
+    return OrderedTargets;
   }
 
   private ResolveWrappedIndex(Index: number, Length: number): number {
@@ -877,6 +1149,13 @@ export class UWebGameRuntime {
     return Math.max(this.EncounterTransitionEndAtMs - Date.now(), 0);
   }
 
+  private ResolveRemainingMs(EndAtMs: number | null | undefined, NowMs: number): number {
+    if (EndAtMs === null || EndAtMs === undefined) {
+      return 0;
+    }
+    return Math.max(EndAtMs - NowMs, 0);
+  }
+
   private BuildOverworldHudState(): FHudViewModel["OverworldState"] {
     const OverworldState = this.OverworldSimulation.GetState();
     const ControlledTeam =
@@ -905,6 +1184,17 @@ export class UWebGameRuntime {
 
     this.EnsureBattleCommandState(BattleSession);
     const SelectedTargetId = this.ResolveBattleSessionSelectedTargetId(BattleSession);
+    const NowMs = Date.now();
+    const ActionResolveRemainingMs = this.ResolveRemainingMs(
+      BattleSession.ActionResolveEndsAtMs,
+      NowMs
+    );
+    const ActionToastRemainingMs = this.ResolveRemainingMs(
+      BattleSession.ActionToastEndsAtMs,
+      NowMs
+    );
+    const ActionToastText =
+      ActionToastRemainingMs > 0 ? (BattleSession.ActionToastText ?? null) : null;
 
     return {
       PlayerTeamId: BattleSession.PlayerTeamId,
@@ -930,7 +1220,10 @@ export class UWebGameRuntime {
       SelectedSkillOptionId: BattleSession.SelectedSkillOptionId ?? null,
       Units: this.BuildBattleHudUnits(BattleSession, SelectedTargetId),
       ScriptFocus: this.CloneBattleScriptFocus(BattleSession.ScriptFocus),
-      LastShot: BattleSession.LastShot ? { ...BattleSession.LastShot } : null
+      LastShot: BattleSession.LastShot ? { ...BattleSession.LastShot } : null,
+      ActionResolveRemainingMs,
+      ActionToastText,
+      ActionToastRemainingMs
     };
   }
 
@@ -959,12 +1252,15 @@ export class UWebGameRuntime {
       SelectedSkillOptionId: null,
       Units: [],
       ScriptFocus: null,
-      LastShot: null
+      LastShot: null,
+      ActionResolveRemainingMs: 0,
+      ActionToastText: null,
+      ActionToastRemainingMs: 0
     };
   }
 
   private ResolveBattleSessionSelectedTargetId(Session: FBattle3CSession): string | null {
-    const EnemyTargets = this.GetEnemyBattleUnits(Session.Units);
+    const EnemyTargets = this.ResolveSelectableEnemyTargets(Session);
     if (EnemyTargets.length < 1) {
       return null;
     }
@@ -1225,7 +1521,7 @@ export class UWebGameRuntime {
     this.EncounterPromptText = "遭遇敌人，进入战斗";
     this.EncounterTransitionStartedAtMs = null;
     this.EncounterTransitionEndAtMs = null;
-    this.EncounterPromptTimerHandle = window.setTimeout(() => {
+    this.EncounterPromptTimerHandle = this.SetRuntimeTimeout(() => {
       this.StartEncounterTransition(EncounterId);
     }, PromptMs);
 
@@ -1262,7 +1558,7 @@ export class UWebGameRuntime {
       this.ActiveEncounterContext.EncounterEnemyId
     );
 
-    this.EncounterFinishTimerHandle = window.setTimeout(() => {
+    this.EncounterFinishTimerHandle = this.SetRuntimeTimeout(() => {
       this.FinishEncounterTransition(EncounterId);
     }, TransitionTotalMs);
 
@@ -1380,6 +1676,11 @@ export class UWebGameRuntime {
       SelectedSkillOptionIndex: 0,
       SelectedItemOptionIndex: 0,
       SelectedSkillOptionId: null,
+      TargetSelectOrderedEnemyUnitIds: [],
+      PendingActionResolvedDetail: null,
+      ActionResolveEndsAtMs: null,
+      ActionToastText: null,
+      ActionToastEndsAtMs: null,
       ScriptStepIndex: 0,
       ShotSequence: 0,
       LastShot: null,
@@ -1766,6 +2067,22 @@ export class UWebGameRuntime {
     return (Math.atan2(DeltaX, DeltaZ) * 180) / Math.PI;
   }
 
+  private ResolveForwardVectorFromYawDeg(YawDeg: number): { X: number; Z: number } {
+    const YawRadians = (YawDeg * Math.PI) / 180;
+    return {
+      X: Math.sin(YawRadians),
+      Z: Math.cos(YawRadians)
+    };
+  }
+
+  private ResolveRightVectorFromYawDeg(YawDeg: number): { X: number; Z: number } {
+    const YawRadians = (YawDeg * Math.PI) / 180;
+    return {
+      X: Math.cos(YawRadians),
+      Z: -Math.sin(YawRadians)
+    };
+  }
+
   private EmitBattleShotEvent(): void {
     if (!this.ActiveBattleSession) {
       return;
@@ -1795,9 +2112,7 @@ export class UWebGameRuntime {
     }
     this.EnsureBattleCommandState(this.ActiveBattleSession);
 
-    const EnemyTargets = this.GetEnemyBattleUnits(this.ActiveBattleSession.Units).filter(
-      (Unit) => Unit.IsAlive
-    );
+    const EnemyTargets = this.ResolveSelectableEnemyTargets(this.ActiveBattleSession);
     if (EnemyTargets.length < 1) {
       return null;
     }
@@ -1837,6 +2152,15 @@ export class UWebGameRuntime {
       return;
     }
 
+    const PreferredTargetId = EnemyTargets[BestIndex]?.UnitId;
+    const OrderedTargets = this.ResolveSelectableEnemyTargets(this.ActiveBattleSession);
+    if (PreferredTargetId) {
+      const OrderedIndex = OrderedTargets.findIndex((Unit) => Unit.UnitId === PreferredTargetId);
+      if (OrderedIndex >= 0) {
+        this.ActiveBattleSession.SelectedTargetIndex = OrderedIndex;
+        return;
+      }
+    }
     this.ActiveBattleSession.SelectedTargetIndex = BestIndex;
   }
 
@@ -1915,7 +2239,7 @@ export class UWebGameRuntime {
 
     this.ClearEnemyScriptReturnTimer();
     const SessionId = this.ActiveBattleSession.SessionId;
-    this.EnemyScriptReturnTimerHandle = window.setTimeout(() => {
+    this.EnemyScriptReturnTimerHandle = this.SetRuntimeTimeout(() => {
       if (
         this.RuntimePhase !== "Battle3C" ||
         !this.ActiveBattleSession ||
@@ -1969,6 +2293,9 @@ export class UWebGameRuntime {
       return "PlayerItemPreview";
     }
     if (Session.CommandStage === "TargetSelect") {
+      return "SkillTargetZoom";
+    }
+    if (Session.CommandStage === "ActionResolve") {
       return "SkillTargetZoom";
     }
     if (Session.IsAimMode) {
@@ -2027,22 +2354,53 @@ export class UWebGameRuntime {
     };
   }
 
+  private SetRuntimeTimeout(Handler: () => void, DelayMs: number): number {
+    if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+      return window.setTimeout(Handler, DelayMs);
+    }
+    return globalThis.setTimeout(Handler, DelayMs) as unknown as number;
+  }
+
+  private ClearRuntimeTimeout(Handle: number): void {
+    if (typeof window !== "undefined" && typeof window.clearTimeout === "function") {
+      window.clearTimeout(Handle);
+      return;
+    }
+    globalThis.clearTimeout(Handle as unknown as ReturnType<typeof setTimeout>);
+  }
+
   private ClearEnemyScriptReturnTimer(): void {
     if (this.EnemyScriptReturnTimerHandle !== null) {
-      window.clearTimeout(this.EnemyScriptReturnTimerHandle);
+      this.ClearRuntimeTimeout(this.EnemyScriptReturnTimerHandle);
       this.EnemyScriptReturnTimerHandle = null;
+    }
+  }
+
+  private ClearActionResolveTimer(): void {
+    if (this.ActionResolveTimerHandle !== null) {
+      this.ClearRuntimeTimeout(this.ActionResolveTimerHandle);
+      this.ActionResolveTimerHandle = null;
+    }
+  }
+
+  private ClearActionToastTimer(): void {
+    if (this.ActionToastTimerHandle !== null) {
+      this.ClearRuntimeTimeout(this.ActionToastTimerHandle);
+      this.ActionToastTimerHandle = null;
     }
   }
 
   private ClearPhaseTimers(): void {
     if (this.EncounterPromptTimerHandle !== null) {
-      window.clearTimeout(this.EncounterPromptTimerHandle);
+      this.ClearRuntimeTimeout(this.EncounterPromptTimerHandle);
       this.EncounterPromptTimerHandle = null;
     }
     if (this.EncounterFinishTimerHandle !== null) {
-      window.clearTimeout(this.EncounterFinishTimerHandle);
+      this.ClearRuntimeTimeout(this.EncounterFinishTimerHandle);
       this.EncounterFinishTimerHandle = null;
     }
     this.ClearEnemyScriptReturnTimer();
+    this.ClearActionResolveTimer();
+    this.ClearActionToastTimer();
   }
 }

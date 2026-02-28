@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { UWebGameRuntime } from "./UWebGameRuntime";
 
@@ -41,7 +41,7 @@ interface FMutableRuntime {
     };
     IsAimMode: boolean;
     IsSkillTargetMode: boolean;
-    CommandStage?: "Root" | "SkillMenu" | "ItemMenu" | "TargetSelect";
+    CommandStage?: "Root" | "SkillMenu" | "ItemMenu" | "TargetSelect" | "ActionResolve";
     PendingActionKind?: "Attack" | "Skill" | null;
     AimCameraYawDeg: number | null;
     AimCameraPitchDeg?: number | null;
@@ -52,6 +52,11 @@ interface FMutableRuntime {
     SelectedSkillOptionIndex?: number;
     SelectedItemOptionIndex?: number;
     SelectedSkillOptionId?: string | null;
+    TargetSelectOrderedEnemyUnitIds?: string[];
+    PendingActionResolvedDetail?: string | null;
+    ActionResolveEndsAtMs?: number | null;
+    ActionToastText?: string | null;
+    ActionToastEndsAtMs?: number | null;
     ScriptStepIndex: number;
     ShotSequence: number;
     LastShot: {
@@ -194,6 +199,11 @@ function CreateBattleSession(Override: Partial<FBattleSessionState> = {}): FBatt
     SelectedSkillOptionIndex: 0,
     SelectedItemOptionIndex: 0,
     SelectedSkillOptionId: null,
+    TargetSelectOrderedEnemyUnitIds: [],
+    PendingActionResolvedDetail: null,
+    ActionResolveEndsAtMs: null,
+    ActionToastText: null,
+    ActionToastEndsAtMs: null,
     ScriptStepIndex: 0,
     ShotSequence: 0,
     LastShot: null,
@@ -1177,21 +1187,36 @@ describe("UWebGameRuntime", () => {
     expect(State.CameraMode).toBe("PlayerFollow");
   });
 
-  it("目标选择左右切换并确认后，应产出 Shot 并推进敌方脚本机位", () => {
-    const WindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
-    Object.defineProperty(globalThis, "window", {
-      value: {
-        setTimeout: globalThis.setTimeout.bind(globalThis),
-        clearTimeout: globalThis.clearTimeout.bind(globalThis),
-        localStorage: {
-          getItem: () => null,
-          setItem: () => undefined,
-          removeItem: () => undefined
-        }
-      },
-      configurable: true
-    });
+  it("技能/物品条目点击激活应立即执行对应动作", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
 
+    Runtime.ToggleBattleSkillTargetMode();
+    Runtime.ActivateBattleSkillOption(1);
+    const SkillState = Runtime.GetViewModel().Battle3CState;
+    expect(SkillState.CommandStage).toBe("TargetSelect");
+    expect(SkillState.PendingActionKind).toBe("Skill");
+    expect(SkillState.SelectedSkillOptionId).toBe("skill02");
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      CancelAimEdge: true
+    });
+    Runtime.ToggleBattleSkillTargetMode();
+    Runtime.ToggleBattleItemMenu();
+    Runtime.ActivateBattleItemOption(1);
+    const ItemState = Runtime.GetViewModel().Battle3CState;
+    expect(ItemState.CommandStage).toBe("Root");
+    expect(ItemState.ActionToastText).toContain("已执行 物品");
+    expect(
+      Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("UseItemPlaceholder:item02"))
+    ).toBe(true);
+  });
+
+  it("目标确认后进入 ActionResolve，锁输入并在阶段结束回到 Root", () => {
+    vi.useFakeTimers();
     try {
       const Runtime = new UWebGameRuntime();
       const MutableRuntime = Runtime as unknown as FMutableRuntime;
@@ -1203,18 +1228,27 @@ describe("UWebGameRuntime", () => {
       expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("enemy02");
 
       Runtime.FireBattleAction();
-      const State = Runtime.GetViewModel().Battle3CState;
-      expect(State.CommandStage).toBe("Root");
-      expect(State.PendingActionKind).toBeNull();
-      expect(State.LastShot?.TargetUnitId).toBe("enemy02");
-      expect(State.ScriptStepIndex).toBe(1);
-      expect(State.CameraMode).toBe("EnemyAttackSingle");
+      const ResolvingState = Runtime.GetViewModel().Battle3CState;
+      expect(ResolvingState.CommandStage).toBe("ActionResolve");
+      expect(ResolvingState.PendingActionKind).toBeNull();
+      expect(ResolvingState.LastShot?.TargetUnitId).toBe("enemy02");
+      expect(ResolvingState.CameraMode).toBe("SkillTargetZoom");
+      expect(ResolvingState.ActionToastText).toContain("已执行");
+
+      Runtime.CycleBattleTarget(1);
+      expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("enemy02");
+      expect(Runtime.SwitchControlledCharacter()).toBe(false);
+      expect(Runtime.FleeBattleToOverworld()).toBe(false);
+
+      vi.advanceTimersByTime(700);
+      const FinishedState = Runtime.GetViewModel().Battle3CState;
+      expect(FinishedState.CommandStage).toBe("Root");
+      expect(FinishedState.CameraMode).toBe("PlayerFollow");
+      expect(
+        Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("EPlayerActionResolved"))
+      ).toBe(true);
     } finally {
-      if (WindowDescriptor) {
-        Object.defineProperty(globalThis, "window", WindowDescriptor);
-      } else {
-        Reflect.deleteProperty(globalThis, "window");
-      }
+      vi.useRealTimers();
     }
   });
 
@@ -1235,6 +1269,58 @@ describe("UWebGameRuntime", () => {
     expect(
       Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("UseItemPlaceholder:item02"))
     ).toBe(true);
+  });
+
+  it("TargetSelect 进入后应冻结按屏幕 X 的目标顺序，并据此左右切换", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession({
+      EnemyActiveUnitIds: ["enemy01", "enemy02", "enemy03"],
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: 180 },
+          IsEncounterPrimaryEnemy: true
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 0 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy03",
+          TeamId: "Enemy",
+          DisplayName: "enemy03",
+          PositionCm: { X: 280, Y: 0, Z: -180 }
+        })
+      ]
+    });
+
+    Runtime.FireBattleAction();
+    const Ordered = MutableRuntime.ActiveBattleSession?.TargetSelectOrderedEnemyUnitIds ?? [];
+    expect(Ordered).toHaveLength(3);
+    const CurrentId = Runtime.GetViewModel().Battle3CState.SelectedTargetId;
+    expect(CurrentId).not.toBeNull();
+    const CurrentIndex = Ordered.indexOf(CurrentId ?? "");
+    expect(CurrentIndex).toBeGreaterThanOrEqual(0);
+
+    Runtime.CycleBattleTarget(1);
+    const RightId = Runtime.GetViewModel().Battle3CState.SelectedTargetId;
+    expect(RightId).toBe(Ordered[(CurrentIndex + 1) % Ordered.length]);
+
+    Runtime.CycleBattleTarget(-1);
+    const LeftBackId = Runtime.GetViewModel().Battle3CState.SelectedTargetId;
+    expect(LeftBackId).toBe(Ordered[CurrentIndex]);
   });
 
   it("菜单态与目标态下应禁用切角色和逃跑", () => {

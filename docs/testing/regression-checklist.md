@@ -47,26 +47,31 @@
 - [x] 瞄准状态下不允许“跳过回合/切角色”，输入应被忽略（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准状态下不允许“逃跑”，仅待机状态允许（`UWebGameRuntime.test.ts`）。
 - [x] 根命令层“攻击”进入统一目标选择（不立即开火），`PendingActionKind=Attack`（`UWebGameRuntime.test.ts`）。
-- [x] 技能菜单确认后进入统一目标选择并记录 `SelectedSkillOptionId`，取消可返回技能菜单（`UWebGameRuntime.test.ts`）。
+- [x] 技能菜单条目点击即激活并进入统一目标选择，同时记录 `SelectedSkillOptionId`；取消可返回技能菜单（`UWebGameRuntime.test.ts`）。
 - [x] 攻击来源的目标选择取消后返回根命令层（`UWebGameRuntime.test.ts`）。
 - [x] 技能菜单与物品菜单分别使用 `PlayerSkillPreview` / `PlayerItemPreview` 机位（`UWebGameRuntime.test.ts`）。
-- [x] 物品菜单确认仅记录占位行为 `UseItemPlaceholder:*`，不进入目标选择（`UWebGameRuntime.test.ts`）。
+- [x] 物品菜单条目点击即激活，仅记录占位行为 `UseItemPlaceholder:*` 并返回 Root（`UWebGameRuntime.test.ts`）。
 - [x] 无存活敌人时阻断进入目标选择并记录事件日志（`UWebGameRuntime.test.ts`）。
 - [x] 菜单态/目标态下左下角战斗操作隐藏（`UBattleHudVisibility.test.ts`）。
 - [x] 菜单输入映射覆盖 `W/Y`（物品菜单）、`↑/↓`（菜单切换）、`F`（确认）（`UInputController.test.ts`）。
+- [x] 目标确认后进入 `ActionResolve`（锁输入），结束后自动回到 `Root + PlayerFollow`，期间不跳敌方脚本机位（`UWebGameRuntime.test.ts`）。
+- [x] `ActionResolve` 结束时触发 `EPlayerActionResolved` 占位事件（`UWebGameRuntime.test.ts`）。
+- [x] `TargetSelect` 左右切换遵循“按屏幕 X 冻结顺序”规则（`UWebGameRuntime.test.ts`）。
+- [x] `TargetSelect` 敌人特写机位位于“我方 -> 相机 -> 敌人”方向，避免反向拍摄（`USceneBridge.test.ts`）。
+- [x] `TargetSelect/ActionResolve` 复用瞄准锚点显示“选中敌人头顶 HP 条”（`App.tsx` + `USceneBridge.ts`）。
 - [x] 瞄准时 `AimCameraYawDeg` 应与当前操控角色 `YawDeg` 同步更新（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准时支持上下抬枪：`AimCameraPitchDeg` 随输入变化，角色 `YawDeg` 不因俯仰输入改变（`UWebGameRuntime.test.ts`）。
 - [x] `OverworldInvertLookPitch` 与 `AimInvertLookPitch` 可独立控制上下反转，互不影响（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准开火在无悬停目标时允许 miss（`LastShot.TargetUnitId=null`），且不强制 snap 角色朝向（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准开火命中目标时不应强制把角色朝向 snap 到目标方向（`UWebGameRuntime.test.ts`）。
-- [x] `PlayerAimDistanceCm` 存在且 `ApplyPatch` 的下限钳制生效（`UDebugConfigStore.test.ts`）。
+- [x] 数值输入框可录入超 slider 区间的机位参数，`ApplyPatch` 仅做安全边界钳制（`UDebugConfigStore.test.ts`）。
 - [x] 退出瞄准后恢复待机朝向，再次进入瞄准机位基准保持稳定（`UWebGameRuntime.test.ts`）。
 - [ ] 右下角队伍头像 + HP/MP HUD 在 Battle3C 正常显示（手动冒烟）。
 - [ ] 开火子弹从 `SOCKET_Muzzle*` 发射：命中时飞向中心准星射线命中点并出特效，未命中时直线飞出且不出命中特效（手动冒烟）。
 - [ ] `BattleFollowFocusOffsetRightCm` 可将待机构图从居中调到偏左（手动冒烟）。
 - [ ] `BattleFollowFocusOffsetUpCm` 与右偏参数仅影响 `PlayerFollow`，不影响 `PlayerAim`（手动冒烟）。
 - [ ] 瞄准偏移参数（`PlayerAimFocusOffsetRightCm/UpCm`）与待机偏移参数完全独立（手动冒烟）。
-- [ ] 瞄准镜头距离参数（`PlayerAimDistanceCm`）在 `PlayerAim` 下实时生效，且与 `SkillTargetZoomDistanceCm` 独立（手动冒烟）。
+- [ ] 瞄准镜头距离参数（`PlayerAimDistanceCm`）在 `PlayerAim` 下实时生效，且与 `TargetSelectCloseupDistanceCm` 独立（手动冒烟）。
 - [ ] 瞄准准星（Crosshair）层级高于战斗操作按钮（手动冒烟）。
 - [ ] `PlayerFollow <-> PlayerAim` 镜头切换为平滑过渡（无硬切）（手动冒烟）。
 - [ ] 瞄准悬停切换敌人时，角色左右转向为平滑过渡（手动冒烟）。
@@ -121,6 +126,15 @@
 - [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
 
 ## F. 本次修复记录
+
+- 问题描述：修复“Debug 数值输入框被 slider 区间硬钳制，导致瞄准/预览机位参数无法录入历史值并出现显示回写异常”。
+- 对应测试文件：`packages/web-client/src/debug/UDebugConfigStore.test.ts`（新增“机位参数不应被 slider 区间硬钳制”回归）。
+- 新增/修改条目：C 节将 `PlayerAimDistanceCm` 相关条目更新为“允许超 slider 区间 + 安全边界钳制”。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/debug/UDebugConfigStore.test.ts`：先失败后通过（4 项）。
+  - `pnpm --filter @fd/web-client test`：通过。
+  - `pnpm lint`：通过。
+- 是否新增 postmortem：`否`（未达到触发条件）。
 
 - 问题描述：实现 Battle3C 指令层改造（技能/物品占位菜单、攻击与技能统一目标选择、新增虚拟 Socket 机位与返回层级规则）。
 - 对应测试文件：

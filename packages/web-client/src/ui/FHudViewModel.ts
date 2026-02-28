@@ -15,7 +15,12 @@ export type FBattleCameraMode =
   | "EnemyAttackAOE"
   | "SettlementCam";
 
-export type FBattleCommandStage = "Root" | "SkillMenu" | "ItemMenu" | "TargetSelect";
+export type FBattleCommandStage =
+  | "Root"
+  | "SkillMenu"
+  | "ItemMenu"
+  | "TargetSelect"
+  | "ActionResolve";
 
 export type FBattlePendingActionKind = "Attack" | "Skill" | null;
 
@@ -110,6 +115,9 @@ export interface FBattle3CHudState {
   Units: FBattleUnitHudState[];
   ScriptFocus: FBattleScriptFocusHudState | null;
   LastShot: FBattleShotHudState | null;
+  ActionResolveRemainingMs: number;
+  ActionToastText: string | null;
+  ActionToastRemainingMs: number;
 }
 
 export interface FSettlementPreviewHudState {

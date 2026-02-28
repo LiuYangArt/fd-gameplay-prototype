@@ -176,7 +176,7 @@ const BattleRangeGroups: FRangeGroup[] = [
     ]
   },
   {
-    Title: "瞄准与目标",
+    Title: "瞄准镜头",
     Specs: [
       { Key: "PlayerAimFovDeg", Label: "瞄准镜头 Fov (deg)", Min: 20, Max: 95, Step: 0.5 },
       {
@@ -220,13 +220,169 @@ const BattleRangeGroups: FRangeGroup[] = [
         Min: -800,
         Max: 800,
         Step: 5
-      },
+      }
+    ]
+  },
+  {
+    Title: "技能预览机位（PlayerSkillPreview）",
+    Specs: [
+      { Key: "SkillPreviewFovDeg", Label: "技能预览 Fov (deg)", Min: 20, Max: 95, Step: 0.5 },
       {
-        Key: "SkillTargetZoomDistanceCm",
-        Label: "目标模式镜头距离（SkillTarget）(cm)",
+        Key: "SkillPreviewDistanceCm",
+        Label: "技能预览后拉距离 (cm)",
         Min: 120,
         Max: 2600,
         Step: 10
+      },
+      {
+        Key: "SkillPreviewShoulderOffsetCm",
+        Label: "技能预览肩位偏移 (cm)",
+        Min: -300,
+        Max: 300,
+        Step: 5
+      },
+      {
+        Key: "SkillPreviewSocketUpCm",
+        Label: "技能预览 Socket 高度 (cm)",
+        Min: -400,
+        Max: 500,
+        Step: 5
+      },
+      {
+        Key: "SkillPreviewLookForwardDistanceCm",
+        Label: "技能预览前探距离 (cm)",
+        Min: 120,
+        Max: 2600,
+        Step: 10
+      },
+      {
+        Key: "SkillPreviewFocusOffsetRightCm",
+        Label: "技能预览焦点侧偏移 (cm)",
+        Min: -400,
+        Max: 400,
+        Step: 5
+      },
+      {
+        Key: "SkillPreviewFocusOffsetUpCm",
+        Label: "技能预览焦点上偏移 (cm)",
+        Min: -800,
+        Max: 800,
+        Step: 5
+      }
+    ]
+  },
+  {
+    Title: "物品预览机位（PlayerItemPreview）",
+    Specs: [
+      { Key: "ItemPreviewFovDeg", Label: "物品预览 Fov (deg)", Min: 20, Max: 95, Step: 0.5 },
+      {
+        Key: "ItemPreviewDistanceCm",
+        Label: "物品预览距离 (cm)",
+        Min: 120,
+        Max: 2600,
+        Step: 10
+      },
+      {
+        Key: "ItemPreviewLateralOffsetCm",
+        Label: "物品预览侧偏移 (cm)",
+        Min: -300,
+        Max: 300,
+        Step: 5
+      },
+      {
+        Key: "ItemPreviewSocketUpCm",
+        Label: "物品预览 Socket 高度 (cm)",
+        Min: -400,
+        Max: 500,
+        Step: 5
+      },
+      {
+        Key: "ItemPreviewLookAtHeightCm",
+        Label: "物品预览看向高度 (cm)",
+        Min: -200,
+        Max: 500,
+        Step: 5
+      },
+      {
+        Key: "ItemPreviewFocusOffsetRightCm",
+        Label: "物品预览焦点侧偏移 (cm)",
+        Min: -400,
+        Max: 400,
+        Step: 5
+      },
+      {
+        Key: "ItemPreviewFocusOffsetUpCm",
+        Label: "物品预览焦点上偏移 (cm)",
+        Min: -800,
+        Max: 800,
+        Step: 5
+      }
+    ]
+  },
+  {
+    Title: "目标敌人特写（TargetSelect）",
+    Specs: [
+      {
+        Key: "TargetSelectCloseupDistanceCm",
+        Label: "特写距离 (cm)",
+        Min: 120,
+        Max: 2600,
+        Step: 10
+      },
+      {
+        Key: "TargetSelectCloseupHeightCm",
+        Label: "特写高度 (cm)",
+        Min: -300,
+        Max: 600,
+        Step: 5
+      },
+      {
+        Key: "TargetSelectLookAtHeightCm",
+        Label: "看向高度 (cm)",
+        Min: -200,
+        Max: 500,
+        Step: 5
+      },
+      {
+        Key: "TargetSelectLateralOffsetCm",
+        Label: "特写侧偏移 (cm)",
+        Min: -220,
+        Max: 220,
+        Step: 5
+      },
+      { Key: "TargetSelectFovDeg", Label: "特写 Fov (deg)", Min: 20, Max: 95, Step: 0.5 }
+    ]
+  },
+  {
+    Title: "执行反馈（ActionResolve）",
+    Specs: [
+      {
+        Key: "ActionResolveDurationSec",
+        Label: "执行阶段时长 (s)",
+        Min: 0.1,
+        Max: 3,
+        Step: 0.05
+      },
+      {
+        Key: "ActionResolveToastOffsetX",
+        Label: "提示偏移 X (px)",
+        Min: -600,
+        Max: 600,
+        Step: 1
+      },
+      {
+        Key: "ActionResolveToastOffsetY",
+        Label: "提示偏移 Y (px)",
+        Min: -400,
+        Max: 400,
+        Step: 1
+      },
+      {
+        Key: "ActionResolveToastDurationSec",
+        Label: "提示显示时长 (s)",
+        Min: 0.1,
+        Max: 3,
+        Step: 0.05
       }
     ]
   },
@@ -604,6 +760,7 @@ export function App() {
   const IsBattleSkillMenuStage = IsBattle3CPhase && BattleCommandStage === "SkillMenu";
   const IsBattleItemMenuStage = IsBattle3CPhase && BattleCommandStage === "ItemMenu";
   const IsBattleTargetSelectStage = IsBattle3CPhase && BattleCommandStage === "TargetSelect";
+  const IsBattleActionResolveStage = IsBattle3CPhase && BattleCommandStage === "ActionResolve";
   const IsAimCursorHidden = IsBattle3CPhase && Hud.Battle3CState.CameraMode === "PlayerAim";
   const IsBattleCornerActionsVisible = ShouldShowBattleCornerActions(Hud);
   const ControlledUnit =
@@ -651,6 +808,10 @@ export function App() {
     width: `${DebugMenuLayout.Width}px`,
     height: `${DebugMenuLayout.Height}px`
   };
+  const ActionToastStyle: React.CSSProperties = {
+    left: `calc(50% + ${Hud.DebugState.Config.ActionResolveToastOffsetX}px)`,
+    top: `calc(50% + ${Hud.DebugState.Config.ActionResolveToastOffsetY}px)`
+  };
 
   return (
     <main className="AppRoot">
@@ -683,7 +844,19 @@ export function App() {
             />
           ) : null}
 
-          {IsBattleAimMode && HoveredEnemyUnit && EnemyHpBarStyle ? (
+          {IsBattle3CPhase && Hud.Battle3CState.ActionToastText ? (
+            <div
+              className="BattleActionToast"
+              style={ActionToastStyle}
+              data-ignore-fire-input="true"
+            >
+              {Hud.Battle3CState.ActionToastText}
+            </div>
+          ) : null}
+
+          {(IsBattleAimMode || IsBattleTargetSelectStage || IsBattleActionResolveStage) &&
+          HoveredEnemyUnit &&
+          EnemyHpBarStyle ? (
             <div className="EnemyHeadHpHud" style={EnemyHpBarStyle}>
               <div className="EnemyHeadHpHud__Name">{HoveredEnemyUnit.DisplayName}</div>
               <div className="EnemyHeadHpHud__Bar">
@@ -728,19 +901,17 @@ export function App() {
                           Index === Hud.Battle3CState.SelectedSkillOptionIndex ? " IsActive" : ""
                         }`}
                       >
-                        <span>{Option.DisplayName}</span>
+                        <button
+                          type="button"
+                          className="BattleCommandOptionButton"
+                          onClick={() => Runtime.ActivateBattleSkillOption(Index)}
+                        >
+                          <span>{Option.DisplayName}</span>
+                        </button>
                       </li>
                     ))}
                   </ul>
                   <div className="BattleCommandPanel__Actions">
-                    <button
-                      type="button"
-                      className="BattleActionButton BattleActionButton--Confirm"
-                      onClick={() => Runtime.FireBattleAction()}
-                    >
-                      确认技能
-                      <span>F / LMB / A</span>
-                    </button>
                     <button
                       type="button"
                       className="BattleActionButton BattleActionButton--Return"
@@ -750,6 +921,7 @@ export function App() {
                       <span>Esc / B</span>
                     </button>
                   </div>
+                  <p className="BattleCommandHint">点击条目或按 F / A：立即激活当前技能</p>
                   <p className="BattleCommandHint">上下切换：↑/↓ 或 D-Pad 上/下</p>
                 </div>
               ) : IsBattleItemMenuStage ? (
@@ -763,19 +935,17 @@ export function App() {
                           Index === Hud.Battle3CState.SelectedItemOptionIndex ? " IsActive" : ""
                         }`}
                       >
-                        <span>{Option.DisplayName}</span>
+                        <button
+                          type="button"
+                          className="BattleCommandOptionButton"
+                          onClick={() => Runtime.ActivateBattleItemOption(Index)}
+                        >
+                          <span>{Option.DisplayName}</span>
+                        </button>
                       </li>
                     ))}
                   </ul>
                   <div className="BattleCommandPanel__Actions">
-                    <button
-                      type="button"
-                      className="BattleActionButton BattleActionButton--Confirm"
-                      onClick={() => Runtime.FireBattleAction()}
-                    >
-                      使用占位物品
-                      <span>F / LMB / A</span>
-                    </button>
                     <button
                       type="button"
                       className="BattleActionButton BattleActionButton--Return"
@@ -785,6 +955,7 @@ export function App() {
                       <span>Esc / B</span>
                     </button>
                   </div>
+                  <p className="BattleCommandHint">点击条目或按 F / A：立即使用当前物品</p>
                   <p className="BattleCommandHint">上下切换：↑/↓ 或 D-Pad 上/下</p>
                 </div>
               ) : IsBattleTargetSelectStage ? (
@@ -805,6 +976,15 @@ export function App() {
                   </div>
                   <p className="BattleCommandHint">左右切换：←/→ 或 D-Pad 左/右</p>
                   <p className="BattleCommandHint">返回：Esc / B</p>
+                </div>
+              ) : IsBattleActionResolveStage ? (
+                <div className="BattleCommandPanel BattleCommandPanel--Resolve">
+                  <div className="BattleCommandPanel__Title">动作执行中</div>
+                  <div className="BattleCommandPanel__Target">
+                    输入已锁定，等待执行完成（
+                    {(Hud.Battle3CState.ActionResolveRemainingMs / 1000).toFixed(2)}
+                    s）
+                  </div>
                 </div>
               ) : IsBattleRootCommandStage ? (
                 <>

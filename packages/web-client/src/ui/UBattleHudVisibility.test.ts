@@ -58,7 +58,10 @@ function CreateHud(Overrides?: {
       SelectedSkillOptionId: null,
       Units: [],
       ScriptFocus: null,
-      LastShot: null
+      LastShot: null,
+      ActionResolveRemainingMs: 0,
+      ActionToastText: null,
+      ActionToastRemainingMs: 0
     },
     SettlementState: {
       SummaryText: "",

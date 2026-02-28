@@ -3,6 +3,13 @@ const DebugConfigStorageKeyV3 = "FD_DEBUG_CONFIG_V3";
 const DebugConfigStorageKeyV4 = "FD_DEBUG_CONFIG_V4";
 const DebugConfigStorageKeyV5 = "FD_DEBUG_CONFIG_V5";
 
+const DebugWideCmMin = -12000;
+const DebugWideCmMax = 12000;
+const DebugWideFovMinDeg = 5;
+const DebugWideFovMaxDeg = 170;
+const DebugWideDurationMinSec = 0.01;
+const DebugWideDurationMaxSec = 30;
+
 interface FDebugConfigStoragePayload {
   Config: FDebugConfig;
   LastUpdatedAtIso: string | null;
@@ -41,7 +48,29 @@ export interface FDebugConfig {
   PlayerAimLookForwardDistanceCm: number;
   PlayerAimFocusOffsetRightCm: number;
   PlayerAimFocusOffsetUpCm: number;
-  SkillTargetZoomDistanceCm: number;
+  SkillPreviewFovDeg: number;
+  SkillPreviewDistanceCm: number;
+  SkillPreviewShoulderOffsetCm: number;
+  SkillPreviewSocketUpCm: number;
+  SkillPreviewLookForwardDistanceCm: number;
+  SkillPreviewFocusOffsetRightCm: number;
+  SkillPreviewFocusOffsetUpCm: number;
+  ItemPreviewFovDeg: number;
+  ItemPreviewDistanceCm: number;
+  ItemPreviewLateralOffsetCm: number;
+  ItemPreviewSocketUpCm: number;
+  ItemPreviewLookAtHeightCm: number;
+  ItemPreviewFocusOffsetRightCm: number;
+  ItemPreviewFocusOffsetUpCm: number;
+  TargetSelectCloseupDistanceCm: number;
+  TargetSelectCloseupHeightCm: number;
+  TargetSelectLookAtHeightCm: number;
+  TargetSelectLateralOffsetCm: number;
+  TargetSelectFovDeg: number;
+  ActionResolveDurationSec: number;
+  ActionResolveToastOffsetX: number;
+  ActionResolveToastOffsetY: number;
+  ActionResolveToastDurationSec: number;
   EnemyAttackCamDistanceCm: number;
   EnemyAttackCamHeightCm: number;
   SettlementCamDistanceCm: number;
@@ -89,7 +118,29 @@ const DefaultDebugConfig: FDebugConfig = {
   PlayerAimLookForwardDistanceCm: 620,
   PlayerAimFocusOffsetRightCm: 0,
   PlayerAimFocusOffsetUpCm: 0,
-  SkillTargetZoomDistanceCm: 420,
+  SkillPreviewFovDeg: 52,
+  SkillPreviewDistanceCm: 360,
+  SkillPreviewShoulderOffsetCm: 45,
+  SkillPreviewSocketUpCm: 145,
+  SkillPreviewLookForwardDistanceCm: 620,
+  SkillPreviewFocusOffsetRightCm: 0,
+  SkillPreviewFocusOffsetUpCm: 0,
+  ItemPreviewFovDeg: 52,
+  ItemPreviewDistanceCm: 360,
+  ItemPreviewLateralOffsetCm: -45,
+  ItemPreviewSocketUpCm: 145,
+  ItemPreviewLookAtHeightCm: 95,
+  ItemPreviewFocusOffsetRightCm: 0,
+  ItemPreviewFocusOffsetUpCm: 0,
+  TargetSelectCloseupDistanceCm: 210,
+  TargetSelectCloseupHeightCm: 135,
+  TargetSelectLookAtHeightCm: 95,
+  TargetSelectLateralOffsetCm: 20,
+  TargetSelectFovDeg: 38,
+  ActionResolveDurationSec: 0.65,
+  ActionResolveToastOffsetX: 0,
+  ActionResolveToastOffsetY: -180,
+  ActionResolveToastDurationSec: 0.65,
   EnemyAttackCamDistanceCm: 360,
   EnemyAttackCamHeightCm: 130,
   SettlementCamDistanceCm: 760,
@@ -292,8 +343,8 @@ export class UDebugConfigStore {
           "BattleIntroCameraStartDistanceCm",
           Base.BattleIntroCameraStartDistanceCm
         ),
-        200,
-        6000
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       BattleIntroCameraStartHeightCm: this.Clamp(
         this.ResolveNumber(
@@ -301,8 +352,8 @@ export class UDebugConfigStore {
           "BattleIntroCameraStartHeightCm",
           Base.BattleIntroCameraStartHeightCm
         ),
-        -3000,
-        3000
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       BattleIntroCameraEndDistanceCm: this.Clamp(
         this.ResolveNumber(
@@ -310,8 +361,8 @@ export class UDebugConfigStore {
           "BattleIntroCameraEndDistanceCm",
           Base.BattleIntroCameraEndDistanceCm
         ),
-        -3000,
-        3200
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       BattleIntroCameraEndHeightCm: this.Clamp(
         this.ResolveNumber(
@@ -319,18 +370,18 @@ export class UDebugConfigStore {
           "BattleIntroCameraEndHeightCm",
           Base.BattleIntroCameraEndHeightCm
         ),
-        -3000,
-        1400
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       BattleIntroDurationSec: this.Clamp(
         this.ResolveNumber(Source, "BattleIntroDurationSec", Base.BattleIntroDurationSec),
-        0.1,
-        8
+        DebugWideDurationMinSec,
+        DebugWideDurationMaxSec
       ),
       BattleIntroFovDeg: this.Clamp(
         this.ResolveNumber(Source, "BattleIntroFovDeg", Base.BattleIntroFovDeg),
-        30,
-        110
+        DebugWideFovMinDeg,
+        DebugWideFovMaxDeg
       ),
       BattleFollowFocusOffsetRightCm: this.Clamp(
         this.ResolveNumber(
@@ -338,28 +389,28 @@ export class UDebugConfigStore {
           "BattleFollowFocusOffsetRightCm",
           Base.BattleFollowFocusOffsetRightCm
         ),
-        -400,
-        400
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       BattleFollowFocusOffsetUpCm: this.Clamp(
         this.ResolveNumber(Source, "BattleFollowFocusOffsetUpCm", Base.BattleFollowFocusOffsetUpCm),
-        -800,
-        800
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       BattleDropStartHeightCm: this.Clamp(
         this.ResolveNumber(Source, "BattleDropStartHeightCm", Base.BattleDropStartHeightCm),
-        0,
-        3000
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       BattleDropDurationSec: this.Clamp(
         this.ResolveNumber(Source, "BattleDropDurationSec", Base.BattleDropDurationSec),
-        0.1,
-        5
+        DebugWideDurationMinSec,
+        DebugWideDurationMaxSec
       ),
       BattlePromptDurationSec: this.Clamp(
         this.ResolveNumber(Source, "BattlePromptDurationSec", Base.BattlePromptDurationSec),
-        0.1,
-        6
+        DebugWideDurationMinSec,
+        DebugWideDurationMaxSec
       ),
       BattleFollowShoulderOffsetCm: this.Clamp(
         this.ResolveNumber(
@@ -367,24 +418,28 @@ export class UDebugConfigStore {
           "BattleFollowShoulderOffsetCm",
           Base.BattleFollowShoulderOffsetCm
         ),
-        -220,
-        220
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
-      PlayerAimFovDeg: this.ResolveNumber(Source, "PlayerAimFovDeg", Base.PlayerAimFovDeg),
-      PlayerAimDistanceCm: this.ResolveNumber(
-        Source,
-        "PlayerAimDistanceCm",
-        Base.PlayerAimDistanceCm
+      PlayerAimFovDeg: this.Clamp(
+        this.ResolveNumber(Source, "PlayerAimFovDeg", Base.PlayerAimFovDeg),
+        DebugWideFovMinDeg,
+        DebugWideFovMaxDeg
       ),
-      PlayerAimShoulderOffsetCm: this.ResolveNumber(
-        Source,
-        "PlayerAimShoulderOffsetCm",
-        Base.PlayerAimShoulderOffsetCm
+      PlayerAimDistanceCm: this.Clamp(
+        this.ResolveNumber(Source, "PlayerAimDistanceCm", Base.PlayerAimDistanceCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      PlayerAimShoulderOffsetCm: this.Clamp(
+        this.ResolveNumber(Source, "PlayerAimShoulderOffsetCm", Base.PlayerAimShoulderOffsetCm),
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       PlayerAimSocketUpCm: this.Clamp(
         this.ResolveNumber(Source, "PlayerAimSocketUpCm", Base.PlayerAimSocketUpCm),
-        -400,
-        500
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       PlayerAimLookForwardDistanceCm: this.Clamp(
         this.ResolveNumber(
@@ -392,43 +447,177 @@ export class UDebugConfigStore {
           "PlayerAimLookForwardDistanceCm",
           Base.PlayerAimLookForwardDistanceCm
         ),
-        120,
-        2600
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
-      PlayerAimFocusOffsetRightCm: this.ResolveNumber(
-        Source,
-        "PlayerAimFocusOffsetRightCm",
-        Base.PlayerAimFocusOffsetRightCm
+      PlayerAimFocusOffsetRightCm: this.Clamp(
+        this.ResolveNumber(Source, "PlayerAimFocusOffsetRightCm", Base.PlayerAimFocusOffsetRightCm),
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
-      PlayerAimFocusOffsetUpCm: this.ResolveNumber(
-        Source,
-        "PlayerAimFocusOffsetUpCm",
-        Base.PlayerAimFocusOffsetUpCm
+      PlayerAimFocusOffsetUpCm: this.Clamp(
+        this.ResolveNumber(Source, "PlayerAimFocusOffsetUpCm", Base.PlayerAimFocusOffsetUpCm),
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
-      SkillTargetZoomDistanceCm: this.ResolveNumber(
-        Source,
-        "SkillTargetZoomDistanceCm",
-        Base.SkillTargetZoomDistanceCm
+      SkillPreviewFovDeg: this.Clamp(
+        this.ResolveNumber(Source, "SkillPreviewFovDeg", Base.SkillPreviewFovDeg),
+        DebugWideFovMinDeg,
+        DebugWideFovMaxDeg
+      ),
+      SkillPreviewDistanceCm: this.Clamp(
+        this.ResolveNumber(Source, "SkillPreviewDistanceCm", Base.SkillPreviewDistanceCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      SkillPreviewShoulderOffsetCm: this.Clamp(
+        this.ResolveNumber(
+          Source,
+          "SkillPreviewShoulderOffsetCm",
+          Base.SkillPreviewShoulderOffsetCm
+        ),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      SkillPreviewSocketUpCm: this.Clamp(
+        this.ResolveNumber(Source, "SkillPreviewSocketUpCm", Base.SkillPreviewSocketUpCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      SkillPreviewLookForwardDistanceCm: this.Clamp(
+        this.ResolveNumber(
+          Source,
+          "SkillPreviewLookForwardDistanceCm",
+          Base.SkillPreviewLookForwardDistanceCm
+        ),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      SkillPreviewFocusOffsetRightCm: this.Clamp(
+        this.ResolveNumber(
+          Source,
+          "SkillPreviewFocusOffsetRightCm",
+          Base.SkillPreviewFocusOffsetRightCm
+        ),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      SkillPreviewFocusOffsetUpCm: this.Clamp(
+        this.ResolveNumber(Source, "SkillPreviewFocusOffsetUpCm", Base.SkillPreviewFocusOffsetUpCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      ItemPreviewFovDeg: this.Clamp(
+        this.ResolveNumber(Source, "ItemPreviewFovDeg", Base.ItemPreviewFovDeg),
+        DebugWideFovMinDeg,
+        DebugWideFovMaxDeg
+      ),
+      ItemPreviewDistanceCm: this.Clamp(
+        this.ResolveNumber(Source, "ItemPreviewDistanceCm", Base.ItemPreviewDistanceCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      ItemPreviewLateralOffsetCm: this.Clamp(
+        this.ResolveNumber(Source, "ItemPreviewLateralOffsetCm", Base.ItemPreviewLateralOffsetCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      ItemPreviewSocketUpCm: this.Clamp(
+        this.ResolveNumber(Source, "ItemPreviewSocketUpCm", Base.ItemPreviewSocketUpCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      ItemPreviewLookAtHeightCm: this.Clamp(
+        this.ResolveNumber(Source, "ItemPreviewLookAtHeightCm", Base.ItemPreviewLookAtHeightCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      ItemPreviewFocusOffsetRightCm: this.Clamp(
+        this.ResolveNumber(
+          Source,
+          "ItemPreviewFocusOffsetRightCm",
+          Base.ItemPreviewFocusOffsetRightCm
+        ),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      ItemPreviewFocusOffsetUpCm: this.Clamp(
+        this.ResolveNumber(Source, "ItemPreviewFocusOffsetUpCm", Base.ItemPreviewFocusOffsetUpCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      TargetSelectCloseupDistanceCm: this.Clamp(
+        this.ResolveNumber(
+          Source,
+          "TargetSelectCloseupDistanceCm",
+          Base.TargetSelectCloseupDistanceCm
+        ),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      TargetSelectCloseupHeightCm: this.Clamp(
+        this.ResolveNumber(Source, "TargetSelectCloseupHeightCm", Base.TargetSelectCloseupHeightCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      TargetSelectLookAtHeightCm: this.Clamp(
+        this.ResolveNumber(Source, "TargetSelectLookAtHeightCm", Base.TargetSelectLookAtHeightCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      TargetSelectLateralOffsetCm: this.Clamp(
+        this.ResolveNumber(Source, "TargetSelectLateralOffsetCm", Base.TargetSelectLateralOffsetCm),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      TargetSelectFovDeg: this.Clamp(
+        this.ResolveNumber(Source, "TargetSelectFovDeg", Base.TargetSelectFovDeg),
+        DebugWideFovMinDeg,
+        DebugWideFovMaxDeg
+      ),
+      ActionResolveDurationSec: this.Clamp(
+        this.ResolveNumber(Source, "ActionResolveDurationSec", Base.ActionResolveDurationSec),
+        DebugWideDurationMinSec,
+        DebugWideDurationMaxSec
+      ),
+      ActionResolveToastOffsetX: this.Clamp(
+        this.ResolveNumber(Source, "ActionResolveToastOffsetX", Base.ActionResolveToastOffsetX),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      ActionResolveToastOffsetY: this.Clamp(
+        this.ResolveNumber(Source, "ActionResolveToastOffsetY", Base.ActionResolveToastOffsetY),
+        DebugWideCmMin,
+        DebugWideCmMax
+      ),
+      ActionResolveToastDurationSec: this.Clamp(
+        this.ResolveNumber(
+          Source,
+          "ActionResolveToastDurationSec",
+          Base.ActionResolveToastDurationSec
+        ),
+        DebugWideDurationMinSec,
+        DebugWideDurationMaxSec
       ),
       EnemyAttackCamDistanceCm: this.Clamp(
         this.ResolveNumber(Source, "EnemyAttackCamDistanceCm", Base.EnemyAttackCamDistanceCm),
-        120,
-        2200
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       EnemyAttackCamHeightCm: this.Clamp(
         this.ResolveNumber(Source, "EnemyAttackCamHeightCm", Base.EnemyAttackCamHeightCm),
-        -3000,
-        1200
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       SettlementCamDistanceCm: this.Clamp(
         this.ResolveNumber(Source, "SettlementCamDistanceCm", Base.SettlementCamDistanceCm),
-        200,
-        3600
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       SettlementCamHeightCm: this.Clamp(
         this.ResolveNumber(Source, "SettlementCamHeightCm", Base.SettlementCamHeightCm),
-        -3000,
-        1800
+        DebugWideCmMin,
+        DebugWideCmMax
       ),
       UnitModelChar01Path: this.ResolveString(
         Source,
