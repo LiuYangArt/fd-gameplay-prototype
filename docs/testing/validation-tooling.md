@@ -1,6 +1,6 @@
 # 自动测试与验证工具方案
 
-更新时间：2026-02-17
+更新时间：2026-02-28
 
 ## 当前已接入
 
@@ -34,6 +34,14 @@
 
 - 命令：`pnpm verify`
 - 串联：类型检查 + lint + 单测 + 构建。
+
+7. 浏览器自动化冒烟（Playwright CLI）
+
+- 命令：`pnpm exec playwright-cli --version`
+- 首次缺失安装：`pnpm add -Dw @playwright/cli`
+- 典型流程：`open -> snapshot -> click/press -> snapshot -> screenshot -> console/network`
+- 一键命令：`pnpm smoke:web`（自动启动 `web-client`、执行上述流程并归档产物到 `output/playwright/`）
+- 项目约定：`web-client` 可浏览器验证的功能，优先使用 `playwright-cli`；仅当场景无法自动化时再使用手动冒烟。
 
 ## 提交流程保护（Husky）
 
@@ -86,7 +94,7 @@
 
 1. Playwright 冒烟测试
 
-- 目标：验证页面加载、关键按钮可触发、战斗能走完一回合。
+- 目标：扩展 `playwright-cli` 覆盖率，补齐关键交互链路（瞄准、切角色、结算回图）自动化命令脚本。
 
 2. 玩法回放快照测试
 

@@ -39,6 +39,7 @@
 - 优先执行：`pnpm lint`，必要时用 `pnpm lint:fix` 自动修复。
 - 新增玩法规则时，优先补 `gameplay-core` 单元测试。
 - 若修改输入或 UI 关键路径，补最小冒烟验证步骤。
+- 浏览器内可测试功能（`web-client` 的 UI/输入/镜头/HUD）优先使用 `playwright-cli` 自动化验证；无法自动化时才补手动冒烟并说明原因。
 - 修复 bug 时必须先补一个会失败的回归测试，再修改实现。
 - bug 修复完成后，需更新 `docs/testing/regression-checklist.md` 的对应条目状态。
 - 满足触发条件的故障必须新增 postmortem：`docs/postmortems/YYYY-MM-DD-<主题>.md`（模板见 `docs/postmortems/_template.md`）。

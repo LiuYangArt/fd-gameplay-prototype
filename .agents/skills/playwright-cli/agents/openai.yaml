@@ -1,0 +1,4 @@
+interface:
+  display_name: "Playwright CLI"
+  short_description: "CLI browser smoke and flow checks"
+  default_prompt: "Use playwright-cli to run repeatable browser smoke tests for this repository."
