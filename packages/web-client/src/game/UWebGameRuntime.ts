@@ -256,6 +256,8 @@ export class UWebGameRuntime {
       this.ActiveBattleSession.AimCameraYawDeg = ControlledUnit?.YawDeg ?? 0;
       this.ActiveBattleSession.AimCameraPitchDeg = 0;
       this.CaptureAimFacingSnapshot(this.ActiveBattleSession.ControlledCharacterId);
+      this.AlignAimFacingToEnemyCenterAxis();
+      this.SyncAimCameraYawToControlledFacing();
     } else {
       this.RestoreFacingAfterAim();
     }
@@ -349,6 +351,8 @@ export class UWebGameRuntime {
       this.ActiveBattleSession.AimCameraYawDeg = ControlledUnit?.YawDeg ?? 0;
       this.ActiveBattleSession.AimCameraPitchDeg = 0;
       this.CaptureAimFacingSnapshot(this.ActiveBattleSession.ControlledCharacterId);
+      this.AlignAimFacingToEnemyCenterAxis();
+      this.SyncAimCameraYawToControlledFacing();
     }
     this.ActiveBattleSession.CameraMode = this.ResolveBattleControlCameraMode(
       this.ActiveBattleSession
@@ -1269,6 +1273,37 @@ export class UWebGameRuntime {
       AimYawCenterFanMinHalfAngleDeg,
       AimYawCenterFanMaxHalfAngleDeg
     );
+  }
+
+  private AlignAimFacingToEnemyCenterAxis(): boolean {
+    if (
+      !this.ActiveBattleSession ||
+      this.RuntimePhase !== "Battle3C" ||
+      !this.ActiveBattleSession.IsAimMode
+    ) {
+      return false;
+    }
+
+    const ControlledUnit = this.FindBattleUnit(this.ActiveBattleSession.ControlledCharacterId);
+    if (!ControlledUnit || !ControlledUnit.IsAlive) {
+      return false;
+    }
+
+    const EnemyTargets = this.GetEnemyBattleUnits(this.ActiveBattleSession.Units).filter(
+      (Unit) => Unit.IsAlive
+    );
+    if (EnemyTargets.length < 1) {
+      return false;
+    }
+
+    const CenterYawDeg = this.ResolveEnemyCenterAxisYawDeg(ControlledUnit, EnemyTargets);
+    const NextYawDeg = this.NormalizeAngleDegrees(CenterYawDeg);
+    if (Math.abs(this.NormalizeAngleDegrees(ControlledUnit.YawDeg - NextYawDeg)) <= 1e-3) {
+      return false;
+    }
+
+    ControlledUnit.YawDeg = Number(NextYawDeg.toFixed(2));
+    return true;
   }
 
   private EnsureAimFacingSnapshotMap(): Record<string, number> {

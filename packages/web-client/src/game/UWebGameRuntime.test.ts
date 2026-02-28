@@ -125,6 +125,147 @@ function CreateBattleUnit(Override: Partial<FBattleUnitSeed>) {
 }
 
 describe("UWebGameRuntime", () => {
+  it("进入瞄准时若当前朝向在敌人扇区外，应先对齐中轴避免左右极限体感异常", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_AIM_ENTER_ALIGN_CENTER_AXIS",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01", "enemy02", "enemy03"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerFollow",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: false,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: null,
+      AimCameraPitchDeg: null,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: -120
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: -160 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 0 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy03",
+          TeamId: "Enemy",
+          DisplayName: "enemy03",
+          PositionCm: { X: 280, Y: 0, Z: 160 }
+        })
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.ToggleBattleAim();
+    const YawAfterEnterAim =
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg ??
+      0;
+    expect(YawAfterEnterAim).toBeCloseTo(90, 0);
+    expect(Runtime.GetViewModel().Battle3CState.AimCameraYawDeg).toBeCloseTo(90, 0);
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      LookYawDeltaDegrees: -120
+    });
+    const YawAfterLeft =
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg ??
+      0;
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      LookYawDeltaDegrees: 200
+    });
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      LookYawDeltaDegrees: -200
+    });
+    const YawAfterRightThenLeft =
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg ??
+      0;
+
+    expect(YawAfterLeft).toBeCloseTo(5, 0);
+    expect(YawAfterRightThenLeft).toBeCloseTo(5, 0);
+  });
+
+  it("进入瞄准时若当前朝向在扇区内但偏离中轴，仍应先对齐中轴保证左右手感一致", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_AIM_ENTER_ALIGN_CENTER_AXIS_INSIDE_FAN",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01", "enemy02", "enemy03"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerFollow",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: false,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: null,
+      AimCameraPitchDeg: null,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 40
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: -160 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 0 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy03",
+          TeamId: "Enemy",
+          DisplayName: "enemy03",
+          PositionCm: { X: 280, Y: 0, Z: 160 }
+        })
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.ToggleBattleAim();
+    const YawAfterEnterAim =
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg ??
+      0;
+    expect(YawAfterEnterAim).toBeCloseTo(90, 0);
+    expect(Runtime.GetViewModel().Battle3CState.AimCameraYawDeg).toBeCloseTo(90, 0);
+  });
+
   it("Overworld 与瞄准俯仰方向应可独立反转开关控制", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;

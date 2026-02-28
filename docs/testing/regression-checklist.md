@@ -112,6 +112,16 @@
 
 ## F. 本次修复记录
 
+- 问题描述：修复“瞄准起手左右极限体感不一致（先右再左左侧可转范围变大）”；根因是进入瞄准时仅在“扇区外”才回中轴，扇区内偏轴会造成起手单侧行程偏窄。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增“扇区内偏轴进入瞄准也回中轴”回归）。
+- 新增/修改条目：C 节“瞄准时角色朝向由 `LookYawDelta` 连续驱动，左右限位采用敌人中心中轴扇区”条目继续保持已完成，并补充本次回归覆盖。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（24 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm smoke:web`：通过（仅 `favicon.ico` 404，为历史非阻断项）
+- 是否新增 postmortem：`否`
+
 - 问题描述：修复“瞄准态返回按钮在角色靠左时可能出视口不可见且位置偏高遮挡角色”，最终将按钮锚点调整为“角色右侧偏下”。
 - 对应测试文件：`packages/web-client/src/ui/BattleAimReturnLayout.test.ts`（先失败后修复，并更新最终断言）。
 - 新增/修改条目：C 节新增“瞄准返回按钮挂在右侧偏下”自动化条目并置为已完成。
