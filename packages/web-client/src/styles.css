@@ -392,9 +392,8 @@ ul {
 
 .BattleAimReturnGroup {
   position: absolute;
-  left: 50%;
+  left: calc(100% + 132px);
   top: calc(100% + 72px);
-  transform: translateX(-50%);
   pointer-events: auto;
 }
 
@@ -554,6 +553,7 @@ ul {
   }
 
   .BattleAimReturnGroup {
+    left: calc(100% + 88px);
     top: calc(100% + 56px);
   }
 
@@ -603,6 +603,7 @@ ul {
   }
 
   .BattleAimReturnGroup {
+    left: calc(100% + 56px);
     top: calc(100% + 44px);
   }
 }

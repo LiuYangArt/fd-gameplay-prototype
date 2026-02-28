@@ -1,6 +1,6 @@
 # 回归检查清单（Gameplay Prototype）
 
-更新时间：2026-02-27
+更新时间：2026-02-28
 
 > 用法
 >
@@ -34,6 +34,7 @@
 - [x] 瞄准模式下鼠标驱动准星使用绝对坐标，且隐藏系统鼠标光标（`PlayerAim`）。
 - [x] 战斗 HUD 点击不会误触发开火输入（`mousedown` 过滤 UI 元素）。
 - [x] 瞄准模式下支持 `Esc / 手柄 B / HUD 返回按钮` 退出瞄准并回到跟随镜头。
+- [x] 瞄准模式下 HUD 返回按钮挂在角色右侧偏下，避免角色靠左时按钮超出视口且遮挡角色（`BattleAimReturnLayout.test.ts`）。
 - [x] 战斗结束回到 `Overworld` 后，左下角战斗 HUD（逃跑/跳过回合）会完全清理。
 - [x] 瞄准模式下悬停敌人会同步 `HoveredTargetId`，并支持头顶血条显示（`UWebGameRuntime.test.ts`）。
 - [x] 战斗开火会产出 Shot 可视化事件（`UWebGameRuntime.test.ts`）。
@@ -104,6 +105,14 @@
 - [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
 
 ## F. 本次修复记录
+
+- 问题描述：修复“瞄准态返回按钮在角色靠左时可能出视口不可见且位置偏高遮挡角色”，最终将按钮锚点调整为“角色右侧偏下”。
+- 对应测试文件：`packages/web-client/src/ui/BattleAimReturnLayout.test.ts`（先失败后修复，并更新最终断言）。
+- 新增/修改条目：C 节新增“瞄准返回按钮挂在右侧偏下”自动化条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- BattleAimReturnLayout.test.ts`：先失败后通过
+  - `pnpm --filter @fd/web-client test`：通过（15 项）
+- 是否新增 postmortem：`否`
 
 - 问题描述：实现“遭遇 -> 战斗 3C -> 结算回图”的事件驱动链路（功能开发，非缺陷修复）。
 - 对应测试文件：`packages/gameplay-core/tests/UOverworldSimulation.test.ts`（核心回归沿用）。
