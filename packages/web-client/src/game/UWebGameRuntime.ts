@@ -108,8 +108,8 @@ const EnemyScriptCameraHoldMs = 680;
 const BattleLaneTableByTeam: Record<"Player" | "Enemy", Record<number, number[]>> = {
   Player: {
     1: [0],
-    2: [120, -120],
-    3: [200, 0, -200]
+    2: [150, -150],
+    3: [300, 0, -300]
   },
   Enemy: {
     1: [0],
@@ -245,6 +245,7 @@ export class UWebGameRuntime {
       const ControlledUnit = this.FindBattleUnit(this.ActiveBattleSession.ControlledCharacterId);
       this.ActiveBattleSession.AimCameraYawDeg = ControlledUnit?.YawDeg ?? 0;
       this.CaptureAimFacingSnapshot(this.ActiveBattleSession.ControlledCharacterId);
+      this.UpdateAimControlledFacingFromCrosshair();
     } else {
       this.RestoreFacingAfterAim();
     }
@@ -312,9 +313,6 @@ export class UWebGameRuntime {
     }
 
     this.ActiveBattleSession.AimHoverTargetId = NextHoverId;
-    if (NextHoverId !== null) {
-      this.FaceControlledUnitTowardsTarget(NextHoverId);
-    }
     this.NotifyRuntimeUpdated();
   }
 
@@ -339,6 +337,7 @@ export class UWebGameRuntime {
       const ControlledUnit = this.FindBattleUnit(this.ActiveBattleSession.ControlledCharacterId);
       this.ActiveBattleSession.AimCameraYawDeg = ControlledUnit?.YawDeg ?? 0;
       this.CaptureAimFacingSnapshot(this.ActiveBattleSession.ControlledCharacterId);
+      this.UpdateAimControlledFacingFromCrosshair();
     }
     this.ActiveBattleSession.CameraMode = this.ResolveBattleControlCameraMode(
       this.ActiveBattleSession
@@ -679,6 +678,9 @@ export class UWebGameRuntime {
       NextCrosshair.Y !== this.ActiveBattleSession.CrosshairScreenPosition.Y
     ) {
       this.ActiveBattleSession.CrosshairScreenPosition = NextCrosshair;
+      IsDirty = true;
+    }
+    if (this.UpdateAimControlledFacingFromCrosshair()) {
       IsDirty = true;
     }
 
@@ -1036,6 +1038,48 @@ export class UWebGameRuntime {
     }
   }
 
+  private UpdateAimControlledFacingFromCrosshair(): boolean {
+    if (
+      !this.ActiveBattleSession ||
+      this.RuntimePhase !== "Battle3C" ||
+      !this.ActiveBattleSession.IsAimMode
+    ) {
+      return false;
+    }
+
+    const ControlledUnit = this.FindBattleUnit(this.ActiveBattleSession.ControlledCharacterId);
+    if (!ControlledUnit || !ControlledUnit.IsAlive) {
+      return false;
+    }
+
+    const EnemyTargets = this.GetEnemyBattleUnits(this.ActiveBattleSession.Units).filter(
+      (Unit) => Unit.IsAlive
+    );
+    if (EnemyTargets.length < 1) {
+      return false;
+    }
+
+    const YawRange = this.ResolveAimFacingYawRange(ControlledUnit, EnemyTargets);
+    if (!YawRange) {
+      return false;
+    }
+
+    this.CaptureAimFacingSnapshot(ControlledUnit.UnitId);
+    const AimX = this.Clamp(
+      this.ActiveBattleSession.CrosshairScreenPosition.X,
+      CrosshairMin,
+      CrosshairMax
+    );
+    const DesiredYawDeg = YawRange.MinYawDeg + (YawRange.MaxYawDeg - YawRange.MinYawDeg) * AimX;
+    const DeltaYawDeg = this.NormalizeAngleDegrees(DesiredYawDeg - ControlledUnit.YawDeg);
+    if (Math.abs(DeltaYawDeg) <= 1e-3) {
+      return false;
+    }
+
+    ControlledUnit.YawDeg = Number(DesiredYawDeg.toFixed(2));
+    return true;
+  }
+
   private EnsureAimFacingSnapshotMap(): Record<string, number> {
     if (!this.ActiveBattleSession) {
       return {};
@@ -1045,6 +1089,26 @@ export class UWebGameRuntime {
       this.ActiveBattleSession.AimFacingSnapshotByUnitId = {};
     }
     return this.ActiveBattleSession.AimFacingSnapshotByUnitId;
+  }
+
+  private ResolveAimFacingYawRange(
+    ControlledUnit: FBattleUnitRuntimeState,
+    EnemyTargets: FBattleUnitRuntimeState[]
+  ): { MinYawDeg: number; MaxYawDeg: number } | null {
+    const Snapshot = this.ActiveBattleSession?.AimFacingSnapshotByUnitId ?? {};
+    const ReferenceYawDeg = Snapshot[ControlledUnit.UnitId] ?? ControlledUnit.YawDeg;
+    const NormalizedYawList = EnemyTargets.map((TargetUnit) => {
+      const RawYawDeg = this.ResolveYawTowardsUnit(ControlledUnit, TargetUnit);
+      return ReferenceYawDeg + this.NormalizeAngleDegrees(RawYawDeg - ReferenceYawDeg);
+    });
+    if (NormalizedYawList.length < 1) {
+      return null;
+    }
+
+    return {
+      MinYawDeg: Math.min(...NormalizedYawList),
+      MaxYawDeg: Math.max(...NormalizedYawList)
+    };
   }
 
   private RestoreFacingAfterAim(): void {
@@ -1076,15 +1140,23 @@ export class UWebGameRuntime {
       return;
     }
 
-    const DeltaX = TargetUnit.PositionCm.X - ControlledUnit.PositionCm.X;
-    const DeltaZ = TargetUnit.PositionCm.Z - ControlledUnit.PositionCm.Z;
+    this.CaptureAimFacingSnapshot(ControlledUnit.UnitId);
+    ControlledUnit.YawDeg = Number(
+      this.ResolveYawTowardsUnit(ControlledUnit, TargetUnit).toFixed(2)
+    );
+  }
+
+  private ResolveYawTowardsUnit(
+    OriginUnit: FBattleUnitRuntimeState,
+    TargetUnit: FBattleUnitRuntimeState
+  ): number {
+    const DeltaX = TargetUnit.PositionCm.X - OriginUnit.PositionCm.X;
+    const DeltaZ = TargetUnit.PositionCm.Z - OriginUnit.PositionCm.Z;
     if (Math.abs(DeltaX) <= 1e-4 && Math.abs(DeltaZ) <= 1e-4) {
-      return;
+      return OriginUnit.YawDeg;
     }
 
-    this.CaptureAimFacingSnapshot(ControlledUnit.UnitId);
-    const NextYaw = (Math.atan2(DeltaX, DeltaZ) * 180) / Math.PI;
-    ControlledUnit.YawDeg = Number(NextYaw.toFixed(2));
+    return (Math.atan2(DeltaX, DeltaZ) * 180) / Math.PI;
   }
 
   private EmitBattleShotEvent(): void {
@@ -1256,6 +1328,14 @@ export class UWebGameRuntime {
 
   private Clamp(Value: number, Min: number, Max: number): number {
     return Math.min(Math.max(Value, Min), Max);
+  }
+
+  private NormalizeAngleDegrees(AngleDeg: number): number {
+    let Normalized = (AngleDeg + 180) % 360;
+    if (Normalized < 0) {
+      Normalized += 360;
+    }
+    return Normalized - 180;
   }
 
   private SyncCameraPitchFromConfig(): void {

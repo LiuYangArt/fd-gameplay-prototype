@@ -121,6 +121,7 @@ interface FHitImpactVisual {
 export class USceneBridge {
   private static readonly CentimetersToMeters = 0.01;
   private static readonly AimCameraBlendDurationSec = 0.24;
+  private static readonly ControlledUnitSwitchBlendDurationSec = 0.28;
   private static readonly UnitYawBlendSpeed = 14;
   private static readonly OverworldGroundColorHex = "#333a41";
   private static readonly OverworldPlayerColorHex = "#dba511";
@@ -170,6 +171,7 @@ export class USceneBridge {
   private readonly ShotProjectileVisuals: FShotProjectileVisual[];
   private readonly HitImpactVisuals: FHitImpactVisual[];
   private LastBattleCameraMode: FBattleCameraMode | null;
+  private LastBattleControlledUnitId: string | null;
   private BattleCameraBlendState: FBattleCameraBlendState | null;
 
   public constructor(Canvas: HTMLCanvasElement, Options?: FSceneBridgeOptions) {
@@ -190,6 +192,7 @@ export class USceneBridge {
     this.ShotProjectileVisuals = [];
     this.HitImpactVisuals = [];
     this.LastBattleCameraMode = null;
+    this.LastBattleControlledUnitId = null;
     this.BattleCameraBlendState = null;
 
     this.Camera = this.CreateCamera();
@@ -494,7 +497,7 @@ export class USceneBridge {
       SettlementCam: () => this.ApplySettlementCamera(Context)
     };
     const DesiredPose = Handlers[CameraMode]();
-    const CameraPose = this.ResolveBattleCameraPoseWithBlend(CameraMode, DesiredPose);
+    const CameraPose = this.ResolveBattleCameraPoseWithBlend(ViewModel, CameraMode, DesiredPose);
     this.ApplyArcCameraFromPosition(CameraPose.Target, CameraPose.Position, CameraPose.FovDeg);
   }
 
@@ -664,22 +667,44 @@ export class USceneBridge {
   }
 
   private ResolveBattleCameraPoseWithBlend(
+    ViewModel: FHudViewModel,
     CameraMode: FBattleCameraMode,
     DesiredPose: FBattleCameraPose
   ): FBattleCameraPose {
-    if (this.LastBattleCameraMode !== CameraMode) {
-      const ShouldBlend = this.ShouldBlendBattleCameraMode(this.LastBattleCameraMode, CameraMode);
-      this.LastBattleCameraMode = CameraMode;
+    const PreviousMode = this.LastBattleCameraMode;
+    const PreviousControlledUnitId = this.LastBattleControlledUnitId;
+    const CurrentControlledUnitId = ViewModel.Battle3CState.ControlledCharacterId;
+    const IsModeChanged = PreviousMode !== CameraMode;
+    const IsControlledUnitSwitched =
+      !IsModeChanged &&
+      CameraMode === "PlayerFollow" &&
+      PreviousControlledUnitId !== null &&
+      CurrentControlledUnitId !== null &&
+      PreviousControlledUnitId !== CurrentControlledUnitId;
+
+    if (IsModeChanged || IsControlledUnitSwitched) {
+      let ShouldBlend = IsModeChanged
+        ? this.ShouldBlendBattleCameraMode(PreviousMode, CameraMode)
+        : false;
+      let BlendDurationSec = USceneBridge.AimCameraBlendDurationSec;
+
+      if (IsControlledUnitSwitched) {
+        ShouldBlend = true;
+        BlendDurationSec = USceneBridge.ControlledUnitSwitchBlendDurationSec;
+      }
+
       this.BattleCameraBlendState = ShouldBlend
         ? {
             StartElapsedSec: this.ElapsedSeconds,
-            DurationSec: USceneBridge.AimCameraBlendDurationSec,
+            DurationSec: BlendDurationSec,
             FromTarget: this.Camera.getTarget().clone(),
             FromPosition: this.Camera.position.clone(),
             FromFovDeg: (this.Camera.fov * 180) / Math.PI
           }
         : null;
     }
+    this.LastBattleCameraMode = CameraMode;
+    this.LastBattleControlledUnitId = CurrentControlledUnitId;
 
     const BlendState = this.BattleCameraBlendState;
     if (!BlendState) {
@@ -727,6 +752,7 @@ export class USceneBridge {
     this.LastCameraRuntimePhase = RuntimePhase;
     this.ResetSpringArmLagState();
     this.LastBattleCameraMode = null;
+    this.LastBattleControlledUnitId = null;
     this.BattleCameraBlendState = null;
   }
 
@@ -901,6 +927,7 @@ export class USceneBridge {
       const ExistingMesh = this.BattleUnitMeshMap.get(Unit.UnitId);
       const Mesh = ExistingMesh ?? this.CreateBattleUnitMesh(Unit);
       const HasExistingMesh = ExistingMesh !== undefined;
+      const ShouldHideInAimMode = this.ShouldHideBattleUnitInAimMode(ViewModel, Unit);
       Mesh.position = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
       const TargetYawRadians = (Unit.YawDeg * Math.PI) / 180;
       const NextYawRadians = HasExistingMesh
@@ -908,11 +935,18 @@ export class USceneBridge {
         : TargetYawRadians;
       Mesh.rotation = new Vector3(0, NextYawRadians, 0);
       const IsPlayer = Unit.TeamId === "Player";
-      const IsModelReady = IsPlayer
-        ? this.SyncBattlePlayerModel(Unit, ViewModel, DropOffsetCm)
-        : false;
+      const IsModelReady =
+        IsPlayer && !ShouldHideInAimMode
+          ? this.SyncBattlePlayerModel(Unit, ViewModel, DropOffsetCm)
+          : false;
+      if (ShouldHideInAimMode) {
+        this.CharacterModelVisualMap.get(Unit.UnitId)?.RootNode.setEnabled(false);
+        this.SetMuzzleGizmoVisible(Unit.UnitId, false);
+      }
       const ShouldShowFallback =
-        !IsPlayer || (!IsModelReady && ViewModel.DebugState.Config.FallbackToPlaceholderOnLoadFail);
+        !ShouldHideInAimMode &&
+        (!IsPlayer ||
+          (!IsModelReady && ViewModel.DebugState.Config.FallbackToPlaceholderOnLoadFail));
       Mesh.setEnabled(ShouldShowFallback);
 
       if (ShouldShowFallback) {
@@ -934,6 +968,18 @@ export class USceneBridge {
       }
       this.BattleUnitMeshMap.delete(UnitId);
     });
+  }
+
+  private ShouldHideBattleUnitInAimMode(
+    ViewModel: FHudViewModel,
+    Unit: FBattleUnitHudState
+  ): boolean {
+    return (
+      ViewModel.RuntimePhase === "Battle3C" &&
+      ViewModel.Battle3CState.IsAimMode &&
+      Unit.TeamId === "Player" &&
+      !Unit.IsControlled
+    );
   }
 
   private SyncOverworldPlayerModel(ViewModel: FHudViewModel): void {

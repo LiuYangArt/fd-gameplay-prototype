@@ -237,7 +237,7 @@ describe("UWebGameRuntime", () => {
     expect(Runtime.GetViewModel().Battle3CState.ControlledCharacterId).toBe("char01");
   });
 
-  it("瞄准悬停目标应仅更新 HoveredTargetId，不改当前选中目标", () => {
+  it("瞄准悬停目标应仅更新 HoveredTargetId，不改当前选中目标与角色朝向", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
     MutableRuntime.RuntimePhase = "Battle3C";
@@ -288,7 +288,79 @@ describe("UWebGameRuntime", () => {
     expect(Battle3CState.SelectedTargetId).toBe("enemy01");
     expect(Battle3CState.AimCameraYawDeg).toBe(90);
     const Controlled = Battle3CState.Units.find((Unit) => Unit.UnitId === "char01");
+    expect(Controlled?.YawDeg).toBe(90);
+  });
+
+  it("瞄准时角色应按准星 X 在敌人角度范围内连续旋转并 clamp", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_AIM_CURSOR_CLAMP_YAW",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01", "enemy02"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerAim",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: true,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: 90,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: -120 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 120 }
+        })
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      AimScreenPosition: { X: -0.35, Y: 0.5 }
+    });
+    let Controlled = Runtime.GetViewModel().Battle3CState.Units.find(
+      (Unit) => Unit.UnitId === "char01"
+    );
     expect(Controlled?.YawDeg).toBeCloseTo(76.5, 0);
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      AimScreenPosition: { X: 1.4, Y: 0.5 }
+    });
+    Controlled = Runtime.GetViewModel().Battle3CState.Units.find(
+      (Unit) => Unit.UnitId === "char01"
+    );
+    expect(Controlled?.YawDeg).toBeCloseTo(103.5, 0);
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      AimScreenPosition: { X: 0.5, Y: 0.5 }
+    });
+    Controlled = Runtime.GetViewModel().Battle3CState.Units.find(
+      (Unit) => Unit.UnitId === "char01"
+    );
+    expect(Controlled?.YawDeg).toBeCloseTo(90, 0);
   });
 
   it("退出瞄准后应恢复待机朝向，且再次进入瞄准保持稳定机位基准", () => {

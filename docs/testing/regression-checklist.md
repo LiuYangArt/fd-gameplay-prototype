@@ -38,7 +38,7 @@
 - [x] 瞄准模式下悬停敌人会同步 `HoveredTargetId`，并支持头顶血条显示（`UWebGameRuntime.test.ts`）。
 - [x] 战斗开火会产出 Shot 可视化事件（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准模式开火不会切到敌方攻击机位（避免 camera 乱飞）（`UWebGameRuntime.test.ts`）。
-- [x] 瞄准悬停敌人时可控角色朝向会同步对准目标（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准时角色朝向由准星 X 连续驱动，并在敌方角度范围内 clamp（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准悬停敌人时 `AimCameraYawDeg` 保持稳定，镜头不随悬停目标漂移（`UWebGameRuntime.test.ts`）。
 - [x] `PlayerAimDistanceCm` 存在且 `ApplyPatch` 的下限钳制生效（`UDebugConfigStore.test.ts`）。
 - [x] 退出瞄准后恢复待机朝向，再次进入瞄准机位基准保持稳定（`UWebGameRuntime.test.ts`）。
@@ -51,6 +51,8 @@
 - [ ] 瞄准准星（Crosshair）层级高于战斗操作按钮（手动冒烟）。
 - [ ] `PlayerFollow <-> PlayerAim` 镜头切换为平滑过渡（无硬切）（手动冒烟）。
 - [ ] 瞄准悬停切换敌人时，角色左右转向为平滑过渡（手动冒烟）。
+- [ ] 进入瞄准时隐藏非当前操控的我方角色（手动冒烟）。
+- [ ] 切换角色/跳过回合时，`PlayerFollow` 镜头应平滑 lerp 到下一角色（手动冒烟）。
 
 ## D. 分层边界与命名约束
 
@@ -206,6 +208,16 @@
 - 新增/修改条目：C 节新增 3 项手动冒烟（准星层级、镜头切换平滑、角色转向平滑）。
 - 验证命令与结果：
   - `pnpm --filter @fd/web-client test`：通过（9 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：实现瞄准态隐藏队友、瞄准朝向改为准星连续驱动并在敌人角度范围内 clamp、切换角色时镜头平滑 lerp。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增“准星 X 连续驱动 + clamp”回归，调整悬停目标断言）。
+- 新增/修改条目：C 节更新 1 项自动化条目并新增 2 项手动冒烟条目（瞄准隐藏队友、切角色镜头 lerp）。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（10 项）
   - `pnpm --filter @fd/web-client typecheck`：通过
   - `pnpm lint`：通过
   - `pnpm verify`：通过（typecheck + lint + test + build）

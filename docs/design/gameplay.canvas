@@ -1,6 +1,6 @@
 {
 	"nodes":[
-		{"id":"e6b9de0ef8a58cd7","type":"group","x":-375,"y":606,"width":1962,"height":719,"label":"玩家操作回合的camera"},
+		{"id":"e6b9de0ef8a58cd7","type":"group","x":-375,"y":606,"width":1962,"height":785,"label":"玩家操作回合的camera"},
 		{"id":"1356786dd0076675","type":"group","x":1680,"y":606,"width":1219,"height":1066,"label":"敌人攻击时回合的camera"},
 		{"id":"66ccf8bce97e470b","type":"group","x":-408,"y":-529,"width":933,"height":1034,"label":"局内回合制战斗"},
 		{"id":"d17398fdb249ed20","type":"group","x":-375,"y":1475,"width":767,"height":557,"label":"结算"},
@@ -17,7 +17,6 @@
 		{"id":"0387f2d5ba6b72b0","type":"file","file":"fd_prototype_docs/design/_assets/20260226135729_1.jpg","x":2254,"y":1230,"width":400,"height":225},
 		{"id":"5cf66e1e6f195d8c","type":"file","file":"fd_prototype_docs/design/_assets/20260226135951_1.jpg","x":1796,"y":948,"width":400,"height":225},
 		{"id":"981e5a140abf6049","type":"file","file":"fd_prototype_docs/design/_assets/20260226135711_1.jpg","x":985,"y":1023,"width":400,"height":225},
-		{"id":"4baf08b32c5f3d34","type":"text","text":"每个角色有独立的camera机位，  选择武器瞄准目标时用 tps camera 角度\n\n按LT武器瞄准","x":-97,"y":1023,"width":250,"height":179},
 		{"id":"58858eacb7842f77","type":"file","file":"fd_prototype_docs/design/_assets/20260226110917_1.jpg","x":198,"y":681,"width":400,"height":225},
 		{"id":"ecb079a7c098cfe4","type":"text","text":"用技能选择目标敌人时， camera角度跟射击瞄准不一样  1. 先用角色的tps追尾视角选择要用的技能  2. camera zoom in 到敌人， 可以左右选择目标敌人","x":619,"y":1046,"width":250,"height":179},
 		{"id":"1e0b093358d315ac","type":"file","file":"fd_prototype_docs/design/_assets/20260226111022_1.jpg","x":639,"y":681,"width":400,"height":225},
@@ -29,7 +28,8 @@
 		{"id":"02cd00ef26b9f685","x":-1540,"y":951,"width":447,"height":283,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227214216.png"},
 		{"id":"118cff313103dbe8","x":-1388,"y":643,"width":400,"height":236,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227213724.png"},
 		{"id":"a3236c3b5a7a9796","x":-1078,"y":951,"width":400,"height":285,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260227214336.png"},
-		{"id":"58c868a2d7447d45","x":301,"y":1106,"width":250,"height":60,"type":"text","text":"进入瞄准时隐藏队友。"}
+		{"id":"4baf08b32c5f3d34","type":"text","text":"每个角色有独立的camera机位，  选择武器瞄准目标时用 tps camera 角度\n\n按LT武器瞄准","x":-223,"y":1004,"width":250,"height":179},
+		{"id":"58c868a2d7447d45","x":168,"y":1136,"width":353,"height":189,"type":"text","text":"1. 进入瞄准时隐藏队友。\n2. 瞄准指向不同敌人时， 角色应该跟着准心cursor调整左右朝向，并clamp旋转角度，从最左到最右敌人的角度范围。 现在是瞄上一个敌人之后瞬移转动。 \n3. 我方每个角色操作完进入下一个角色时（或者选择跳过回合）， camera应该lerp过去。"}
 	],
 	"edges":[
 		{"id":"ccbf3f1c2e8a8bf6","fromNode":"de545118cf52a11e","fromSide":"bottom","toNode":"7b3738d50d1569fc","toSide":"top"},
