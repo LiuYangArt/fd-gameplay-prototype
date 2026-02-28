@@ -20,6 +20,17 @@ Original prompt: docs\plans\2026-02-26-overworld-encounter-to-battle-implementat
 - 已完成验证：`pnpm --filter @fd/web-client test`、`pnpm lint`、`pnpm verify` 通过。
 - 已更新 `docs/testing/regression-checklist.md`：同步改写瞄准朝向自动化条目，并新增“瞄准隐藏队友/切角色镜头 lerp”手动冒烟项。
 
+## 2026-02-28
+
+- 已实现：进入瞄准时自动将默认目标重置为“当前角色前向最合适敌人”，减少不同角色瞄准初始机位差异。
+- 已实现：`跳过回合/切角色` 与 `逃跑` 仅允许在待机状态（`Battle3C + PlayerFollow + 非瞄准 + 非目标模式 + 非脚本机位`）执行。
+- 已实现：左下角“逃跑/跳过回合”HUD 可见性与上述待机态规则保持一致，瞄准中不再显示。
+- 已补回归测试：`UWebGameRuntime.test.ts` 新增 3 条（瞄准禁切角色、瞄准禁逃跑、进入瞄准自动选前向目标）；`UBattleHudVisibility.test.ts` 新增 1 条状态约束。
+- 已完成验证：`pnpm --filter @fd/web-client test`、`pnpm --filter @fd/web-client typecheck`、`pnpm lint`、`pnpm verify` 全通过。
+- 已移除“瞄准与目标”组中 6 个参数的最小/最大值限制（`PlayerAimFovDeg`、`PlayerAimDistanceCm`、`PlayerAimShoulderOffsetCm`、`PlayerAimFocusOffsetRightCm`、`PlayerAimFocusOffsetUpCm`、`SkillTargetZoomDistanceCm`），并同步取消 `UDebugConfigStore` 对这 6 项的 clamp。
+- 已按反馈调整为“滑条 + 标题旁数值输入框”双通道编辑；恢复滑条交互，并将上述 6 项扩展为大范围（Fov 1~179，其余 -50000~50000 cm）。
+- 已按反馈二次调整：slider 恢复为常用范围（便于精调），数值输入框取消 `min/max` 限制并允许超范围值；当值超出 slider 区间时，滑条仅贴边显示，不覆盖输入值。
+
 ## TODO
 
 - 补浏览器手动冒烟（`docs/testing/regression-checklist.md` H 节 4 项未勾选）。

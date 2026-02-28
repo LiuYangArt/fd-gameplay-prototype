@@ -241,6 +241,7 @@ export class UWebGameRuntime {
     this.ActiveBattleSession.IsAimMode = !this.ActiveBattleSession.IsAimMode;
     if (this.ActiveBattleSession.IsAimMode) {
       this.ActiveBattleSession.IsSkillTargetMode = false;
+      this.AlignSelectedTargetForControlledCharacter();
       this.ActiveBattleSession.AimFacingSnapshotByUnitId = {};
       const ControlledUnit = this.FindBattleUnit(this.ActiveBattleSession.ControlledCharacterId);
       this.ActiveBattleSession.AimCameraYawDeg = ControlledUnit?.YawDeg ?? 0;
@@ -316,9 +317,12 @@ export class UWebGameRuntime {
     this.NotifyRuntimeUpdated();
   }
 
-  public SwitchControlledCharacter(): void {
+  public SwitchControlledCharacter(): boolean {
     if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
-      return;
+      return false;
+    }
+    if (!this.IsBattleIdleControlState(this.ActiveBattleSession)) {
+      return false;
     }
 
     const AlivePlayerUnitIds = this.ActiveBattleSession.PlayerActiveUnitIds.filter((UnitId) => {
@@ -326,13 +330,14 @@ export class UWebGameRuntime {
       return Unit?.IsAlive ?? false;
     });
     if (AlivePlayerUnitIds.length <= 1) {
-      return;
+      return false;
     }
 
     const CurrentIndex = AlivePlayerUnitIds.indexOf(this.ActiveBattleSession.ControlledCharacterId);
     const NextIndex = CurrentIndex < 0 ? 0 : (CurrentIndex + 1) % AlivePlayerUnitIds.length;
     this.ActiveBattleSession.ControlledCharacterId = AlivePlayerUnitIds[NextIndex];
     this.ActiveBattleSession.AimHoverTargetId = null;
+    this.AlignSelectedTargetForControlledCharacter();
     if (this.ActiveBattleSession.IsAimMode) {
       const ControlledUnit = this.FindBattleUnit(this.ActiveBattleSession.ControlledCharacterId);
       this.ActiveBattleSession.AimCameraYawDeg = ControlledUnit?.YawDeg ?? 0;
@@ -344,6 +349,7 @@ export class UWebGameRuntime {
     );
     this.EmitRuntimeEvent("EBattle3CActionRequested", "SwitchCharacter");
     this.NotifyRuntimeUpdated();
+    return true;
   }
 
   public ToggleBattleSkillTargetMode(): void {
@@ -418,16 +424,16 @@ export class UWebGameRuntime {
     this.ReturnToOverworldFromBattle("ESettlementPreviewConfirmed");
   }
 
-  public FleeBattleToOverworld(): void {
-    if (
-      this.RuntimePhase !== "Battle3C" &&
-      this.RuntimePhase !== "EncounterTransition" &&
-      this.RuntimePhase !== "SettlementPreview"
-    ) {
-      return;
+  public FleeBattleToOverworld(): boolean {
+    if (this.RuntimePhase !== "Battle3C" || !this.ActiveBattleSession) {
+      return false;
+    }
+    if (!this.IsBattleIdleControlState(this.ActiveBattleSession)) {
+      return false;
     }
 
     this.ReturnToOverworldFromBattle("EBattleFleeRequested");
+    return true;
   }
 
   private ReturnToOverworldFromBattle(
@@ -703,8 +709,7 @@ export class UWebGameRuntime {
       return true;
     }
     if (InputSnapshot.SwitchCharacterEdge) {
-      this.SwitchControlledCharacter();
-      return true;
+      return this.SwitchControlledCharacter();
     }
     if (InputSnapshot.ToggleSkillTargetModeEdge) {
       this.ToggleBattleSkillTargetMode();
@@ -1205,6 +1210,70 @@ export class UWebGameRuntime {
       EnemyTargets[this.ActiveBattleSession.SelectedTargetIndex % EnemyTargets.length]?.UnitId ??
       null
     );
+  }
+
+  private AlignSelectedTargetForControlledCharacter(): void {
+    if (!this.ActiveBattleSession) {
+      return;
+    }
+
+    const ControlledUnit = this.FindBattleUnit(this.ActiveBattleSession.ControlledCharacterId);
+    if (!ControlledUnit || !ControlledUnit.IsAlive) {
+      return;
+    }
+
+    const EnemyTargets = this.GetEnemyBattleUnits(this.ActiveBattleSession.Units).filter(
+      (Unit) => Unit.IsAlive
+    );
+    if (EnemyTargets.length < 1) {
+      return;
+    }
+
+    const BestIndex = this.ResolvePreferredTargetIndexForControlledCharacter(
+      ControlledUnit,
+      EnemyTargets
+    );
+    if (BestIndex === null) {
+      return;
+    }
+
+    this.ActiveBattleSession.SelectedTargetIndex = BestIndex;
+  }
+
+  private ResolvePreferredTargetIndexForControlledCharacter(
+    ControlledUnit: FBattleUnitRuntimeState,
+    EnemyTargets: FBattleUnitRuntimeState[]
+  ): number | null {
+    if (EnemyTargets.length < 1) {
+      return null;
+    }
+
+    const ReferenceYawDeg = ControlledUnit.YawDeg;
+    let BestIndex = 0;
+    let BestYawDeltaAbs = Number.POSITIVE_INFINITY;
+    let BestDistanceSquared = Number.POSITIVE_INFINITY;
+
+    EnemyTargets.forEach((EnemyUnit, Index) => {
+      const TargetYawDeg = this.ResolveYawTowardsUnit(ControlledUnit, EnemyUnit);
+      const YawDeltaAbs = Math.abs(this.NormalizeAngleDegrees(TargetYawDeg - ReferenceYawDeg));
+      const DeltaX = EnemyUnit.PositionCm.X - ControlledUnit.PositionCm.X;
+      const DeltaZ = EnemyUnit.PositionCm.Z - ControlledUnit.PositionCm.Z;
+      const DistanceSquared = DeltaX * DeltaX + DeltaZ * DeltaZ;
+      if (
+        YawDeltaAbs < BestYawDeltaAbs - 1e-6 ||
+        (Math.abs(YawDeltaAbs - BestYawDeltaAbs) <= 1e-6 && DistanceSquared < BestDistanceSquared)
+      ) {
+        BestIndex = Index;
+        BestYawDeltaAbs = YawDeltaAbs;
+        BestDistanceSquared = DistanceSquared;
+      }
+    });
+
+    return BestIndex;
+  }
+
+  private IsBattleIdleControlState(Session: FBattle3CSession): boolean {
+    return !Session.IsAimMode && !Session.IsSkillTargetMode && Session.ScriptFocus === null;
   }
 
   private AdvanceEnemyScriptStep(): void {

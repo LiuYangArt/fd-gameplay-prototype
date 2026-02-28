@@ -139,8 +139,21 @@ ul {
   gap: 6px;
 }
 
-.DebugField input {
+.DebugFieldHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.DebugField > input[type="range"] {
   width: 100%;
+}
+
+.DebugFieldValueInput {
+  width: 112px;
+  padding: 2px 6px;
+  text-align: right;
 }
 
 .DebugTextarea {

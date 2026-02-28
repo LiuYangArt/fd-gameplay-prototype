@@ -352,35 +352,31 @@ export class UDebugConfigStore {
         -220,
         220
       ),
-      PlayerAimFovDeg: this.Clamp(
-        this.ResolveNumber(Source, "PlayerAimFovDeg", Base.PlayerAimFovDeg),
-        20,
-        95
+      PlayerAimFovDeg: this.ResolveNumber(Source, "PlayerAimFovDeg", Base.PlayerAimFovDeg),
+      PlayerAimDistanceCm: this.ResolveNumber(
+        Source,
+        "PlayerAimDistanceCm",
+        Base.PlayerAimDistanceCm
       ),
-      PlayerAimDistanceCm: this.Clamp(
-        this.ResolveNumber(Source, "PlayerAimDistanceCm", Base.PlayerAimDistanceCm),
-        120,
-        2600
+      PlayerAimShoulderOffsetCm: this.ResolveNumber(
+        Source,
+        "PlayerAimShoulderOffsetCm",
+        Base.PlayerAimShoulderOffsetCm
       ),
-      PlayerAimShoulderOffsetCm: this.Clamp(
-        this.ResolveNumber(Source, "PlayerAimShoulderOffsetCm", Base.PlayerAimShoulderOffsetCm),
-        -300,
-        300
+      PlayerAimFocusOffsetRightCm: this.ResolveNumber(
+        Source,
+        "PlayerAimFocusOffsetRightCm",
+        Base.PlayerAimFocusOffsetRightCm
       ),
-      PlayerAimFocusOffsetRightCm: this.Clamp(
-        this.ResolveNumber(Source, "PlayerAimFocusOffsetRightCm", Base.PlayerAimFocusOffsetRightCm),
-        -400,
-        400
+      PlayerAimFocusOffsetUpCm: this.ResolveNumber(
+        Source,
+        "PlayerAimFocusOffsetUpCm",
+        Base.PlayerAimFocusOffsetUpCm
       ),
-      PlayerAimFocusOffsetUpCm: this.Clamp(
-        this.ResolveNumber(Source, "PlayerAimFocusOffsetUpCm", Base.PlayerAimFocusOffsetUpCm),
-        -800,
-        800
-      ),
-      SkillTargetZoomDistanceCm: this.Clamp(
-        this.ResolveNumber(Source, "SkillTargetZoomDistanceCm", Base.SkillTargetZoomDistanceCm),
-        120,
-        2600
+      SkillTargetZoomDistanceCm: this.ResolveNumber(
+        Source,
+        "SkillTargetZoomDistanceCm",
+        Base.SkillTargetZoomDistanceCm
       ),
       EnemyAttackCamDistanceCm: this.Clamp(
         this.ResolveNumber(Source, "EnemyAttackCamDistanceCm", Base.EnemyAttackCamDistanceCm),

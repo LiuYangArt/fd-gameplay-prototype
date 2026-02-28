@@ -240,17 +240,31 @@ const BattleRangeGroups: FRangeGroup[] = [
 ];
 
 function RangeField({ Label, Value, Min, Max, Step, OnChange }: FRangeFieldProps) {
+  const SliderValue = Math.min(Math.max(Value, Min), Max);
+
   return (
     <label className="DebugField">
-      <span>
-        {Label}: <strong>{Value.toFixed(2)}</strong>
+      <span className="DebugFieldHeader">
+        <span>{Label}</span>
+        <input
+          className="DebugFieldValueInput"
+          type="number"
+          step={Step}
+          value={Number.isFinite(Value) ? Value : 0}
+          onChange={(Event) => {
+            const Parsed = Number(Event.target.value);
+            if (Number.isFinite(Parsed)) {
+              OnChange(Parsed);
+            }
+          }}
+        />
       </span>
       <input
         type="range"
         min={Min}
         max={Max}
         step={Step}
-        value={Value}
+        value={SliderValue}
         onChange={(Event) => OnChange(Number(Event.target.value))}
       />
     </label>
@@ -483,7 +497,7 @@ export function App() {
       Hud.Battle3CState.CameraMode === "SkillTargetZoom");
   const IsBattleAimMode = IsBattle3CPhase && Hud.Battle3CState.IsAimMode;
   const IsAimCursorHidden = IsBattle3CPhase && Hud.Battle3CState.CameraMode === "PlayerAim";
-  const IsBattleCornerActionsVisible = ShouldShowBattleCornerActions(Hud.RuntimePhase);
+  const IsBattleCornerActionsVisible = ShouldShowBattleCornerActions(Hud);
   const ControlledUnit =
     Hud.Battle3CState.Units.find(
       (Unit) => Unit.UnitId === Hud.Battle3CState.ControlledCharacterId

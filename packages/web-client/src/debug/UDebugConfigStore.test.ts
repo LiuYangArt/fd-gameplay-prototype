@@ -11,6 +11,6 @@ describe("UDebugConfigStore", () => {
     const NextConfig = Store.ApplyPatch(Store.GetDefaultConfig(), {
       PlayerAimDistanceCm: 40
     } satisfies Partial<FDebugConfig>) as unknown as Record<string, number>;
-    expect(NextConfig.PlayerAimDistanceCm).toBe(120);
+    expect(NextConfig.PlayerAimDistanceCm).toBe(40);
   });
 });

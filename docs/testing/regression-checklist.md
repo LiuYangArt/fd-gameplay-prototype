@@ -39,6 +39,8 @@
 - [x] 战斗开火会产出 Shot 可视化事件（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准模式开火不会切到敌方攻击机位（避免 camera 乱飞）（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准时角色朝向由准星 X 连续驱动，并在敌方角度范围内 clamp（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准状态下不允许“跳过回合/切角色”，输入应被忽略（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准状态下不允许“逃跑”，仅待机状态允许（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准悬停敌人时 `AimCameraYawDeg` 保持稳定，镜头不随悬停目标漂移（`UWebGameRuntime.test.ts`）。
 - [x] `PlayerAimDistanceCm` 存在且 `ApplyPatch` 的下限钳制生效（`UDebugConfigStore.test.ts`）。
 - [x] 退出瞄准后恢复待机朝向，再次进入瞄准机位基准保持稳定（`UWebGameRuntime.test.ts`）。
@@ -53,6 +55,7 @@
 - [ ] 瞄准悬停切换敌人时，角色左右转向为平滑过渡（手动冒烟）。
 - [ ] 进入瞄准时隐藏非当前操控的我方角色（手动冒烟）。
 - [ ] 切换角色/跳过回合时，`PlayerFollow` 镜头应平滑 lerp 到下一角色（手动冒烟）。
+- [ ] 不同角色进入瞄准时，初始机位构图应基本一致（手动冒烟）。
 
 ## D. 分层边界与命名约束
 
@@ -218,6 +221,18 @@
 - 新增/修改条目：C 节更新 1 项自动化条目并新增 2 项手动冒烟条目（瞄准隐藏队友、切角色镜头 lerp）。
 - 验证命令与结果：
   - `pnpm --filter @fd/web-client test`：通过（10 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+- 是否新增 postmortem：`否`
+
+- 问题描述：修复“不同角色进入瞄准机位差异过大”，并限制“跳过回合/逃跑”仅能在待机状态执行。
+- 对应测试文件：
+  - `packages/web-client/src/game/UWebGameRuntime.test.ts`（新增 3 条回归：瞄准禁切角色、瞄准禁逃跑、进入瞄准自动选前向目标）
+  - `packages/web-client/src/ui/UBattleHudVisibility.test.ts`（新增待机态显示约束）
+- 新增/修改条目：C 节新增 2 项自动化条目与 1 项手动冒烟条目。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（14 项）
   - `pnpm --filter @fd/web-client typecheck`：通过
   - `pnpm lint`：通过
   - `pnpm verify`：通过（typecheck + lint + test + build）

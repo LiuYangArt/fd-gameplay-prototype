@@ -237,6 +237,40 @@ describe("UWebGameRuntime", () => {
     expect(Runtime.GetViewModel().Battle3CState.ControlledCharacterId).toBe("char01");
   });
 
+  it("瞄准状态下不允许切换角色（跳过回合）", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_BLOCK_SWITCH_IN_AIM",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01", "char03"],
+      EnemyActiveUnitIds: ["enemy01"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerAim",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: true,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: 90,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({ UnitId: "char01", TeamId: "Player", IsAlive: true }),
+        CreateBattleUnit({ UnitId: "char03", TeamId: "Player", IsAlive: true }),
+        CreateBattleUnit({ UnitId: "enemy01", TeamId: "Enemy", DisplayName: "enemy01" })
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.SwitchControlledCharacter();
+
+    expect(Runtime.GetViewModel().Battle3CState.ControlledCharacterId).toBe("char01");
+  });
+
   it("瞄准悬停目标应仅更新 HoveredTargetId，不改当前选中目标与角色朝向", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
@@ -421,6 +455,101 @@ describe("UWebGameRuntime", () => {
     const AfterReAimState = Runtime.GetViewModel().Battle3CState;
     expect(AfterReAimState.CameraMode).toBe("PlayerAim");
     expect(AfterReAimState.AimCameraYawDeg).toBe(90);
+  });
+
+  it("进入瞄准时应按当前角色前向自动选择默认目标，减少机位差异", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_AIM_SELECT_FORWARD_TARGET",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01", "enemy02", "enemy03"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerFollow",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: false,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: null,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 200 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: -240 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 0 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy03",
+          TeamId: "Enemy",
+          DisplayName: "enemy03",
+          PositionCm: { X: 280, Y: 0, Z: 240 }
+        })
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.ToggleBattleAim();
+
+    const Battle3CState = Runtime.GetViewModel().Battle3CState;
+    expect(Battle3CState.SelectedTargetId).toBe("enemy03");
+  });
+
+  it("瞄准状态下不允许逃跑，待机状态才允许", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_BLOCK_FLEE_IN_AIM",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerAim",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: true,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: 90,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({ UnitId: "char01", TeamId: "Player" }),
+        CreateBattleUnit({ UnitId: "enemy01", TeamId: "Enemy", DisplayName: "enemy01" })
+      ],
+      ScriptFocus: null
+    };
+
+    const IsFleeInAimSucceeded = Runtime.FleeBattleToOverworld();
+    expect(IsFleeInAimSucceeded).toBe(false);
+    expect(Runtime.GetViewModel().RuntimePhase).toBe("Battle3C");
+
+    MutableRuntime.ActiveBattleSession.IsAimMode = false;
+    MutableRuntime.ActiveBattleSession.CameraMode = "PlayerFollow";
+    const IsFleeInIdleSucceeded = Runtime.FleeBattleToOverworld();
+    expect(IsFleeInIdleSucceeded).toBe(true);
+    expect(Runtime.GetViewModel().RuntimePhase).toBe("Overworld");
   });
 
   it("战斗开火时应生成可视化 Shot 事件", () => {
