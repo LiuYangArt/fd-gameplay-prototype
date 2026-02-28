@@ -28,7 +28,7 @@
 
 ## C. 输入与交互（web-client）
 
-- [x] 浏览器可测试条目已使用 `playwright-cli` 执行并保留命令记录（本次执行 `pnpm smoke:web`，产物：`output/playwright/2026-02-28T12-55-08-629Z/`）。
+- [x] 浏览器可测试条目已使用 `playwright-cli` 执行并保留命令记录（本次执行 `pnpm smoke:web`，产物：`output/playwright/2026-02-28T16-06-56-766Z/`）。
 - [ ] 键鼠映射：确认/切目标/重开战斗均可触发。
 - [ ] 手柄映射：A / D-Pad Right / Start 均可触发。
 - [ ] 输入边沿触发无连发问题（按住不会重复触发一次性动作）。
@@ -57,7 +57,7 @@
 - [x] 目标确认后进入 `ActionResolve`（锁输入），结束后自动回到 `Root + PlayerFollow`，期间不跳敌方脚本机位（`UWebGameRuntime.test.ts`）。
 - [x] `ActionResolve` 结束时触发 `EPlayerActionResolved` 占位事件（`UWebGameRuntime.test.ts`）。
 - [x] `TargetSelect` 左右切换遵循“按屏幕 X 冻结顺序”规则（`UWebGameRuntime.test.ts`）。
-- [x] `TargetSelect` 敌人特写机位位于“我方 -> 相机 -> 敌人”方向，避免反向拍摄（`USceneBridge.test.ts`）。
+- [x] `TargetSelect` 敌人特写机位方向仅依赖固定角度参数 `TargetSelectYawDeg`，不受当前操控角色/战场中心影响（`USceneBridge.test.ts`）。
 - [x] `TargetSelect/ActionResolve` 复用瞄准锚点显示“选中敌人头顶 HP 条”（`App.tsx` + `USceneBridge.ts`）。
 - [x] 瞄准时 `AimCameraYawDeg` 应与当前操控角色 `YawDeg` 同步更新（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准时支持上下抬枪：`AimCameraPitchDeg` 随输入变化，角色 `YawDeg` 不因俯仰输入改变（`UWebGameRuntime.test.ts`）。
@@ -126,6 +126,15 @@
 - [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
 
 ## F. 本次修复记录
+
+- 问题描述：修复“目标选择特写镜头朝向受当前操控角色/战场中心影响，导致同一目标在不同上下文下构图漂移与遮挡”。
+- 对应测试文件：`packages/web-client/src/game/USceneBridge.test.ts`（新增“目标特写方向不应受战场中心位置影响”回归）。
+- 新增/修改条目：C 节将 `TargetSelect` 特写机位条目更新为“仅依赖固定角度参数 `TargetSelectYawDeg`”。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/USceneBridge.test.ts`：先失败后通过（3 项）。
+  - `pnpm --filter @fd/web-client test -- src/debug/UDebugConfigStore.test.ts`：通过（4 项，含 `TargetSelectYawDeg` 参数钳制与保留）。
+  - `pnpm smoke:web`：通过（页面可访问；仅 `favicon.ico` 404，为历史非阻断项）。
+- 是否新增 postmortem：`否`（未触发“阻塞超过 2 小时 / 14 天内重复 / 导致错误玩法结论”条件）。
 
 - 问题描述：修复“Debug 数值输入框被 slider 区间硬钳制，导致瞄准/预览机位参数无法录入历史值并出现显示回写异常”。
 - 对应测试文件：`packages/web-client/src/debug/UDebugConfigStore.test.ts`（新增“机位参数不应被 slider 区间硬钳制”回归）。

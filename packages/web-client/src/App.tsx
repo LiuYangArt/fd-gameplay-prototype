@@ -350,6 +350,13 @@ const BattleRangeGroups: FRangeGroup[] = [
         Max: 220,
         Step: 5
       },
+      {
+        Key: "TargetSelectYawDeg",
+        Label: "特写固定朝向 (deg)",
+        Min: -180,
+        Max: 180,
+        Step: 1
+      },
       { Key: "TargetSelectFovDeg", Label: "特写 Fov (deg)", Min: 20, Max: 95, Step: 0.5 }
     ]
   },

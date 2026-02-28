@@ -7,6 +7,8 @@ const DebugWideCmMin = -12000;
 const DebugWideCmMax = 12000;
 const DebugWideFovMinDeg = 5;
 const DebugWideFovMaxDeg = 170;
+const DebugWideYawMinDeg = -180;
+const DebugWideYawMaxDeg = 180;
 const DebugWideDurationMinSec = 0.01;
 const DebugWideDurationMaxSec = 30;
 
@@ -66,6 +68,7 @@ export interface FDebugConfig {
   TargetSelectCloseupHeightCm: number;
   TargetSelectLookAtHeightCm: number;
   TargetSelectLateralOffsetCm: number;
+  TargetSelectYawDeg: number;
   TargetSelectFovDeg: number;
   ActionResolveDurationSec: number;
   ActionResolveToastOffsetX: number;
@@ -136,6 +139,7 @@ const DefaultDebugConfig: FDebugConfig = {
   TargetSelectCloseupHeightCm: 135,
   TargetSelectLookAtHeightCm: 95,
   TargetSelectLateralOffsetCm: 20,
+  TargetSelectYawDeg: 180,
   TargetSelectFovDeg: 38,
   ActionResolveDurationSec: 0.65,
   ActionResolveToastOffsetX: 0,
@@ -569,6 +573,11 @@ export class UDebugConfigStore {
         this.ResolveNumber(Source, "TargetSelectLateralOffsetCm", Base.TargetSelectLateralOffsetCm),
         DebugWideCmMin,
         DebugWideCmMax
+      ),
+      TargetSelectYawDeg: this.Clamp(
+        this.ResolveNumber(Source, "TargetSelectYawDeg", Base.TargetSelectYawDeg),
+        DebugWideYawMinDeg,
+        DebugWideYawMaxDeg
       ),
       TargetSelectFovDeg: this.Clamp(
         this.ResolveNumber(Source, "TargetSelectFovDeg", Base.TargetSelectFovDeg),

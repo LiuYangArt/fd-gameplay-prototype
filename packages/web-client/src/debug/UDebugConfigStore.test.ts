@@ -10,6 +10,7 @@ describe("UDebugConfigStore", () => {
     expect(DefaultConfig.SkillPreviewDistanceCm).toBeTypeOf("number");
     expect(DefaultConfig.ItemPreviewDistanceCm).toBeTypeOf("number");
     expect(DefaultConfig.TargetSelectCloseupDistanceCm).toBeTypeOf("number");
+    expect(DefaultConfig.TargetSelectYawDeg).toBeTypeOf("number");
     expect(DefaultConfig.ActionResolveDurationSec).toBeTypeOf("number");
     expect(DefaultConfig.OverworldInvertLookPitch).toBeTypeOf("boolean");
     expect(DefaultConfig.AimInvertLookPitch).toBeTypeOf("boolean");
@@ -18,6 +19,7 @@ describe("UDebugConfigStore", () => {
       SkillPreviewDistanceCm: 700,
       ItemPreviewLateralOffsetCm: 64,
       TargetSelectCloseupDistanceCm: 320,
+      TargetSelectYawDeg: 35,
       ActionResolveDurationSec: 0.8,
       OverworldInvertLookPitch: true,
       AimInvertLookPitch: false
@@ -25,6 +27,7 @@ describe("UDebugConfigStore", () => {
     expect(NextConfig.SkillPreviewDistanceCm).toBe(700);
     expect(NextConfig.ItemPreviewLateralOffsetCm).toBe(64);
     expect(NextConfig.TargetSelectCloseupDistanceCm).toBe(320);
+    expect(NextConfig.TargetSelectYawDeg).toBe(35);
     expect(NextConfig.ActionResolveDurationSec).toBe(0.8);
     expect(NextConfig.OverworldInvertLookPitch).toBe(true);
     expect(NextConfig.AimInvertLookPitch).toBe(false);
@@ -35,12 +38,14 @@ describe("UDebugConfigStore", () => {
     const NextConfig = Store.ApplyPatch(Store.GetDefaultConfig(), {
       TargetSelectCloseupDistanceCm: 999999,
       TargetSelectLateralOffsetCm: -999999,
+      TargetSelectYawDeg: 999,
       ActionResolveDurationSec: 0,
       ActionResolveToastDurationSec: 999
     } satisfies Partial<FDebugConfig>);
 
     expect(NextConfig.TargetSelectCloseupDistanceCm).toBe(12000);
     expect(NextConfig.TargetSelectLateralOffsetCm).toBe(-12000);
+    expect(NextConfig.TargetSelectYawDeg).toBe(180);
     expect(NextConfig.ActionResolveDurationSec).toBe(0.01);
     expect(NextConfig.ActionResolveToastDurationSec).toBe(30);
   });
@@ -69,7 +74,8 @@ describe("UDebugConfigStore", () => {
       PlayerAimFocusOffsetUpCm: 1250,
       SkillPreviewDistanceCm: 4200,
       ItemPreviewLateralOffsetCm: -780,
-      TargetSelectLateralOffsetCm: 460
+      TargetSelectLateralOffsetCm: 460,
+      TargetSelectYawDeg: -125
     } satisfies Partial<FDebugConfig>);
 
     expect(NextConfig.PlayerAimDistanceCm).toBe(80);
@@ -77,5 +83,6 @@ describe("UDebugConfigStore", () => {
     expect(NextConfig.SkillPreviewDistanceCm).toBe(4200);
     expect(NextConfig.ItemPreviewLateralOffsetCm).toBe(-780);
     expect(NextConfig.TargetSelectLateralOffsetCm).toBe(460);
+    expect(NextConfig.TargetSelectYawDeg).toBe(-125);
   });
 });

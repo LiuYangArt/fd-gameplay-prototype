@@ -113,20 +113,15 @@ interface FShotProjectileVisual {
 }
 
 export function ResolveTargetSelectBasisForwardFromPositions(
-  SelectedPos: Vector3,
-  ControlledPos: Vector3,
-  BattleCenter: Vector3
+  _SelectedPos: Vector3,
+  _ControlledPos: Vector3,
+  _BattleCenter: Vector3,
+  TargetSelectYawDeg: number = 180
 ): Vector3 {
-  const EnemyToPlayer = ControlledPos.subtract(SelectedPos);
-  const HorizontalEnemyToPlayer = new Vector3(EnemyToPlayer.x, 0, EnemyToPlayer.z);
-  if (HorizontalEnemyToPlayer.lengthSquared() > 1e-6) {
-    return HorizontalEnemyToPlayer.normalize();
-  }
-
-  const EnemyToCenter = BattleCenter.subtract(SelectedPos);
-  const HorizontalEnemyToCenter = new Vector3(EnemyToCenter.x, 0, EnemyToCenter.z);
-  if (HorizontalEnemyToCenter.lengthSquared() > 1e-6) {
-    return HorizontalEnemyToCenter.normalize();
+  const YawRad = (TargetSelectYawDeg * Math.PI) / 180;
+  const FixedForward = new Vector3(Math.cos(YawRad), 0, Math.sin(YawRad));
+  if (FixedForward.lengthSquared() > 1e-6) {
+    return FixedForward.normalize();
   }
 
   return new Vector3(-1, 0, 0);
@@ -718,7 +713,8 @@ export class USceneBridge {
     return ResolveTargetSelectBasisForwardFromPositions(
       Context.SelectedPos,
       Context.ControlledPos,
-      Context.BattleCenter
+      Context.BattleCenter,
+      Context.DebugConfig.TargetSelectYawDeg
     );
   }
 
