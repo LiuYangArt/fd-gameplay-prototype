@@ -40,6 +40,7 @@ interface FMutableRuntime {
     IsAimMode: boolean;
     IsSkillTargetMode: boolean;
     AimCameraYawDeg: number | null;
+    AimCameraPitchDeg?: number | null;
     SelectedTargetIndex: number;
     AimHoverTargetId: string | null;
     ScriptStepIndex: number;
@@ -47,7 +48,7 @@ interface FMutableRuntime {
     LastShot: {
       ShotId: number;
       AttackerUnitId: string;
-      TargetUnitId: string;
+      TargetUnitId: string | null;
     } | null;
     Units: Array<{
       UnitId: string;
@@ -124,7 +125,71 @@ function CreateBattleUnit(Override: Partial<FBattleUnitSeed>) {
 }
 
 describe("UWebGameRuntime", () => {
-  it("战斗瞄准时应优先使用鼠标绝对屏幕坐标更新准星", () => {
+  it("Overworld 与瞄准俯仰方向应可独立反转开关控制", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+
+    Runtime.ApplyDebugConfig({
+      OverworldInvertLookPitch: true,
+      AimInvertLookPitch: false
+    });
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      LookPitchDeltaDegrees: 10
+    });
+    expect(Runtime.GetViewModel().DebugState.Config.CameraPitch).toBe(12);
+
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_SPLIT_OVERWORLD_AIM_PITCH",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerAim",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: true,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: 90,
+      AimCameraPitchDeg: 0,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: 0 }
+        })
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      LookPitchDeltaDegrees: 10
+    });
+    expect(Runtime.GetViewModel().Battle3CState.AimCameraPitchDeg).toBe(10);
+
+    Runtime.ApplyDebugConfig({ AimInvertLookPitch: true });
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      LookPitchDeltaDegrees: 10
+    });
+    expect(Runtime.GetViewModel().Battle3CState.AimCameraPitchDeg).toBe(0);
+  });
+
+  it("战斗瞄准时准星应保持在中心，不受绝对屏幕坐标影响", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
     MutableRuntime.RuntimePhase = "Battle3C";
@@ -155,8 +220,8 @@ describe("UWebGameRuntime", () => {
     });
 
     expect(Runtime.GetViewModel().Battle3CState.CrosshairScreenPosition).toEqual({
-      X: 0.77,
-      Y: 0.22
+      X: 0.5,
+      Y: 0.5
     });
   });
 
@@ -325,7 +390,7 @@ describe("UWebGameRuntime", () => {
     expect(Controlled?.YawDeg).toBe(90);
   });
 
-  it("瞄准时角色应按准星 X 在敌人角度范围内连续旋转并 clamp", () => {
+  it("瞄准时应由 LookYawDelta 驱动角色与相机朝向同步", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
     MutableRuntime.RuntimePhase = "Battle3C";
@@ -371,30 +436,247 @@ describe("UWebGameRuntime", () => {
 
     Runtime.ConsumeInputSnapshot({
       ...CreateSnapshot(),
-      AimScreenPosition: { X: -0.35, Y: 0.5 }
+      LookYawDeltaDegrees: 12
     });
-    let Controlled = Runtime.GetViewModel().Battle3CState.Units.find(
+    const Controlled = Runtime.GetViewModel().Battle3CState.Units.find(
       (Unit) => Unit.UnitId === "char01"
     );
-    expect(Controlled?.YawDeg).toBeCloseTo(76.5, 0);
+    expect(Controlled?.YawDeg).toBeCloseTo(102, 0);
+    expect(Runtime.GetViewModel().Battle3CState.AimCameraYawDeg).toBeCloseTo(102, 0);
+  });
+
+  it("瞄准时应允许上下抬枪，仅相机俯仰变化且角色 yaw 不变", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    Runtime.ApplyDebugConfig({ AimInvertLookPitch: false });
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_AIM_PITCH_ONLY",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerAim",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: true,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: 90,
+      AimCameraPitchDeg: 0,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: 0 }
+        })
+      ],
+      ScriptFocus: null
+    };
 
     Runtime.ConsumeInputSnapshot({
       ...CreateSnapshot(),
-      AimScreenPosition: { X: 1.4, Y: 0.5 }
+      LookPitchDeltaDegrees: 24
     });
-    Controlled = Runtime.GetViewModel().Battle3CState.Units.find(
-      (Unit) => Unit.UnitId === "char01"
-    );
-    expect(Controlled?.YawDeg).toBeCloseTo(103.5, 0);
+    expect(Runtime.GetViewModel().Battle3CState.AimCameraPitchDeg).toBe(24);
+    expect(
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg
+    ).toBe(90);
 
     Runtime.ConsumeInputSnapshot({
       ...CreateSnapshot(),
-      AimScreenPosition: { X: 0.5, Y: 0.5 }
+      LookPitchDeltaDegrees: -120
     });
-    Controlled = Runtime.GetViewModel().Battle3CState.Units.find(
-      (Unit) => Unit.UnitId === "char01"
-    );
-    expect(Controlled?.YawDeg).toBeCloseTo(90, 0);
+    expect(Runtime.GetViewModel().Battle3CState.AimCameraPitchDeg).toBe(-20);
+    expect(
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg
+    ).toBe(90);
+  });
+
+  it("瞄准旋转应限制在敌人中轴扇区内，避免切角色后边缘敌人瞄不到", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_AIM_ENEMY_CENTER_FAN_LIMIT",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01", "enemy02", "enemy03"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerAim",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: true,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: -90,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: -90
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: -160 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 0 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy03",
+          TeamId: "Enemy",
+          DisplayName: "enemy03",
+          PositionCm: { X: 280, Y: 0, Z: 160 }
+        })
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      LookYawDeltaDegrees: 300
+    });
+    const YawAfterFirstTurn =
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg ??
+      0;
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      LookYawDeltaDegrees: -600
+    });
+    const YawAfterReverseTurn =
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg ??
+      0;
+
+    expect(YawAfterFirstTurn).toBeCloseTo(175, 0);
+    expect(YawAfterReverseTurn).toBeCloseTo(5, 0);
+  });
+
+  it("瞄准开火在无悬停目标时应允许 miss 并保留角色朝向", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_AIM_FIRE_ALLOW_MISS",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01", "enemy02"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerAim",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: true,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: 76,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: null,
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 76
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: -120 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 120 }
+        })
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.FireBattleAction();
+
+    expect(Runtime.GetViewModel().Battle3CState.LastShot).not.toBeNull();
+    expect(Runtime.GetViewModel().Battle3CState.LastShot?.TargetUnitId).toBeNull();
+    expect(
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg
+    ).toBe(76);
+  });
+
+  it("瞄准开火命中悬停目标时不应把角色朝向 snap 到目标方向", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = {
+      SessionId: "B3C_AIM_FIRE_HOVER_NO_SNAP",
+      PlayerTeamId: "TEAM_PLAYER_01",
+      EnemyTeamId: "TEAM_ENEMY_01",
+      PlayerActiveUnitIds: ["char01"],
+      EnemyActiveUnitIds: ["enemy01", "enemy02"],
+      ControlledCharacterId: "char01",
+      CameraMode: "PlayerAim",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      IsAimMode: true,
+      IsSkillTargetMode: false,
+      AimCameraYawDeg: 118,
+      SelectedTargetIndex: 0,
+      AimHoverTargetId: "enemy01",
+      ScriptStepIndex: 0,
+      ShotSequence: 0,
+      LastShot: null,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 118
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: -120 }
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 120 }
+        })
+      ],
+      ScriptFocus: null
+    };
+
+    Runtime.FireBattleAction();
+
+    expect(Runtime.GetViewModel().Battle3CState.LastShot?.TargetUnitId).toBe("enemy01");
+    expect(
+      Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg
+    ).toBe(118);
   });
 
   it("退出瞄准后应恢复待机朝向，且再次进入瞄准保持稳定机位基准", () => {

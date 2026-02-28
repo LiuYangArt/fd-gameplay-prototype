@@ -107,8 +107,20 @@ interface FShotProjectileVisual {
   Material: StandardMaterial;
   StartPosition: Vector3;
   EndPosition: Vector3;
+  ShouldSpawnImpact: boolean;
   ElapsedSec: number;
   DurationSec: number;
+}
+
+interface FShotRay {
+  Origin: Vector3;
+  Direction: Vector3;
+}
+
+interface FShotRayHit {
+  UnitId: string;
+  DistanceMeters: number;
+  HitPoint: Vector3;
 }
 
 interface FHitImpactVisual {
@@ -134,6 +146,8 @@ export class USceneBridge {
   private static readonly BattleGroundColorHex = "#2f3944";
   private static readonly BattleGridColorHex = "#4d5965";
   private static readonly MainLightGroundColorHex = "#4a5561";
+  private static readonly ShotMissTraceDistanceMeters = 36;
+  private static readonly ShotRaycastEnemyRadiusMeters = 0.95;
   private readonly Engine: Engine;
   private readonly Scene: Scene;
   private readonly HandleWindowResize: () => void;
@@ -520,6 +534,10 @@ export class USceneBridge {
       ViewModel.Battle3CState.IsAimMode && ViewModel.Battle3CState.AimCameraYawDeg !== null
         ? ViewModel.Battle3CState.AimCameraYawDeg
         : (ControlledUnit?.YawDeg ?? 0);
+    const PitchDeg =
+      ViewModel.Battle3CState.IsAimMode && ViewModel.Battle3CState.AimCameraPitchDeg !== null
+        ? ViewModel.Battle3CState.AimCameraPitchDeg
+        : 0;
 
     return {
       ViewModel,
@@ -529,7 +547,7 @@ export class USceneBridge {
       ControlledPos,
       SelectedPos,
       BattleCenter: this.ResolveBattleCenterMeters(ViewModel, DropOffsetCm),
-      Forward: this.ResolveForwardVectorFromYawDeg(YawDeg),
+      Forward: this.ResolveForwardVectorFromYawPitchDeg(YawDeg, PitchDeg),
       Right: this.ResolveRightVectorFromYawDeg(YawDeg)
     };
   }
@@ -577,12 +595,15 @@ export class USceneBridge {
     const FocusOffset = Context.Right.scale(
       this.ToMeters(Context.DebugConfig.PlayerAimFocusOffsetRightCm)
     ).add(new Vector3(0, this.ToMeters(Context.DebugConfig.PlayerAimFocusOffsetUpCm), 0));
-    const DistanceCm = Context.DebugConfig.PlayerAimDistanceCm;
-    const Position = Context.ControlledPos.add(Context.Forward.scale(-this.ToMeters(DistanceCm)))
-      .add(Context.Right.scale(this.ToMeters(Context.DebugConfig.PlayerAimShoulderOffsetCm)))
-      .add(new Vector3(0, this.ToMeters(145), 0))
-      .add(FocusOffset);
-    const Target = Context.SelectedPos.add(new Vector3(0, 0.75, 0)).add(FocusOffset);
+    const SocketPos = Context.ControlledPos.add(
+      Context.Right.scale(this.ToMeters(Context.DebugConfig.PlayerAimShoulderOffsetCm))
+    ).add(new Vector3(0, this.ToMeters(Context.DebugConfig.PlayerAimSocketUpCm), 0));
+    const Position = SocketPos.add(
+      Context.Forward.scale(-this.ToMeters(Context.DebugConfig.PlayerAimDistanceCm))
+    );
+    const Target = SocketPos.add(
+      Context.Forward.scale(this.ToMeters(Context.DebugConfig.PlayerAimLookForwardDistanceCm))
+    ).add(FocusOffset);
     return {
       Target,
       Position,
@@ -1372,12 +1393,16 @@ export class USceneBridge {
     }
 
     this.LastConsumedShotId = Shot.ShotId;
-    const StartPosition = this.ResolveShotSpawnPosition(ViewModel, Shot.AttackerUnitId);
-    const EndPosition = this.ResolveShotTargetPosition(ViewModel, Shot.TargetUnitId);
-    if (!StartPosition || !EndPosition) {
+    const Trajectory = this.ResolveShotTrajectory(
+      ViewModel,
+      Shot.AttackerUnitId,
+      Shot.TargetUnitId
+    );
+    if (!Trajectory) {
       return;
     }
 
+    const { StartPosition, EndPosition, ShouldSpawnImpact } = Trajectory;
     const Distance = Math.max(Vector3.Distance(StartPosition, EndPosition), 0.15);
     const DurationSec = this.Clamp(Distance / 30, 0.08, 0.22);
     const ShotMesh = MeshBuilder.CreateSphere(
@@ -1398,9 +1423,60 @@ export class USceneBridge {
       Material: ShotMaterial,
       StartPosition,
       EndPosition,
+      ShouldSpawnImpact,
       ElapsedSec: 0,
       DurationSec
     });
+  }
+
+  private ResolveShotTrajectory(
+    ViewModel: FHudViewModel,
+    AttackerUnitId: string,
+    PreferredTargetUnitId: string | null
+  ): {
+    StartPosition: Vector3;
+    EndPosition: Vector3;
+    ShouldSpawnImpact: boolean;
+  } | null {
+    const StartPosition = this.ResolveShotSpawnPosition(ViewModel, AttackerUnitId);
+    if (!StartPosition) {
+      return null;
+    }
+
+    const AimRay = this.ResolveCenterAimRay();
+    if (!AimRay) {
+      const FallbackDirection = this.ResolveShotFallbackDirection(ViewModel, AttackerUnitId);
+      return {
+        StartPosition,
+        EndPosition: StartPosition.add(
+          FallbackDirection.scale(USceneBridge.ShotMissTraceDistanceMeters)
+        ),
+        ShouldSpawnImpact: false
+      };
+    }
+
+    const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
+    const Hit = this.ResolveAimRayHitAgainstEnemies(
+      ViewModel,
+      DropOffsetCm,
+      AimRay,
+      PreferredTargetUnitId
+    );
+    if (Hit) {
+      return {
+        StartPosition,
+        EndPosition: Hit.HitPoint,
+        ShouldSpawnImpact: true
+      };
+    }
+
+    return {
+      StartPosition,
+      EndPosition: StartPosition.add(
+        AimRay.Direction.scale(USceneBridge.ShotMissTraceDistanceMeters)
+      ),
+      ShouldSpawnImpact: false
+    };
   }
 
   private ResolveShotSpawnPosition(
@@ -1423,18 +1499,124 @@ export class USceneBridge {
     );
   }
 
-  private ResolveShotTargetPosition(
-    ViewModel: FHudViewModel,
-    TargetUnitId: string
-  ): Vector3 | null {
-    const TargetUnit = this.FindBattleUnit(ViewModel, TargetUnitId);
-    if (!TargetUnit) {
+  private ResolveShotFallbackDirection(ViewModel: FHudViewModel, AttackerUnitId: string): Vector3 {
+    const Visual = this.CharacterModelVisualMap.get(AttackerUnitId);
+    if (Visual && !Visual.IsLoadFailed) {
+      const SocketForward = Vector3.TransformNormal(
+        new Vector3(1, 0, 0),
+        Visual.MuzzleSocketNode.getWorldMatrix()
+      );
+      if (SocketForward.lengthSquared() > 1e-8) {
+        return SocketForward.normalize();
+      }
+    }
+
+    const AttackerUnit = this.FindBattleUnit(ViewModel, AttackerUnitId);
+    if (AttackerUnit) {
+      const YawRadians = (AttackerUnit.YawDeg * Math.PI) / 180;
+      return new Vector3(Math.sin(YawRadians), 0, Math.cos(YawRadians));
+    }
+
+    return new Vector3(1, 0, 0);
+  }
+
+  private ResolveCenterAimRay(): FShotRay | null {
+    const Direction = this.Camera.getTarget().subtract(this.Camera.position);
+    if (Direction.lengthSquared() <= 1e-8) {
       return null;
     }
-    const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
-    return this.ResolveBattleUnitPositionMeters(TargetUnit, DropOffsetCm).add(
+
+    return {
+      Origin: this.Camera.position.clone(),
+      Direction: Direction.normalize()
+    };
+  }
+
+  private ResolveAimRayHitAgainstEnemies(
+    ViewModel: FHudViewModel,
+    DropOffsetCm: number,
+    AimRay: FShotRay,
+    PreferredTargetUnitId: string | null
+  ): FShotRayHit | null {
+    const EnemyUnits = ViewModel.Battle3CState.Units.filter(
+      (Unit) => Unit.TeamId === "Enemy" && Unit.IsAlive
+    );
+    if (EnemyUnits.length < 1) {
+      return null;
+    }
+
+    if (PreferredTargetUnitId) {
+      const PreferredUnit = EnemyUnits.find((Unit) => Unit.UnitId === PreferredTargetUnitId);
+      if (PreferredUnit) {
+        const PreferredHit = this.ResolveAimRayHitAgainstUnit(PreferredUnit, DropOffsetCm, AimRay);
+        if (PreferredHit) {
+          return PreferredHit;
+        }
+      }
+    }
+
+    let BestHit: FShotRayHit | null = null;
+    EnemyUnits.forEach((EnemyUnit) => {
+      const CandidateHit = this.ResolveAimRayHitAgainstUnit(EnemyUnit, DropOffsetCm, AimRay);
+      if (!CandidateHit) {
+        return;
+      }
+      if (!BestHit || CandidateHit.DistanceMeters < BestHit.DistanceMeters) {
+        BestHit = CandidateHit;
+      }
+    });
+    return BestHit;
+  }
+
+  private ResolveAimRayHitAgainstUnit(
+    Unit: FBattleUnitHudState,
+    DropOffsetCm: number,
+    AimRay: FShotRay
+  ): FShotRayHit | null {
+    const UnitCenter = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm).add(
       new Vector3(0, 0.95, 0)
     );
+    const HitDistanceMeters = this.ResolveRaySphereHitDistanceMeters(
+      AimRay.Origin,
+      AimRay.Direction,
+      UnitCenter,
+      USceneBridge.ShotRaycastEnemyRadiusMeters
+    );
+    if (HitDistanceMeters === null) {
+      return null;
+    }
+
+    return {
+      UnitId: Unit.UnitId,
+      DistanceMeters: HitDistanceMeters,
+      HitPoint: AimRay.Origin.add(AimRay.Direction.scale(HitDistanceMeters))
+    };
+  }
+
+  private ResolveRaySphereHitDistanceMeters(
+    RayOrigin: Vector3,
+    RayDirection: Vector3,
+    SphereCenter: Vector3,
+    SphereRadiusMeters: number
+  ): number | null {
+    const OriginToCenter = RayOrigin.subtract(SphereCenter);
+    const HalfB = Vector3.Dot(OriginToCenter, RayDirection);
+    const C = Vector3.Dot(OriginToCenter, OriginToCenter) - SphereRadiusMeters * SphereRadiusMeters;
+    const Discriminant = HalfB * HalfB - C;
+    if (Discriminant < 0) {
+      return null;
+    }
+
+    const SqrtDiscriminant = Math.sqrt(Discriminant);
+    const NearHit = -HalfB - SqrtDiscriminant;
+    const FarHit = -HalfB + SqrtDiscriminant;
+    if (NearHit >= 0) {
+      return NearHit;
+    }
+    if (FarHit >= 0) {
+      return FarHit;
+    }
+    return null;
   }
 
   private UpdateTransientBattleVisuals(DeltaSeconds: number): void {
@@ -1457,7 +1639,9 @@ export class USceneBridge {
         continue;
       }
 
-      this.CreateHitImpactVisual(Projectile.EndPosition);
+      if (Projectile.ShouldSpawnImpact) {
+        this.CreateHitImpactVisual(Projectile.EndPosition);
+      }
       Projectile.Mesh.dispose();
       Projectile.Material.dispose();
       this.ShotProjectileVisuals.splice(Index, 1);
@@ -1623,9 +1807,15 @@ export class USceneBridge {
     return this.Clamp(ElapsedMs / IntroMs, 0, 1);
   }
 
-  private ResolveForwardVectorFromYawDeg(YawDeg: number): Vector3 {
+  private ResolveForwardVectorFromYawPitchDeg(YawDeg: number, PitchDeg: number): Vector3 {
     const YawRadians = (YawDeg * Math.PI) / 180;
-    return new Vector3(Math.sin(YawRadians), 0, Math.cos(YawRadians));
+    const PitchRadians = (PitchDeg * Math.PI) / 180;
+    const CosPitch = Math.cos(PitchRadians);
+    return new Vector3(
+      Math.sin(YawRadians) * CosPitch,
+      Math.sin(PitchRadians),
+      Math.cos(YawRadians) * CosPitch
+    );
   }
 
   private ResolveRightVectorFromYawDeg(YawDeg: number): Vector3 {

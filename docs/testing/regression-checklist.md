@@ -33,7 +33,7 @@
 - [ ] 手柄映射：A / D-Pad Right / Start 均可触发。
 - [ ] 输入边沿触发无连发问题（按住不会重复触发一次性动作）。
 - [ ] 战斗结束后 UI 与 3D 表现同步到完成态。
-- [x] 瞄准模式下鼠标驱动准星使用绝对坐标，且隐藏系统鼠标光标（`PlayerAim`）。
+- [x] 瞄准模式下准星固定屏幕中心，忽略绝对鼠标位置输入，且隐藏系统鼠标光标（`PlayerAim`，`UWebGameRuntime.test.ts`）。
 - [x] 战斗 HUD 点击不会误触发开火输入（`mousedown` 过滤 UI 元素）。
 - [x] 瞄准模式下支持 `Esc / 手柄 B / HUD 返回按钮` 退出瞄准并回到跟随镜头。
 - [x] 瞄准模式下 HUD 返回按钮挂在角色右侧偏下，避免角色靠左时按钮超出视口且遮挡角色（`BattleAimReturnLayout.test.ts`）。
@@ -41,14 +41,18 @@
 - [x] 瞄准模式下悬停敌人会同步 `HoveredTargetId`，并支持头顶血条显示（`UWebGameRuntime.test.ts`）。
 - [x] 战斗开火会产出 Shot 可视化事件（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准模式开火不会切到敌方攻击机位（避免 camera 乱飞）（`UWebGameRuntime.test.ts`）。
-- [x] 瞄准时角色朝向由准星 X 连续驱动，并在敌方角度范围内 clamp（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准时角色朝向由 `LookYawDelta` 连续驱动，左右限位采用“敌人中心中轴扇区”（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准状态下不允许“跳过回合/切角色”，输入应被忽略（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准状态下不允许“逃跑”，仅待机状态允许（`UWebGameRuntime.test.ts`）。
-- [x] 瞄准悬停敌人时 `AimCameraYawDeg` 保持稳定，镜头不随悬停目标漂移（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准时 `AimCameraYawDeg` 应与当前操控角色 `YawDeg` 同步更新（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准时支持上下抬枪：`AimCameraPitchDeg` 随输入变化，角色 `YawDeg` 不因俯仰输入改变（`UWebGameRuntime.test.ts`）。
+- [x] `OverworldInvertLookPitch` 与 `AimInvertLookPitch` 可独立控制上下反转，互不影响（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准开火在无悬停目标时允许 miss（`LastShot.TargetUnitId=null`），且不强制 snap 角色朝向（`UWebGameRuntime.test.ts`）。
+- [x] 瞄准开火命中目标时不应强制把角色朝向 snap 到目标方向（`UWebGameRuntime.test.ts`）。
 - [x] `PlayerAimDistanceCm` 存在且 `ApplyPatch` 的下限钳制生效（`UDebugConfigStore.test.ts`）。
 - [x] 退出瞄准后恢复待机朝向，再次进入瞄准机位基准保持稳定（`UWebGameRuntime.test.ts`）。
 - [ ] 右下角队伍头像 + HP/MP HUD 在 Battle3C 正常显示（手动冒烟）。
-- [ ] 开火子弹从 `SOCKET_Muzzle*` 发射并在命中点出现特效（手动冒烟）。
+- [ ] 开火子弹从 `SOCKET_Muzzle*` 发射：命中时飞向中心准星射线命中点并出特效，未命中时直线飞出且不出命中特效（手动冒烟）。
 - [ ] `BattleFollowFocusOffsetRightCm` 可将待机构图从居中调到偏左（手动冒烟）。
 - [ ] `BattleFollowFocusOffsetUpCm` 与右偏参数仅影响 `PlayerFollow`，不影响 `PlayerAim`（手动冒烟）。
 - [ ] 瞄准偏移参数（`PlayerAimFocusOffsetRightCm/UpCm`）与待机偏移参数完全独立（手动冒烟）。
@@ -248,3 +252,29 @@
   - `pnpm lint`：通过
   - `pnpm verify`：通过（typecheck + lint + test + build）
 - 是否新增 postmortem：`否`
+
+- 问题描述：重构瞄准镜头为“虚拟 CameraSocket + 中心准星 TPS”，修复瞄准镜头不跟角色转向、切人构图偏差与目标回退不稳定问题。
+- 对应测试文件：
+  - `packages/web-client/src/game/UWebGameRuntime.test.ts`（新增 4 条回归：中心准星固定、LookYaw 驱动相机同步、敌人扇区外减速、无悬停目标按朝向回退）。
+  - `packages/web-client/src/debug/UDebugConfigStore.test.ts`（补充 CameraSocket 新参数断言）。
+- 新增/修改条目：C 节替换 1 条旧标准并新增 3 条自动化条目（中心准星、朝向同步、软限制/回退目标）。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（17 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+  - `pnpm smoke:web`：通过（截图/console/network 产物归档）
+- 是否新增 postmortem：`是`（`docs/postmortems/2026-02-28-battle-aim-camera-anchor-follow-regression.md`）
+
+- 问题描述：修复“瞄准左右限位与屏幕目标不匹配”与“开火时角色朝向 snap 到目标”二次回归，改为角色前方 180 度半圆限位并取消开火强制转向。
+- 对应测试文件：
+  - `packages/web-client/src/game/UWebGameRuntime.test.ts`（新增/更新 3 条回归：前方 180 半圆限位、无悬停开火不改朝向、悬停开火不改朝向）。
+- 新增/修改条目：C 节替换 1 条旧限位标准并新增 1 条自动化条目（开火不 snap 朝向）。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts`：通过（14 项）
+  - `pnpm --filter @fd/web-client test`：通过（18 项）
+  - `pnpm --filter @fd/web-client typecheck`：通过
+  - `pnpm lint`：通过
+  - `pnpm verify`：通过（typecheck + lint + test + build）
+  - `pnpm smoke:web`：通过（截图/console/network 产物归档）
+- 是否新增 postmortem：`是`（`docs/postmortems/2026-02-28-battle-aim-limit-fire-snap-regression.md`）

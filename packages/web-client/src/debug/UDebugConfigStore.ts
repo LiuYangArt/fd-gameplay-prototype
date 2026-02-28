@@ -20,6 +20,8 @@ export interface FDebugConfig {
   RunSpeed: number;
   LookPitchMin: number;
   LookPitchMax: number;
+  OverworldInvertLookPitch: boolean;
+  AimInvertLookPitch: boolean;
   BattleIntroCameraStartDistanceCm: number;
   BattleIntroCameraStartHeightCm: number;
   BattleIntroCameraEndDistanceCm: number;
@@ -35,6 +37,8 @@ export interface FDebugConfig {
   PlayerAimFovDeg: number;
   PlayerAimDistanceCm: number;
   PlayerAimShoulderOffsetCm: number;
+  PlayerAimSocketUpCm: number;
+  PlayerAimLookForwardDistanceCm: number;
   PlayerAimFocusOffsetRightCm: number;
   PlayerAimFocusOffsetUpCm: number;
   SkillTargetZoomDistanceCm: number;
@@ -64,6 +68,8 @@ const DefaultDebugConfig: FDebugConfig = {
   RunSpeed: 500,
   LookPitchMin: -20,
   LookPitchMax: 55,
+  OverworldInvertLookPitch: false,
+  AimInvertLookPitch: true,
   BattleIntroCameraStartDistanceCm: 1200,
   BattleIntroCameraStartHeightCm: 420,
   BattleIntroCameraEndDistanceCm: 520,
@@ -79,6 +85,8 @@ const DefaultDebugConfig: FDebugConfig = {
   PlayerAimFovDeg: 52,
   PlayerAimDistanceCm: 360,
   PlayerAimShoulderOffsetCm: 45,
+  PlayerAimSocketUpCm: 145,
+  PlayerAimLookForwardDistanceCm: 620,
   PlayerAimFocusOffsetRightCm: 0,
   PlayerAimFocusOffsetUpCm: 0,
   SkillTargetZoomDistanceCm: 420,
@@ -268,6 +276,16 @@ export class UDebugConfigStore {
       RunSpeed,
       LookPitchMin,
       LookPitchMax,
+      OverworldInvertLookPitch: this.ResolveBoolean(
+        Source,
+        "OverworldInvertLookPitch",
+        Base.OverworldInvertLookPitch
+      ),
+      AimInvertLookPitch: this.ResolveBoolean(
+        Source,
+        "AimInvertLookPitch",
+        Base.AimInvertLookPitch
+      ),
       BattleIntroCameraStartDistanceCm: this.Clamp(
         this.ResolveNumber(
           Source,
@@ -362,6 +380,20 @@ export class UDebugConfigStore {
         Source,
         "PlayerAimShoulderOffsetCm",
         Base.PlayerAimShoulderOffsetCm
+      ),
+      PlayerAimSocketUpCm: this.Clamp(
+        this.ResolveNumber(Source, "PlayerAimSocketUpCm", Base.PlayerAimSocketUpCm),
+        -400,
+        500
+      ),
+      PlayerAimLookForwardDistanceCm: this.Clamp(
+        this.ResolveNumber(
+          Source,
+          "PlayerAimLookForwardDistanceCm",
+          Base.PlayerAimLookForwardDistanceCm
+        ),
+        120,
+        2600
       ),
       PlayerAimFocusOffsetRightCm: this.ResolveNumber(
         Source,

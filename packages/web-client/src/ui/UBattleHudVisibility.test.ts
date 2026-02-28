@@ -46,6 +46,7 @@ function CreateHud(Overrides?: {
       IsAimMode: false,
       IsSkillTargetMode: false,
       AimCameraYawDeg: null,
+      AimCameraPitchDeg: null,
       SelectedTargetId: null,
       HoveredTargetId: null,
       Units: [],

@@ -443,9 +443,11 @@ export class UInputController {
     GamepadLookAxis: FInputVector2,
     DeltaSeconds: number
   ): FInputVector2 {
+    const AimDeltaY =
+      this.MouseDeltaY + GamepadLookAxis.Y * GamepadAimPixelsPerSecond * DeltaSeconds;
     return {
       X: this.MouseDeltaX + GamepadLookAxis.X * GamepadAimPixelsPerSecond * DeltaSeconds,
-      Y: this.MouseDeltaY + GamepadLookAxis.Y * GamepadAimPixelsPerSecond * DeltaSeconds
+      Y: AimDeltaY
     };
   }
 

@@ -71,7 +71,7 @@ export interface FBattleScriptFocusHudState {
 export interface FBattleShotHudState {
   ShotId: number;
   AttackerUnitId: string;
-  TargetUnitId: string;
+  TargetUnitId: string | null;
 }
 
 export interface FBattle3CHudState {
@@ -86,6 +86,7 @@ export interface FBattle3CHudState {
   IsAimMode: boolean;
   IsSkillTargetMode: boolean;
   AimCameraYawDeg: number | null;
+  AimCameraPitchDeg: number | null;
   SelectedTargetId: string | null;
   HoveredTargetId: string | null;
   Units: FBattleUnitHudState[];

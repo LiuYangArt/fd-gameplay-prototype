@@ -181,28 +181,42 @@ const BattleRangeGroups: FRangeGroup[] = [
       { Key: "PlayerAimFovDeg", Label: "瞄准镜头 Fov (deg)", Min: 20, Max: 95, Step: 0.5 },
       {
         Key: "PlayerAimDistanceCm",
-        Label: "瞄准镜头距离 (cm)",
+        Label: "瞄准相机后拉距离（Socket）(cm)",
         Min: 120,
         Max: 2600,
         Step: 10
       },
       {
         Key: "PlayerAimShoulderOffsetCm",
-        Label: "瞄准肩位偏移 (cm)",
+        Label: "瞄准 Socket 侧偏移 (cm)",
         Min: -300,
         Max: 300,
         Step: 5
       },
       {
+        Key: "PlayerAimSocketUpCm",
+        Label: "瞄准 Socket 高度 (cm)",
+        Min: -400,
+        Max: 500,
+        Step: 5
+      },
+      {
+        Key: "PlayerAimLookForwardDistanceCm",
+        Label: "瞄准视线前探距离 (cm)",
+        Min: 120,
+        Max: 2600,
+        Step: 10
+      },
+      {
         Key: "PlayerAimFocusOffsetRightCm",
-        Label: "瞄准焦点侧偏移 (cm)",
+        Label: "瞄准视线侧微调 (cm)",
         Min: -400,
         Max: 400,
         Step: 5
       },
       {
         Key: "PlayerAimFocusOffsetUpCm",
-        Label: "瞄准焦点高偏移 (cm)",
+        Label: "瞄准视线上微调 (cm)",
         Min: -800,
         Max: 800,
         Step: 5
@@ -948,6 +962,30 @@ export function App() {
                   </div>
                 )
               )}
+
+              <div className="DebugRangeGroup">
+                <h3>输入方向</h3>
+                <label className="DebugField">
+                  <span>Overworld 上下反转</span>
+                  <input
+                    type="checkbox"
+                    checked={Hud.DebugState.Config.OverworldInvertLookPitch}
+                    onChange={(Event) =>
+                      ApplyDebugBoolean("OverworldInvertLookPitch", Event.target.checked)
+                    }
+                  />
+                </label>
+                <label className="DebugField">
+                  <span>Aim 上下反转</span>
+                  <input
+                    type="checkbox"
+                    checked={Hud.DebugState.Config.AimInvertLookPitch}
+                    onChange={(Event) =>
+                      ApplyDebugBoolean("AimInvertLookPitch", Event.target.checked)
+                    }
+                  />
+                </label>
+              </div>
 
               <div className="DebugRangeGroup">
                 <h3>Team 调试</h3>
