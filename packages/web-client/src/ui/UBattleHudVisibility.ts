@@ -9,7 +9,7 @@ export function ShouldShowBattleCornerActions(Hud: FHudViewModel): boolean {
   return (
     BattleState.CameraMode === "PlayerFollow" &&
     !BattleState.IsAimMode &&
-    !BattleState.IsSkillTargetMode &&
+    BattleState.CommandStage === "Root" &&
     BattleState.ScriptFocus === null
   );
 }

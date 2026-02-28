@@ -15,7 +15,9 @@ export interface FInputSnapshot {
   FireEdge: boolean;
   SwitchCharacterEdge: boolean;
   ToggleSkillTargetModeEdge: boolean;
+  ToggleItemMenuEdge: boolean;
   CycleTargetAxis: number;
+  CycleMenuAxis: number;
   ForceSettlementEdge: boolean;
   ConfirmSettlementEdge: boolean;
   RestartEdge: boolean;

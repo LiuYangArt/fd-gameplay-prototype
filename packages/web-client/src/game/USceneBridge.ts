@@ -505,6 +505,8 @@ export class USceneBridge {
       IntroDropIn: () => this.ApplyIntroDropInCamera(Context),
       PlayerFollow: () => this.ApplyPlayerFollowCamera(Context),
       PlayerAim: () => this.ApplyPlayerAimCamera(Context),
+      PlayerSkillPreview: () => this.ApplyPlayerSkillPreviewCamera(Context),
+      PlayerItemPreview: () => this.ApplyPlayerItemPreviewCamera(Context),
       SkillTargetZoom: () => this.ApplySkillTargetZoomCamera(Context),
       EnemyAttackSingle: () => this.ApplyEnemyAttackCamera(Context),
       EnemyAttackAOE: () => this.ApplyEnemyAttackCamera(Context),
@@ -604,6 +606,28 @@ export class USceneBridge {
     const Target = SocketPos.add(
       Context.Forward.scale(this.ToMeters(Context.DebugConfig.PlayerAimLookForwardDistanceCm))
     ).add(FocusOffset);
+    return {
+      Target,
+      Position,
+      FovDeg: Context.DebugConfig.PlayerAimFovDeg
+    };
+  }
+
+  private ApplyPlayerSkillPreviewCamera(Context: FBattleCameraContext): FBattleCameraPose {
+    return this.ApplyPlayerAimCamera(Context);
+  }
+
+  private ApplyPlayerItemPreviewCamera(Context: FBattleCameraContext): FBattleCameraPose {
+    const FocusOffset = Context.Right.scale(
+      this.ToMeters(Context.DebugConfig.PlayerAimFocusOffsetRightCm)
+    ).add(new Vector3(0, this.ToMeters(Context.DebugConfig.PlayerAimFocusOffsetUpCm), 0));
+    const SocketPos = Context.ControlledPos.add(
+      Context.Right.scale(this.ToMeters(Context.DebugConfig.PlayerAimShoulderOffsetCm))
+    ).add(new Vector3(0, this.ToMeters(Context.DebugConfig.PlayerAimSocketUpCm), 0));
+    const Position = SocketPos.add(
+      Context.Forward.scale(this.ToMeters(Context.DebugConfig.PlayerAimDistanceCm))
+    );
+    const Target = SocketPos.add(FocusOffset);
     return {
       Target,
       Position,
@@ -753,10 +777,15 @@ export class USceneBridge {
     if (PreviousMode === null) {
       return false;
     }
-    return (
-      (PreviousMode === "PlayerFollow" && NextMode === "PlayerAim") ||
-      (PreviousMode === "PlayerAim" && NextMode === "PlayerFollow")
-    );
+
+    const BlendModes = new Set<FBattleCameraMode>([
+      "PlayerFollow",
+      "PlayerAim",
+      "PlayerSkillPreview",
+      "PlayerItemPreview",
+      "SkillTargetZoom"
+    ]);
+    return BlendModes.has(PreviousMode) && BlendModes.has(NextMode) && PreviousMode !== NextMode;
   }
 
   private ApplyArcCameraFromPosition(Target: Vector3, Position: Vector3, FovDeg: number): void {

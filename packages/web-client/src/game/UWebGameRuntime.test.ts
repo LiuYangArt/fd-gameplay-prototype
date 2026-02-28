@@ -29,6 +29,8 @@ interface FMutableRuntime {
       | "IntroDropIn"
       | "PlayerFollow"
       | "PlayerAim"
+      | "PlayerSkillPreview"
+      | "PlayerItemPreview"
       | "SkillTargetZoom"
       | "EnemyAttackSingle"
       | "EnemyAttackAOE"
@@ -39,10 +41,17 @@ interface FMutableRuntime {
     };
     IsAimMode: boolean;
     IsSkillTargetMode: boolean;
+    CommandStage?: "Root" | "SkillMenu" | "ItemMenu" | "TargetSelect";
+    PendingActionKind?: "Attack" | "Skill" | null;
     AimCameraYawDeg: number | null;
     AimCameraPitchDeg?: number | null;
     SelectedTargetIndex: number;
     AimHoverTargetId: string | null;
+    SkillOptions?: Array<{ OptionId: string; DisplayName: string }>;
+    ItemOptions?: Array<{ OptionId: string; DisplayName: string }>;
+    SelectedSkillOptionIndex?: number;
+    SelectedItemOptionIndex?: number;
+    SelectedSkillOptionId?: string | null;
     ScriptStepIndex: number;
     ShotSequence: number;
     LastShot: {
@@ -97,7 +106,9 @@ function CreateSnapshot(): FInputSnapshot {
     FireEdge: false,
     SwitchCharacterEdge: false,
     ToggleSkillTargetModeEdge: false,
+    ToggleItemMenuEdge: false,
     CycleTargetAxis: 0,
+    CycleMenuAxis: 0,
     ForceSettlementEdge: false,
     ConfirmSettlementEdge: false,
     RestartEdge: false,
@@ -121,6 +132,80 @@ function CreateBattleUnit(Override: Partial<FBattleUnitSeed>) {
     IsAlive: true,
     IsEncounterPrimaryEnemy: false,
     ...Override
+  };
+}
+
+type FBattleSessionState = NonNullable<FMutableRuntime["ActiveBattleSession"]>;
+
+function CreateBattleSession(Override: Partial<FBattleSessionState> = {}): FBattleSessionState {
+  const DefaultUnits = [
+    CreateBattleUnit({
+      UnitId: "char01",
+      TeamId: "Player",
+      PositionCm: { X: -220, Y: 0, Z: 0 },
+      YawDeg: 90
+    }),
+    CreateBattleUnit({
+      UnitId: "char02",
+      TeamId: "Player",
+      PositionCm: { X: -220, Y: 0, Z: -120 },
+      YawDeg: 90
+    }),
+    CreateBattleUnit({
+      UnitId: "enemy01",
+      TeamId: "Enemy",
+      DisplayName: "enemy01",
+      PositionCm: { X: 280, Y: 0, Z: -120 },
+      IsEncounterPrimaryEnemy: true
+    }),
+    CreateBattleUnit({
+      UnitId: "enemy02",
+      TeamId: "Enemy",
+      DisplayName: "enemy02",
+      PositionCm: { X: 280, Y: 0, Z: 120 }
+    })
+  ];
+  const Units = Override.Units ?? DefaultUnits;
+  const DefaultSession: FBattleSessionState = {
+    SessionId: "B3C_TEST_SESSION",
+    PlayerTeamId: "TEAM_PLAYER_01",
+    EnemyTeamId: "TEAM_ENEMY_01",
+    PlayerActiveUnitIds: ["char01", "char02"],
+    EnemyActiveUnitIds: ["enemy01", "enemy02"],
+    ControlledCharacterId: "char01",
+    CameraMode: "PlayerFollow",
+    CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+    IsAimMode: false,
+    IsSkillTargetMode: false,
+    CommandStage: "Root",
+    PendingActionKind: null,
+    AimCameraYawDeg: null,
+    AimCameraPitchDeg: null,
+    SelectedTargetIndex: 0,
+    AimHoverTargetId: null,
+    SkillOptions: [
+      { OptionId: "skill01", DisplayName: "技能1" },
+      { OptionId: "skill02", DisplayName: "技能2" }
+    ],
+    ItemOptions: [
+      { OptionId: "item01", DisplayName: "物品1" },
+      { OptionId: "item02", DisplayName: "物品2" }
+    ],
+    SelectedSkillOptionIndex: 0,
+    SelectedItemOptionIndex: 0,
+    SelectedSkillOptionId: null,
+    ScriptStepIndex: 0,
+    ShotSequence: 0,
+    LastShot: null,
+    Units,
+    ScriptFocus: null
+  };
+  return {
+    ...DefaultSession,
+    ...Override,
+    Units: Override.Units ?? DefaultSession.Units,
+    PlayerActiveUnitIds: Override.PlayerActiveUnitIds ?? DefaultSession.PlayerActiveUnitIds,
+    EnemyActiveUnitIds: Override.EnemyActiveUnitIds ?? DefaultSession.EnemyActiveUnitIds
   };
 }
 
@@ -1015,6 +1100,202 @@ describe("UWebGameRuntime", () => {
     expect(LastShot?.AttackerUnitId).toBe("char01");
     expect(LastShot?.TargetUnitId).toBe("enemy01");
     expect(Runtime.GetViewModel().Battle3CState.CameraMode).toBe("PlayerAim");
+  });
+
+  it("攻击指令应先进入统一目标选择，不立即开火", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.FireBattleAction();
+
+    const State = Runtime.GetViewModel().Battle3CState;
+    expect(State.CommandStage).toBe("TargetSelect");
+    expect(State.PendingActionKind).toBe("Attack");
+    expect(State.CameraMode).toBe("SkillTargetZoom");
+    expect(State.LastShot).toBeNull();
+  });
+
+  it("技能菜单与物品菜单应切到对应虚拟 Socket 机位", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.ToggleBattleSkillTargetMode();
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("SkillMenu");
+    expect(Runtime.GetViewModel().Battle3CState.CameraMode).toBe("PlayerSkillPreview");
+
+    Runtime.ToggleBattleSkillTargetMode();
+    Runtime.ToggleBattleItemMenu();
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("ItemMenu");
+    expect(Runtime.GetViewModel().Battle3CState.CameraMode).toBe("PlayerItemPreview");
+  });
+
+  it("技能确认应进入目标选择，取消后返回技能菜单", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.ToggleBattleSkillTargetMode();
+    Runtime.CycleBattleMenuSelection(1);
+    Runtime.FireBattleAction();
+
+    const TargetSelectState = Runtime.GetViewModel().Battle3CState;
+    expect(TargetSelectState.CommandStage).toBe("TargetSelect");
+    expect(TargetSelectState.PendingActionKind).toBe("Skill");
+    expect(TargetSelectState.SelectedSkillOptionId).toBe("skill02");
+    expect(TargetSelectState.CameraMode).toBe("SkillTargetZoom");
+
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      CancelAimEdge: true
+    });
+    const BackToSkillMenuState = Runtime.GetViewModel().Battle3CState;
+    expect(BackToSkillMenuState.CommandStage).toBe("SkillMenu");
+    expect(BackToSkillMenuState.PendingActionKind).toBeNull();
+    expect(BackToSkillMenuState.CameraMode).toBe("PlayerSkillPreview");
+  });
+
+  it("攻击来源目标选择取消后应回到根命令层", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.FireBattleAction();
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      CancelAimEdge: true
+    });
+
+    const State = Runtime.GetViewModel().Battle3CState;
+    expect(State.CommandStage).toBe("Root");
+    expect(State.PendingActionKind).toBeNull();
+    expect(State.CameraMode).toBe("PlayerFollow");
+  });
+
+  it("目标选择左右切换并确认后，应产出 Shot 并推进敌方脚本机位", () => {
+    const WindowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
+    Object.defineProperty(globalThis, "window", {
+      value: {
+        setTimeout: globalThis.setTimeout.bind(globalThis),
+        clearTimeout: globalThis.clearTimeout.bind(globalThis),
+        localStorage: {
+          getItem: () => null,
+          setItem: () => undefined,
+          removeItem: () => undefined
+        }
+      },
+      configurable: true
+    });
+
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+      Runtime.FireBattleAction();
+      Runtime.CycleBattleTarget(1);
+      expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("enemy02");
+
+      Runtime.FireBattleAction();
+      const State = Runtime.GetViewModel().Battle3CState;
+      expect(State.CommandStage).toBe("Root");
+      expect(State.PendingActionKind).toBeNull();
+      expect(State.LastShot?.TargetUnitId).toBe("enemy02");
+      expect(State.ScriptStepIndex).toBe(1);
+      expect(State.CameraMode).toBe("EnemyAttackSingle");
+    } finally {
+      if (WindowDescriptor) {
+        Object.defineProperty(globalThis, "window", WindowDescriptor);
+      } else {
+        Reflect.deleteProperty(globalThis, "window");
+      }
+    }
+  });
+
+  it("物品确认仅记录占位行为并返回 Root，不进入目标选择", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.ToggleBattleItemMenu();
+    Runtime.CycleBattleMenuSelection(1);
+    Runtime.FireBattleAction();
+
+    const State = Runtime.GetViewModel().Battle3CState;
+    expect(State.CommandStage).toBe("Root");
+    expect(State.PendingActionKind).toBeNull();
+    expect(State.LastShot).toBeNull();
+    expect(
+      Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("UseItemPlaceholder:item02"))
+    ).toBe(true);
+  });
+
+  it("菜单态与目标态下应禁用切角色和逃跑", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.ToggleBattleSkillTargetMode();
+    expect(Runtime.SwitchControlledCharacter()).toBe(false);
+    expect(Runtime.FleeBattleToOverworld()).toBe(false);
+    expect(Runtime.GetViewModel().Battle3CState.ControlledCharacterId).toBe("char01");
+    expect(Runtime.GetViewModel().RuntimePhase).toBe("Battle3C");
+
+    Runtime.ToggleBattleSkillTargetMode();
+    Runtime.FireBattleAction();
+    expect(Runtime.SwitchControlledCharacter()).toBe(false);
+    expect(Runtime.FleeBattleToOverworld()).toBe(false);
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("TargetSelect");
+  });
+
+  it("无存活敌人时，攻击和技能确认都不应进入目标选择", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession({
+      EnemyActiveUnitIds: ["enemy01", "enemy02"],
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          IsAlive: false
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          IsAlive: false
+        })
+      ]
+    });
+
+    Runtime.FireBattleAction();
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("Root");
+    expect(
+      Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("TargetSelect:NoEnemy"))
+    ).toBe(true);
+
+    Runtime.ToggleBattleSkillTargetMode();
+    Runtime.FireBattleAction();
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("SkillMenu");
+    expect(
+      Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("TargetSelect:SkillNoEnemy"))
+    ).toBe(true);
   });
 
   it("遭遇上下文非法时应阻断创建战斗会话", () => {

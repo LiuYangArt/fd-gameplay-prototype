@@ -28,7 +28,7 @@
 
 ## C. 输入与交互（web-client）
 
-- [ ] 浏览器可测试条目已使用 `playwright-cli` 执行并保留命令记录（无法自动化时需附原因）。
+- [x] 浏览器可测试条目已使用 `playwright-cli` 执行并保留命令记录（本次执行 `pnpm smoke:web`，产物：`output/playwright/2026-02-28T12-55-08-629Z/`）。
 - [ ] 键鼠映射：确认/切目标/重开战斗均可触发。
 - [ ] 手柄映射：A / D-Pad Right / Start 均可触发。
 - [ ] 输入边沿触发无连发问题（按住不会重复触发一次性动作）。
@@ -46,6 +46,14 @@
 - [x] Pointer Lock 状态下按 `Esc` 一次应直接退出瞄准（锁释放后自动注入 `CancelAimEdge`），不需要按两次（`UInputController.test.ts`）。
 - [x] 瞄准状态下不允许“跳过回合/切角色”，输入应被忽略（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准状态下不允许“逃跑”，仅待机状态允许（`UWebGameRuntime.test.ts`）。
+- [x] 根命令层“攻击”进入统一目标选择（不立即开火），`PendingActionKind=Attack`（`UWebGameRuntime.test.ts`）。
+- [x] 技能菜单确认后进入统一目标选择并记录 `SelectedSkillOptionId`，取消可返回技能菜单（`UWebGameRuntime.test.ts`）。
+- [x] 攻击来源的目标选择取消后返回根命令层（`UWebGameRuntime.test.ts`）。
+- [x] 技能菜单与物品菜单分别使用 `PlayerSkillPreview` / `PlayerItemPreview` 机位（`UWebGameRuntime.test.ts`）。
+- [x] 物品菜单确认仅记录占位行为 `UseItemPlaceholder:*`，不进入目标选择（`UWebGameRuntime.test.ts`）。
+- [x] 无存活敌人时阻断进入目标选择并记录事件日志（`UWebGameRuntime.test.ts`）。
+- [x] 菜单态/目标态下左下角战斗操作隐藏（`UBattleHudVisibility.test.ts`）。
+- [x] 菜单输入映射覆盖 `W/Y`（物品菜单）、`↑/↓`（菜单切换）、`F`（确认）（`UInputController.test.ts`）。
 - [x] 瞄准时 `AimCameraYawDeg` 应与当前操控角色 `YawDeg` 同步更新（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准时支持上下抬枪：`AimCameraPitchDeg` 随输入变化，角色 `YawDeg` 不因俯仰输入改变（`UWebGameRuntime.test.ts`）。
 - [x] `OverworldInvertLookPitch` 与 `AimInvertLookPitch` 可独立控制上下反转，互不影响（`UWebGameRuntime.test.ts`）。
@@ -113,6 +121,18 @@
 - [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
 
 ## F. 本次修复记录
+
+- 问题描述：实现 Battle3C 指令层改造（技能/物品占位菜单、攻击与技能统一目标选择、新增虚拟 Socket 机位与返回层级规则）。
+- 对应测试文件：
+  - `packages/web-client/src/game/UWebGameRuntime.test.ts`（新增 8 条命令层回归）
+  - `packages/web-client/src/input/UInputController.test.ts`
+  - `packages/web-client/src/ui/UBattleHudVisibility.test.ts`
+- 新增/修改条目：C 节新增 8 条自动化条目并置为已完成，更新浏览器自动化执行记录。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test`：通过（37 项）
+  - `pnpm lint`：通过
+  - `pnpm smoke:web`：通过（页面加载、截图、console/network 采集）
+- 是否新增 postmortem：`否`（功能迭代，非故障修复）
 
 - 问题描述：修复“瞄准左右旋转看似受奇怪限位（先右再左可转范围更大）”；根因是鼠标未锁指针时 `movementX` 仍受屏幕边界影响，导致输入增量路径依赖。
 - 对应测试文件：`packages/web-client/src/input/UInputController.test.ts`（新增“按 Q 进入瞄准请求指针锁定”回归）。

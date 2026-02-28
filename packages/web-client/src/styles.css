@@ -397,6 +397,66 @@ ul {
   pointer-events: auto;
 }
 
+.BattleCommandPanel {
+  position: absolute;
+  left: calc(100% + 132px);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 260px;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(201, 220, 246, 0.34);
+  background: linear-gradient(140deg, rgba(9, 18, 31, 0.9), rgba(16, 30, 49, 0.84));
+  pointer-events: auto;
+}
+
+.BattleCommandPanel__Title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #f2f7ff;
+}
+
+.BattleCommandPanel__Target {
+  font-size: 13px;
+  color: #c6d8ef;
+}
+
+.BattleCommandPanel__Actions {
+  display: grid;
+  gap: 8px;
+}
+
+.BattleCommandOptionList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.BattleCommandOption {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(182, 203, 231, 0.2);
+  background: rgba(12, 22, 36, 0.78);
+  color: #d8e6f8;
+  font-size: 14px;
+}
+
+.BattleCommandOption.IsActive {
+  border-color: rgba(255, 212, 132, 0.85);
+  box-shadow: 0 0 0 1px rgba(255, 184, 90, 0.26);
+  color: #fff6df;
+}
+
+.BattleCommandHint {
+  margin: 0;
+  font-size: 12px;
+  color: #b2c8e4;
+}
+
 .BattleActionButton {
   width: auto;
   min-width: 146px;
@@ -431,6 +491,10 @@ ul {
 
 .BattleActionButton--Return {
   min-width: 120px;
+}
+
+.BattleActionButton--Confirm {
+  min-width: 152px;
 }
 
 .BattleCornerActions {
@@ -557,6 +621,11 @@ ul {
     top: calc(100% + 56px);
   }
 
+  .BattleCommandPanel {
+    left: calc(100% + 88px);
+    width: 236px;
+  }
+
   .BattleCornerButton {
     min-width: 108px;
     padding: 8px 11px;
@@ -605,5 +674,10 @@ ul {
   .BattleAimReturnGroup {
     left: calc(100% + 56px);
     top: calc(100% + 44px);
+  }
+
+  .BattleCommandPanel {
+    left: calc(100% + 56px);
+    width: 220px;
   }
 }

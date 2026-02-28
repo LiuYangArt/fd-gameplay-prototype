@@ -15,6 +15,9 @@ import type { FInputSnapshot } from "../input/FInputSnapshot";
 import type {
   FBattle3CHudState,
   FBattleCameraMode,
+  FBattleCommandOption,
+  FBattleCommandStage,
+  FBattlePendingActionKind,
   FBattleShotHudState,
   FBattleScriptFocusHudState,
   FHudViewModel,
@@ -78,10 +81,17 @@ interface FBattle3CSession {
   };
   IsAimMode: boolean;
   IsSkillTargetMode: boolean;
+  CommandStage?: FBattleCommandStage;
+  PendingActionKind?: FBattlePendingActionKind;
   AimCameraYawDeg: number | null;
   AimCameraPitchDeg: number | null;
   SelectedTargetIndex: number;
   AimHoverTargetId: string | null;
+  SkillOptions?: FBattleCommandOption[];
+  ItemOptions?: FBattleCommandOption[];
+  SelectedSkillOptionIndex?: number;
+  SelectedItemOptionIndex?: number;
+  SelectedSkillOptionId?: string | null;
   ScriptStepIndex: number;
   ShotSequence: number;
   LastShot: FBattleShotHudState | null;
@@ -110,6 +120,14 @@ const AimYawCenterFanMinHalfAngleDeg = 85;
 const AimYawCenterFanMaxHalfAngleDeg = 130;
 const AimYawCenterFanPaddingDeg = 8;
 const EnemyScriptCameraHoldMs = 680;
+const BattleSkillPlaceholderOptions: FBattleCommandOption[] = [
+  { OptionId: "skill01", DisplayName: "技能1" },
+  { OptionId: "skill02", DisplayName: "技能2" }
+];
+const BattleItemPlaceholderOptions: FBattleCommandOption[] = [
+  { OptionId: "item01", DisplayName: "物品1" },
+  { OptionId: "item02", DisplayName: "物品2" }
+];
 const BattleLaneTableByTeam: Record<"Player" | "Enemy", Record<number, number[]>> = {
   Player: {
     1: [0],
@@ -243,9 +261,14 @@ export class UWebGameRuntime {
       return;
     }
 
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (this.ActiveBattleSession.CommandStage !== "Root") {
+      return;
+    }
+
     this.ActiveBattleSession.IsAimMode = !this.ActiveBattleSession.IsAimMode;
     if (this.ActiveBattleSession.IsAimMode) {
-      this.ActiveBattleSession.IsSkillTargetMode = false;
+      this.SetCommandStage(this.ActiveBattleSession, "Root");
       this.ActiveBattleSession.CrosshairScreenPosition = {
         X: AimCrosshairCenter,
         Y: AimCrosshairCenter
@@ -272,6 +295,7 @@ export class UWebGameRuntime {
     if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
       return;
     }
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
     if (!this.ActiveBattleSession.IsAimMode) {
       return;
     }
@@ -290,10 +314,11 @@ export class UWebGameRuntime {
       return;
     }
 
-    this.SyncAimCameraYawToControlledFacing();
-    this.EmitBattleShotEvent();
-    this.EmitRuntimeEvent("EBattle3CActionRequested", "Fire");
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
     if (this.ActiveBattleSession.IsAimMode) {
+      this.SyncAimCameraYawToControlledFacing();
+      this.EmitBattleShotEvent();
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "FireAim");
       this.ActiveBattleSession.CameraMode = this.ResolveBattleControlCameraMode(
         this.ActiveBattleSession
       );
@@ -301,7 +326,22 @@ export class UWebGameRuntime {
       return;
     }
 
-    this.AdvanceEnemyScriptStep();
+    switch (this.ActiveBattleSession.CommandStage) {
+      case "Root":
+        this.BeginTargetSelectionFromAttack(this.ActiveBattleSession);
+        return;
+      case "SkillMenu":
+        this.ConfirmSkillSelectionAndEnterTargetSelection(this.ActiveBattleSession);
+        return;
+      case "ItemMenu":
+        this.ConfirmItemPlaceholderSelection(this.ActiveBattleSession);
+        return;
+      case "TargetSelect":
+        this.CommitTargetSelectionAction(this.ActiveBattleSession);
+        return;
+      default:
+        return;
+    }
   }
 
   public SetBattleAimHoverTarget(UnitId: string | null): void {
@@ -329,6 +369,7 @@ export class UWebGameRuntime {
     if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
       return false;
     }
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
     if (!this.IsBattleIdleControlState(this.ActiveBattleSession)) {
       return false;
     }
@@ -367,15 +408,40 @@ export class UWebGameRuntime {
       return;
     }
 
-    this.ActiveBattleSession.IsSkillTargetMode = !this.ActiveBattleSession.IsSkillTargetMode;
-    if (this.ActiveBattleSession.IsSkillTargetMode) {
-      this.ActiveBattleSession.IsAimMode = false;
-      this.RestoreFacingAfterAim();
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (this.ActiveBattleSession.CommandStage === "SkillMenu") {
+      this.ReturnToRootCommandStage(this.ActiveBattleSession);
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "SkillMenu:Close");
+      this.NotifyRuntimeUpdated();
+      return;
     }
-    this.ActiveBattleSession.CameraMode = this.ResolveBattleControlCameraMode(
-      this.ActiveBattleSession
-    );
-    this.EmitRuntimeEvent("EBattle3CActionRequested", "ToggleSkillTargetMode");
+    if (this.ActiveBattleSession.CommandStage !== "Root") {
+      return;
+    }
+
+    this.EnterSkillMenuStage(this.ActiveBattleSession);
+    this.EmitRuntimeEvent("EBattle3CActionRequested", "SkillMenu:Open");
+    this.NotifyRuntimeUpdated();
+  }
+
+  public ToggleBattleItemMenu(): void {
+    if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
+      return;
+    }
+
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (this.ActiveBattleSession.CommandStage === "ItemMenu") {
+      this.ReturnToRootCommandStage(this.ActiveBattleSession);
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "ItemMenu:Close");
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+    if (this.ActiveBattleSession.CommandStage !== "Root") {
+      return;
+    }
+
+    this.EnterItemMenuStage(this.ActiveBattleSession);
+    this.EmitRuntimeEvent("EBattle3CActionRequested", "ItemMenu:Open");
     this.NotifyRuntimeUpdated();
   }
 
@@ -383,8 +449,13 @@ export class UWebGameRuntime {
     if (
       !this.ActiveBattleSession ||
       this.RuntimePhase !== "Battle3C" ||
-      !this.ActiveBattleSession.IsSkillTargetMode
+      this.ActiveBattleSession.IsAimMode
     ) {
+      return;
+    }
+
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (this.ActiveBattleSession.CommandStage !== "TargetSelect") {
       return;
     }
 
@@ -403,6 +474,23 @@ export class UWebGameRuntime {
       `CycleTarget:${Delta > 0 ? "Right" : "Left"}`
     );
     this.NotifyRuntimeUpdated();
+  }
+
+  public CycleBattleMenuSelection(Direction: number): void {
+    if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
+      return;
+    }
+
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    const Delta = Direction >= 0 ? 1 : -1;
+    if (this.ActiveBattleSession.CommandStage === "SkillMenu") {
+      this.CycleSkillMenuOption(this.ActiveBattleSession, Delta);
+      return;
+    }
+
+    if (this.ActiveBattleSession.CommandStage === "ItemMenu") {
+      this.CycleItemMenuOption(this.ActiveBattleSession, Delta);
+    }
   }
 
   public RequestSettlementPreview(Reason = "手动触发"): void {
@@ -438,6 +526,7 @@ export class UWebGameRuntime {
     if (this.RuntimePhase !== "Battle3C" || !this.ActiveBattleSession) {
       return false;
     }
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
     if (!this.IsBattleIdleControlState(this.ActiveBattleSession)) {
       return false;
     }
@@ -468,6 +557,239 @@ export class UWebGameRuntime {
     this.EncounterTransitionEndAtMs = null;
     this.EmitRuntimeEvent(EventType);
     this.NotifyRuntimeUpdated();
+  }
+
+  private EnsureBattleCommandState(Session: FBattle3CSession): void {
+    Session.CommandStage =
+      Session.CommandStage ?? (Session.IsSkillTargetMode ? "TargetSelect" : "Root");
+    Session.PendingActionKind = Session.PendingActionKind ?? null;
+    Session.SkillOptions = this.ResolveBattleCommandOptions(
+      Session.SkillOptions,
+      BattleSkillPlaceholderOptions
+    );
+    Session.ItemOptions = this.ResolveBattleCommandOptions(
+      Session.ItemOptions,
+      BattleItemPlaceholderOptions
+    );
+    Session.SelectedSkillOptionIndex = this.ResolveWrappedIndex(
+      Session.SelectedSkillOptionIndex ?? 0,
+      Session.SkillOptions.length
+    );
+    Session.SelectedItemOptionIndex = this.ResolveWrappedIndex(
+      Session.SelectedItemOptionIndex ?? 0,
+      Session.ItemOptions.length
+    );
+    Session.SelectedSkillOptionId = Session.SelectedSkillOptionId ?? null;
+    Session.IsSkillTargetMode = Session.CommandStage === "TargetSelect";
+  }
+
+  private ResolveBattleCommandOptions(
+    CurrentOptions: FBattleCommandOption[] | undefined,
+    DefaultOptions: FBattleCommandOption[]
+  ): FBattleCommandOption[] {
+    if (CurrentOptions && CurrentOptions.length > 0) {
+      return CurrentOptions;
+    }
+    return [...DefaultOptions];
+  }
+
+  private CycleSkillMenuOption(Session: FBattle3CSession, Delta: number): void {
+    const SkillOptions = Session.SkillOptions ?? [];
+    if (SkillOptions.length <= 1) {
+      return;
+    }
+
+    const CurrentIndex = Session.SelectedSkillOptionIndex ?? 0;
+    Session.SelectedSkillOptionIndex =
+      (CurrentIndex + Delta + SkillOptions.length) % SkillOptions.length;
+    this.EmitRuntimeEvent(
+      "EBattle3CActionRequested",
+      `SkillMenu:Cycle:${Delta > 0 ? "Down" : "Up"}`
+    );
+    this.NotifyRuntimeUpdated();
+  }
+
+  private CycleItemMenuOption(Session: FBattle3CSession, Delta: number): void {
+    const ItemOptions = Session.ItemOptions ?? [];
+    if (ItemOptions.length <= 1) {
+      return;
+    }
+
+    const CurrentIndex = Session.SelectedItemOptionIndex ?? 0;
+    Session.SelectedItemOptionIndex =
+      (CurrentIndex + Delta + ItemOptions.length) % ItemOptions.length;
+    this.EmitRuntimeEvent(
+      "EBattle3CActionRequested",
+      `ItemMenu:Cycle:${Delta > 0 ? "Down" : "Up"}`
+    );
+    this.NotifyRuntimeUpdated();
+  }
+
+  private SetCommandStage(Session: FBattle3CSession, Stage: FBattleCommandStage): void {
+    Session.CommandStage = Stage;
+    Session.IsSkillTargetMode = Stage === "TargetSelect";
+  }
+
+  private ReturnToRootCommandStage(Session: FBattle3CSession): void {
+    this.SetCommandStage(Session, "Root");
+    Session.PendingActionKind = null;
+    Session.AimHoverTargetId = null;
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+  }
+
+  private EnterSkillMenuStage(Session: FBattle3CSession): void {
+    if (Session.IsAimMode) {
+      Session.IsAimMode = false;
+      this.RestoreFacingAfterAim();
+    }
+    this.SetCommandStage(Session, "SkillMenu");
+    Session.PendingActionKind = null;
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+  }
+
+  private EnterItemMenuStage(Session: FBattle3CSession): void {
+    if (Session.IsAimMode) {
+      Session.IsAimMode = false;
+      this.RestoreFacingAfterAim();
+    }
+    this.SetCommandStage(Session, "ItemMenu");
+    Session.PendingActionKind = null;
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+  }
+
+  private BeginTargetSelectionFromAttack(Session: FBattle3CSession): void {
+    const EnemyTargets = this.GetEnemyBattleUnits(Session.Units).filter((Unit) => Unit.IsAlive);
+    if (EnemyTargets.length < 1) {
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "TargetSelect:NoEnemy");
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    if (Session.IsAimMode) {
+      Session.IsAimMode = false;
+      this.RestoreFacingAfterAim();
+    }
+    this.SetCommandStage(Session, "TargetSelect");
+    Session.PendingActionKind = "Attack";
+    Session.AimHoverTargetId = null;
+    this.AlignSelectedTargetForControlledCharacter();
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+    this.EmitRuntimeEvent("EBattle3CActionRequested", "TargetSelect:AttackStart");
+    this.NotifyRuntimeUpdated();
+  }
+
+  private ConfirmSkillSelectionAndEnterTargetSelection(Session: FBattle3CSession): void {
+    const SkillOptions = Session.SkillOptions ?? [];
+    if (SkillOptions.length < 1) {
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "SkillMenu:NoOption");
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    const SelectedIndex = this.ResolveWrappedIndex(
+      Session.SelectedSkillOptionIndex ?? 0,
+      SkillOptions.length
+    );
+    const SelectedSkill = SkillOptions[SelectedIndex];
+    Session.SelectedSkillOptionIndex = SelectedIndex;
+    Session.SelectedSkillOptionId = SelectedSkill.OptionId;
+
+    const EnemyTargets = this.GetEnemyBattleUnits(Session.Units).filter((Unit) => Unit.IsAlive);
+    if (EnemyTargets.length < 1) {
+      this.EmitRuntimeEvent(
+        "EBattle3CActionRequested",
+        `TargetSelect:SkillNoEnemy:${SelectedSkill.OptionId}`
+      );
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    this.SetCommandStage(Session, "TargetSelect");
+    Session.PendingActionKind = "Skill";
+    Session.AimHoverTargetId = null;
+    this.AlignSelectedTargetForControlledCharacter();
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+    this.EmitRuntimeEvent(
+      "EBattle3CActionRequested",
+      `TargetSelect:SkillStart:${SelectedSkill.OptionId}`
+    );
+    this.NotifyRuntimeUpdated();
+  }
+
+  private ConfirmItemPlaceholderSelection(Session: FBattle3CSession): void {
+    const ItemOptions = Session.ItemOptions ?? [];
+    if (ItemOptions.length < 1) {
+      this.ReturnToRootCommandStage(Session);
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "ItemMenu:NoOption");
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    const SelectedIndex = this.ResolveWrappedIndex(
+      Session.SelectedItemOptionIndex ?? 0,
+      ItemOptions.length
+    );
+    Session.SelectedItemOptionIndex = SelectedIndex;
+    const SelectedItem = ItemOptions[SelectedIndex];
+    this.ReturnToRootCommandStage(Session);
+    this.EmitRuntimeEvent(
+      "EBattle3CActionRequested",
+      `UseItemPlaceholder:${SelectedItem.OptionId}`
+    );
+    this.NotifyRuntimeUpdated();
+  }
+
+  private CommitTargetSelectionAction(Session: FBattle3CSession): void {
+    const PendingAction = Session.PendingActionKind;
+    if (!PendingAction) {
+      this.ReturnToRootCommandStage(Session);
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    this.EmitBattleShotEvent();
+    const TargetId = this.ResolveCurrentBattleTargetForFire() ?? "MISS";
+    this.EmitRuntimeEvent("EBattle3CActionRequested", `ConfirmTarget:${PendingAction}:${TargetId}`);
+
+    this.ReturnToRootCommandStage(Session);
+    this.AdvanceEnemyScriptStep();
+    if (Session.ScriptFocus === null) {
+      this.NotifyRuntimeUpdated();
+    }
+  }
+
+  private CancelBattleCommandStage(Session: FBattle3CSession): boolean {
+    this.EnsureBattleCommandState(Session);
+    if (Session.CommandStage === "TargetSelect") {
+      if (Session.PendingActionKind === "Skill") {
+        this.SetCommandStage(Session, "SkillMenu");
+      } else {
+        this.SetCommandStage(Session, "Root");
+      }
+      Session.PendingActionKind = null;
+      Session.AimHoverTargetId = null;
+      Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "CancelTargetSelect");
+      this.NotifyRuntimeUpdated();
+      return true;
+    }
+
+    if (Session.CommandStage === "SkillMenu" || Session.CommandStage === "ItemMenu") {
+      this.ReturnToRootCommandStage(Session);
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "CancelCommandMenu");
+      this.NotifyRuntimeUpdated();
+      return true;
+    }
+
+    return false;
+  }
+
+  private ResolveWrappedIndex(Index: number, Length: number): number {
+    if (Length <= 0) {
+      return 0;
+    }
+    const SafeIndex = Number.isFinite(Index) ? Math.trunc(Index) : 0;
+    return ((SafeIndex % Length) + Length) % Length;
   }
 
   public ApplyDebugConfig(Patch: Partial<FDebugConfig>): void {
@@ -578,32 +900,11 @@ export class UWebGameRuntime {
 
   private BuildBattle3CHudState(BattleSession: FBattle3CSession | null): FBattle3CHudState {
     if (!BattleSession) {
-      return {
-        PlayerTeamId: null,
-        EnemyTeamId: null,
-        PlayerActiveUnitIds: [],
-        EnemyActiveUnitIds: [],
-        ControlledCharacterId: null,
-        CameraMode: "PlayerFollow",
-        CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
-        ScriptStepIndex: 0,
-        IsAimMode: false,
-        IsSkillTargetMode: false,
-        AimCameraYawDeg: null,
-        AimCameraPitchDeg: null,
-        SelectedTargetId: null,
-        HoveredTargetId: null,
-        Units: [],
-        ScriptFocus: null,
-        LastShot: null
-      };
+      return this.CreateEmptyBattle3CHudState();
     }
 
-    const EnemyTargets = this.GetEnemyBattleUnits(BattleSession.Units);
-    const SelectedTargetId =
-      EnemyTargets.length > 0
-        ? (EnemyTargets[BattleSession.SelectedTargetIndex % EnemyTargets.length]?.UnitId ?? null)
-        : null;
+    this.EnsureBattleCommandState(BattleSession);
+    const SelectedTargetId = this.ResolveBattleSessionSelectedTargetId(BattleSession);
 
     return {
       PlayerTeamId: BattleSession.PlayerTeamId,
@@ -615,34 +916,97 @@ export class UWebGameRuntime {
       CrosshairScreenPosition: { ...BattleSession.CrosshairScreenPosition },
       ScriptStepIndex: BattleSession.ScriptStepIndex,
       IsAimMode: BattleSession.IsAimMode,
-      IsSkillTargetMode: BattleSession.IsSkillTargetMode,
+      IsSkillTargetMode: BattleSession.CommandStage === "TargetSelect",
+      CommandStage: BattleSession.CommandStage ?? "Root",
+      PendingActionKind: BattleSession.PendingActionKind ?? null,
       AimCameraYawDeg: BattleSession.AimCameraYawDeg,
       AimCameraPitchDeg: BattleSession.AimCameraPitchDeg,
       SelectedTargetId,
       HoveredTargetId: BattleSession.AimHoverTargetId,
-      Units: BattleSession.Units.map((Unit) => ({
-        UnitId: Unit.UnitId,
-        DisplayName: Unit.DisplayName,
-        TeamId: Unit.TeamId,
-        ModelAssetPath: Unit.ModelAssetPath,
-        PositionCm: { ...Unit.PositionCm },
-        YawDeg: Unit.YawDeg,
-        MaxHp: Unit.MaxHp,
-        CurrentHp: Unit.CurrentHp,
-        MaxMp: Unit.MaxMp,
-        CurrentMp: Unit.CurrentMp,
-        IsAlive: Unit.IsAlive,
-        IsControlled: Unit.UnitId === BattleSession.ControlledCharacterId,
-        IsSelectedTarget: Unit.UnitId === SelectedTargetId,
-        IsEncounterPrimaryEnemy: Unit.IsEncounterPrimaryEnemy
-      })),
-      ScriptFocus: BattleSession.ScriptFocus
-        ? {
-            AttackerUnitId: BattleSession.ScriptFocus.AttackerUnitId,
-            TargetUnitIds: [...BattleSession.ScriptFocus.TargetUnitIds]
-          }
-        : null,
+      SkillOptions: [...(BattleSession.SkillOptions ?? [])],
+      ItemOptions: [...(BattleSession.ItemOptions ?? [])],
+      SelectedSkillOptionIndex: BattleSession.SelectedSkillOptionIndex ?? 0,
+      SelectedItemOptionIndex: BattleSession.SelectedItemOptionIndex ?? 0,
+      SelectedSkillOptionId: BattleSession.SelectedSkillOptionId ?? null,
+      Units: this.BuildBattleHudUnits(BattleSession, SelectedTargetId),
+      ScriptFocus: this.CloneBattleScriptFocus(BattleSession.ScriptFocus),
       LastShot: BattleSession.LastShot ? { ...BattleSession.LastShot } : null
+    };
+  }
+
+  private CreateEmptyBattle3CHudState(): FBattle3CHudState {
+    return {
+      PlayerTeamId: null,
+      EnemyTeamId: null,
+      PlayerActiveUnitIds: [],
+      EnemyActiveUnitIds: [],
+      ControlledCharacterId: null,
+      CameraMode: "PlayerFollow",
+      CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+      ScriptStepIndex: 0,
+      IsAimMode: false,
+      IsSkillTargetMode: false,
+      CommandStage: "Root",
+      PendingActionKind: null,
+      AimCameraYawDeg: null,
+      AimCameraPitchDeg: null,
+      SelectedTargetId: null,
+      HoveredTargetId: null,
+      SkillOptions: [...BattleSkillPlaceholderOptions],
+      ItemOptions: [...BattleItemPlaceholderOptions],
+      SelectedSkillOptionIndex: 0,
+      SelectedItemOptionIndex: 0,
+      SelectedSkillOptionId: null,
+      Units: [],
+      ScriptFocus: null,
+      LastShot: null
+    };
+  }
+
+  private ResolveBattleSessionSelectedTargetId(Session: FBattle3CSession): string | null {
+    const EnemyTargets = this.GetEnemyBattleUnits(Session.Units);
+    if (EnemyTargets.length < 1) {
+      return null;
+    }
+
+    const SelectedIndex = this.ResolveWrappedIndex(
+      Session.SelectedTargetIndex,
+      EnemyTargets.length
+    );
+    return EnemyTargets[SelectedIndex]?.UnitId ?? null;
+  }
+
+  private BuildBattleHudUnits(
+    Session: FBattle3CSession,
+    SelectedTargetId: string | null
+  ): FBattle3CHudState["Units"] {
+    return Session.Units.map((Unit) => ({
+      UnitId: Unit.UnitId,
+      DisplayName: Unit.DisplayName,
+      TeamId: Unit.TeamId,
+      ModelAssetPath: Unit.ModelAssetPath,
+      PositionCm: { ...Unit.PositionCm },
+      YawDeg: Unit.YawDeg,
+      MaxHp: Unit.MaxHp,
+      CurrentHp: Unit.CurrentHp,
+      MaxMp: Unit.MaxMp,
+      CurrentMp: Unit.CurrentMp,
+      IsAlive: Unit.IsAlive,
+      IsControlled: Unit.UnitId === Session.ControlledCharacterId,
+      IsSelectedTarget: Unit.UnitId === SelectedTargetId,
+      IsEncounterPrimaryEnemy: Unit.IsEncounterPrimaryEnemy
+    }));
+  }
+
+  private CloneBattleScriptFocus(
+    ScriptFocus: FBattleScriptFocusHudState | null
+  ): FBattleScriptFocusHudState | null {
+    if (!ScriptFocus) {
+      return null;
+    }
+    return {
+      AttackerUnitId: ScriptFocus.AttackerUnitId,
+      TargetUnitIds: [...ScriptFocus.TargetUnitIds]
     };
   }
 
@@ -681,45 +1045,15 @@ export class UWebGameRuntime {
     if (!this.ActiveBattleSession) {
       return;
     }
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
 
     if (this.TryHandleBattle3CImmediateActions(InputSnapshot)) {
       return;
     }
 
-    let IsDirty = false;
-
-    if (this.ActiveBattleSession.IsAimMode) {
-      if (this.EnsureAimCrosshairCentered()) {
-        IsDirty = true;
-      }
-      if (this.UpdateAimControlledFacingFromLookYaw(InputSnapshot.LookYawDeltaDegrees)) {
-        IsDirty = true;
-      }
-      if (
-        this.UpdateAimCameraPitchFromLookInput(
-          this.ResolveAimLookPitchDeltaDegrees(InputSnapshot.LookPitchDeltaDegrees)
-        )
-      ) {
-        IsDirty = true;
-      }
-      if (this.SyncAimCameraYawToControlledFacing()) {
-        IsDirty = true;
-      }
-    } else {
-      const NextCrosshair = InputSnapshot.AimScreenPosition
-        ? this.ResolveAbsoluteCrosshairPosition(InputSnapshot.AimScreenPosition)
-        : this.ResolveCrosshairPosition(
-            this.ActiveBattleSession.CrosshairScreenPosition,
-            InputSnapshot.AimScreenDelta
-          );
-      if (
-        NextCrosshair.X !== this.ActiveBattleSession.CrosshairScreenPosition.X ||
-        NextCrosshair.Y !== this.ActiveBattleSession.CrosshairScreenPosition.Y
-      ) {
-        this.ActiveBattleSession.CrosshairScreenPosition = NextCrosshair;
-        IsDirty = true;
-      }
-    }
+    const IsDirty = this.ActiveBattleSession.IsAimMode
+      ? this.ConsumeBattleAimInput(InputSnapshot)
+      : this.ConsumeBattleRootCrosshairInput(InputSnapshot);
 
     if (IsDirty) {
       this.NotifyRuntimeUpdated();
@@ -731,31 +1065,107 @@ export class UWebGameRuntime {
       return false;
     }
 
-    if (InputSnapshot.CancelAimEdge && this.ActiveBattleSession.IsAimMode) {
-      this.ExitBattleAimMode();
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (this.TryHandleBattleCancelAction(InputSnapshot)) {
       return true;
     }
-    if (InputSnapshot.ToggleAimEdge) {
-      this.ToggleBattleAim();
+    if (this.TryHandleBattleToggleAimAction(InputSnapshot)) {
       return true;
     }
     if (InputSnapshot.SwitchCharacterEdge) {
       return this.SwitchControlledCharacter();
     }
+    return this.TryHandleBattleCommandAction(InputSnapshot);
+  }
+
+  private ConsumeBattleAimInput(InputSnapshot: FInputSnapshot): boolean {
+    let IsDirty = false;
+    if (this.EnsureAimCrosshairCentered()) {
+      IsDirty = true;
+    }
+    if (this.UpdateAimControlledFacingFromLookYaw(InputSnapshot.LookYawDeltaDegrees)) {
+      IsDirty = true;
+    }
+    if (
+      this.UpdateAimCameraPitchFromLookInput(
+        this.ResolveAimLookPitchDeltaDegrees(InputSnapshot.LookPitchDeltaDegrees)
+      )
+    ) {
+      IsDirty = true;
+    }
+    if (this.SyncAimCameraYawToControlledFacing()) {
+      IsDirty = true;
+    }
+    return IsDirty;
+  }
+
+  private ConsumeBattleRootCrosshairInput(InputSnapshot: FInputSnapshot): boolean {
+    if (!this.ActiveBattleSession || this.ActiveBattleSession.CommandStage !== "Root") {
+      return false;
+    }
+
+    const NextCrosshair = InputSnapshot.AimScreenPosition
+      ? this.ResolveAbsoluteCrosshairPosition(InputSnapshot.AimScreenPosition)
+      : this.ResolveCrosshairPosition(
+          this.ActiveBattleSession.CrosshairScreenPosition,
+          InputSnapshot.AimScreenDelta
+        );
+    if (
+      NextCrosshair.X === this.ActiveBattleSession.CrosshairScreenPosition.X &&
+      NextCrosshair.Y === this.ActiveBattleSession.CrosshairScreenPosition.Y
+    ) {
+      return false;
+    }
+
+    this.ActiveBattleSession.CrosshairScreenPosition = NextCrosshair;
+    return true;
+  }
+
+  private TryHandleBattleCancelAction(InputSnapshot: FInputSnapshot): boolean {
+    if (!this.ActiveBattleSession || !InputSnapshot.CancelAimEdge) {
+      return false;
+    }
+    if (this.ActiveBattleSession.IsAimMode) {
+      this.ExitBattleAimMode();
+      return true;
+    }
+    return this.CancelBattleCommandStage(this.ActiveBattleSession);
+  }
+
+  private TryHandleBattleToggleAimAction(InputSnapshot: FInputSnapshot): boolean {
+    if (!this.ActiveBattleSession || !InputSnapshot.ToggleAimEdge) {
+      return false;
+    }
+    if (this.ActiveBattleSession.CommandStage !== "Root") {
+      return false;
+    }
+    this.ToggleBattleAim();
+    return true;
+  }
+
+  private TryHandleBattleCommandAction(InputSnapshot: FInputSnapshot): boolean {
     if (InputSnapshot.ToggleSkillTargetModeEdge) {
       this.ToggleBattleSkillTargetMode();
+      return true;
+    }
+    if (InputSnapshot.ToggleItemMenuEdge) {
+      this.ToggleBattleItemMenu();
+      return true;
+    }
+    if (InputSnapshot.CycleMenuAxis !== 0) {
+      this.CycleBattleMenuSelection(InputSnapshot.CycleMenuAxis);
       return true;
     }
     if (InputSnapshot.CycleTargetAxis !== 0) {
       this.CycleBattleTarget(InputSnapshot.CycleTargetAxis);
       return true;
     }
-    if (InputSnapshot.FireEdge) {
-      this.FireBattleAction();
-      return true;
+    if (!InputSnapshot.FireEdge) {
+      return false;
     }
 
-    return false;
+    this.FireBattleAction();
+    return true;
   }
 
   private BindOverworldEvents(): void {
@@ -959,10 +1369,17 @@ export class UWebGameRuntime {
       },
       IsAimMode: false,
       IsSkillTargetMode: false,
+      CommandStage: "Root",
+      PendingActionKind: null,
       AimCameraYawDeg: null,
       AimCameraPitchDeg: null,
       SelectedTargetIndex: 0,
       AimHoverTargetId: null,
+      SkillOptions: [...BattleSkillPlaceholderOptions],
+      ItemOptions: [...BattleItemPlaceholderOptions],
+      SelectedSkillOptionIndex: 0,
+      SelectedItemOptionIndex: 0,
+      SelectedSkillOptionId: null,
       ScriptStepIndex: 0,
       ShotSequence: 0,
       LastShot: null,
@@ -1376,6 +1793,7 @@ export class UWebGameRuntime {
     if (!this.ActiveBattleSession) {
       return null;
     }
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
 
     const EnemyTargets = this.GetEnemyBattleUnits(this.ActiveBattleSession.Units).filter(
       (Unit) => Unit.IsAlive
@@ -1455,7 +1873,8 @@ export class UWebGameRuntime {
   }
 
   private IsBattleIdleControlState(Session: FBattle3CSession): boolean {
-    return !Session.IsAimMode && !Session.IsSkillTargetMode && Session.ScriptFocus === null;
+    this.EnsureBattleCommandState(Session);
+    return Session.CommandStage === "Root" && !Session.IsAimMode && Session.ScriptFocus === null;
   }
 
   private AdvanceEnemyScriptStep(): void {
@@ -1539,10 +1958,17 @@ export class UWebGameRuntime {
   }
 
   private ResolveBattleControlCameraMode(Session: FBattle3CSession): FBattleCameraMode {
+    this.EnsureBattleCommandState(Session);
     if (Session.ScriptFocus) {
       return Session.ScriptFocus.TargetUnitIds.length > 1 ? "EnemyAttackAOE" : "EnemyAttackSingle";
     }
-    if (Session.IsSkillTargetMode) {
+    if (Session.CommandStage === "SkillMenu") {
+      return "PlayerSkillPreview";
+    }
+    if (Session.CommandStage === "ItemMenu") {
+      return "PlayerItemPreview";
+    }
+    if (Session.CommandStage === "TargetSelect") {
       return "SkillTargetZoom";
     }
     if (Session.IsAimMode) {

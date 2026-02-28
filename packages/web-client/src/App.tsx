@@ -597,11 +597,13 @@ export function App() {
 
   const IsBattle3CPhase = Hud.RuntimePhase === "Battle3C";
   const IsSettlementPhase = Hud.RuntimePhase === "SettlementPreview";
-  const IsCrosshairVisible =
-    IsBattle3CPhase &&
-    (Hud.Battle3CState.CameraMode === "PlayerAim" ||
-      Hud.Battle3CState.CameraMode === "SkillTargetZoom");
+  const IsCrosshairVisible = IsBattle3CPhase && Hud.Battle3CState.CameraMode === "PlayerAim";
   const IsBattleAimMode = IsBattle3CPhase && Hud.Battle3CState.IsAimMode;
+  const BattleCommandStage = Hud.Battle3CState.CommandStage;
+  const IsBattleRootCommandStage = IsBattle3CPhase && BattleCommandStage === "Root";
+  const IsBattleSkillMenuStage = IsBattle3CPhase && BattleCommandStage === "SkillMenu";
+  const IsBattleItemMenuStage = IsBattle3CPhase && BattleCommandStage === "ItemMenu";
+  const IsBattleTargetSelectStage = IsBattle3CPhase && BattleCommandStage === "TargetSelect";
   const IsAimCursorHidden = IsBattle3CPhase && Hud.Battle3CState.CameraMode === "PlayerAim";
   const IsBattleCornerActionsVisible = ShouldShowBattleCornerActions(Hud);
   const ControlledUnit =
@@ -613,6 +615,15 @@ export function App() {
   const BattlePartyUnits = Hud.Battle3CState.PlayerActiveUnitIds.map((UnitId) =>
     Hud.Battle3CState.Units.find((Unit) => Unit.UnitId === UnitId)
   ).filter((Unit): Unit is NonNullable<typeof ControlledUnit> => Unit !== undefined);
+  const SelectedTargetEnemyUnit =
+    Hud.Battle3CState.SelectedTargetId !== null
+      ? (Hud.Battle3CState.Units.find(
+          (Unit) =>
+            Unit.UnitId === Hud.Battle3CState.SelectedTargetId &&
+            Unit.TeamId === "Enemy" &&
+            Unit.IsAlive
+        ) ?? null)
+      : null;
   const HoveredEnemyUnit =
     AimHoverTargetAnchor !== null
       ? (Hud.Battle3CState.Units.find(
@@ -706,7 +717,96 @@ export function App() {
                     <span>B / Esc</span>
                   </button>
                 </div>
-              ) : (
+              ) : IsBattleSkillMenuStage ? (
+                <div className="BattleCommandPanel">
+                  <div className="BattleCommandPanel__Title">选择技能</div>
+                  <ul className="BattleCommandOptionList">
+                    {Hud.Battle3CState.SkillOptions.map((Option, Index) => (
+                      <li
+                        key={Option.OptionId}
+                        className={`BattleCommandOption${
+                          Index === Hud.Battle3CState.SelectedSkillOptionIndex ? " IsActive" : ""
+                        }`}
+                      >
+                        <span>{Option.DisplayName}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="BattleCommandPanel__Actions">
+                    <button
+                      type="button"
+                      className="BattleActionButton BattleActionButton--Confirm"
+                      onClick={() => Runtime.FireBattleAction()}
+                    >
+                      确认技能
+                      <span>F / LMB / A</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="BattleActionButton BattleActionButton--Return"
+                      onClick={() => Runtime.ToggleBattleSkillTargetMode()}
+                    >
+                      返回
+                      <span>Esc / B</span>
+                    </button>
+                  </div>
+                  <p className="BattleCommandHint">上下切换：↑/↓ 或 D-Pad 上/下</p>
+                </div>
+              ) : IsBattleItemMenuStage ? (
+                <div className="BattleCommandPanel">
+                  <div className="BattleCommandPanel__Title">使用物品</div>
+                  <ul className="BattleCommandOptionList">
+                    {Hud.Battle3CState.ItemOptions.map((Option, Index) => (
+                      <li
+                        key={Option.OptionId}
+                        className={`BattleCommandOption${
+                          Index === Hud.Battle3CState.SelectedItemOptionIndex ? " IsActive" : ""
+                        }`}
+                      >
+                        <span>{Option.DisplayName}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="BattleCommandPanel__Actions">
+                    <button
+                      type="button"
+                      className="BattleActionButton BattleActionButton--Confirm"
+                      onClick={() => Runtime.FireBattleAction()}
+                    >
+                      使用占位物品
+                      <span>F / LMB / A</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="BattleActionButton BattleActionButton--Return"
+                      onClick={() => Runtime.ToggleBattleItemMenu()}
+                    >
+                      返回
+                      <span>Esc / B</span>
+                    </button>
+                  </div>
+                  <p className="BattleCommandHint">上下切换：↑/↓ 或 D-Pad 上/下</p>
+                </div>
+              ) : IsBattleTargetSelectStage ? (
+                <div className="BattleCommandPanel">
+                  <div className="BattleCommandPanel__Title">选择目标敌人</div>
+                  <div className="BattleCommandPanel__Target">
+                    当前目标：{SelectedTargetEnemyUnit?.DisplayName ?? "无可用目标"}
+                  </div>
+                  <div className="BattleCommandPanel__Actions">
+                    <button
+                      type="button"
+                      className="BattleActionButton BattleActionButton--Confirm"
+                      onClick={() => Runtime.FireBattleAction()}
+                    >
+                      确认目标
+                      <span>F / LMB / A</span>
+                    </button>
+                  </div>
+                  <p className="BattleCommandHint">左右切换：←/→ 或 D-Pad 左/右</p>
+                  <p className="BattleCommandHint">返回：Esc / B</p>
+                </div>
+              ) : IsBattleRootCommandStage ? (
                 <>
                   <div className="BattleActionHudLeft">
                     <button
@@ -726,23 +826,27 @@ export function App() {
                       onClick={() => Runtime.FireBattleAction()}
                     >
                       攻击
-                      <span>LMB / RT / A</span>
+                      <span>进入目标选择</span>
                     </button>
                     <button
                       type="button"
-                      className={`BattleActionButton${Hud.Battle3CState.IsSkillTargetMode ? " IsActive" : ""}`}
+                      className={`BattleActionButton${IsBattleSkillMenuStage ? " IsActive" : ""}`}
                       onClick={() => Runtime.ToggleBattleSkillTargetMode()}
                     >
                       技能
                       <span>Tab / RB</span>
                     </button>
-                    <button type="button" className="BattleActionButton" disabled>
+                    <button
+                      type="button"
+                      className={`BattleActionButton${IsBattleItemMenuStage ? " IsActive" : ""}`}
+                      onClick={() => Runtime.ToggleBattleItemMenu()}
+                    >
                       物品
-                      <span>开发中</span>
+                      <span>W / Y</span>
                     </button>
                   </div>
                 </>
-              )}
+              ) : null}
             </div>
           ) : null}
 
@@ -830,8 +934,8 @@ export function App() {
             </button>
           </div>
           <p className="HintText">
-            战斗输入：Q/LT 切瞄准，鼠标/右摇杆控准星，LMB/RT/A 开火，C/LB 切角色，Tab/RB
-            切目标模式，Esc/B 返回。左下 HUD：逃跑（返回探索）、跳过回合（切下一个我方）。
+            战斗输入：Q/LT 切瞄准，Tab/RB 技能菜单，W/Y 物品菜单，↑/↓ 切菜单项，←/→ 切目标， F/LMB/A
+            确认，Esc/B 返回。左下 HUD：逃跑（返回探索）、跳过回合（切下一个我方）。
           </p>
         </section>
 
@@ -894,10 +998,9 @@ export function App() {
             Camera Mode: <strong>{Hud.Battle3CState.CameraMode}</strong>
           </p>
           <p>
-            Aim/Target Mode:{" "}
+            Aim/Command:{" "}
             <strong>
-              {Hud.Battle3CState.IsAimMode ? "Aim" : "Follow"} /{" "}
-              {Hud.Battle3CState.IsSkillTargetMode ? "SkillTarget" : "Off"}
+              {Hud.Battle3CState.IsAimMode ? "Aim" : "Follow"} / {Hud.Battle3CState.CommandStage}
             </strong>
           </p>
           <p>
@@ -930,7 +1033,7 @@ export function App() {
               disabled={!IsBattle3CPhase}
               onClick={() => Runtime.FireBattleAction()}
             >
-              开火（LMB / RT / A）
+              确认/执行（F / LMB / A）
             </button>
             <button
               type="button"
@@ -944,21 +1047,42 @@ export function App() {
               disabled={!IsBattle3CPhase}
               onClick={() => Runtime.ToggleBattleSkillTargetMode()}
             >
-              目标模式（Tab / RB）
+              技能菜单（Tab / RB）
+            </button>
+            <button
+              type="button"
+              disabled={!IsBattle3CPhase}
+              onClick={() => Runtime.ToggleBattleItemMenu()}
+            >
+              物品菜单（W / Y）
             </button>
             <button
               type="button"
               disabled={!IsBattle3CPhase}
               onClick={() => Runtime.CycleBattleTarget(-1)}
             >
-              上一个目标（Left）
+              上一个目标（Left / D-Pad 左）
             </button>
             <button
               type="button"
               disabled={!IsBattle3CPhase}
               onClick={() => Runtime.CycleBattleTarget(1)}
             >
-              下一个目标（Right）
+              下一个目标（Right / D-Pad 右）
+            </button>
+            <button
+              type="button"
+              disabled={!IsBattle3CPhase}
+              onClick={() => Runtime.CycleBattleMenuSelection(-1)}
+            >
+              菜单上移（↑ / D-Pad 上）
+            </button>
+            <button
+              type="button"
+              disabled={!IsBattle3CPhase}
+              onClick={() => Runtime.CycleBattleMenuSelection(1)}
+            >
+              菜单下移（↓ / D-Pad 下）
             </button>
           </div>
 

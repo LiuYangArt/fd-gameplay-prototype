@@ -45,10 +45,17 @@ function CreateHud(Overrides?: {
       ScriptStepIndex: 0,
       IsAimMode: false,
       IsSkillTargetMode: false,
+      CommandStage: "Root",
+      PendingActionKind: null,
       AimCameraYawDeg: null,
       AimCameraPitchDeg: null,
       SelectedTargetId: null,
       HoveredTargetId: null,
+      SkillOptions: [],
+      ItemOptions: [],
+      SelectedSkillOptionIndex: 0,
+      SelectedItemOptionIndex: 0,
+      SelectedSkillOptionId: null,
       Units: [],
       ScriptFocus: null,
       LastShot: null
@@ -91,7 +98,10 @@ describe("ShouldShowBattleCornerActions", () => {
       false
     );
     expect(
-      ShouldShowBattleCornerActions(CreateHud({ Battle3CState: { IsSkillTargetMode: true } }))
+      ShouldShowBattleCornerActions(CreateHud({ Battle3CState: { CommandStage: "TargetSelect" } }))
+    ).toBe(false);
+    expect(
+      ShouldShowBattleCornerActions(CreateHud({ Battle3CState: { CommandStage: "SkillMenu" } }))
     ).toBe(false);
     expect(
       ShouldShowBattleCornerActions(

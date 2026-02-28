@@ -8,10 +8,21 @@ export type FBattleCameraMode =
   | "IntroDropIn"
   | "PlayerFollow"
   | "PlayerAim"
+  | "PlayerSkillPreview"
+  | "PlayerItemPreview"
   | "SkillTargetZoom"
   | "EnemyAttackSingle"
   | "EnemyAttackAOE"
   | "SettlementCam";
+
+export type FBattleCommandStage = "Root" | "SkillMenu" | "ItemMenu" | "TargetSelect";
+
+export type FBattlePendingActionKind = "Attack" | "Skill" | null;
+
+export interface FBattleCommandOption {
+  OptionId: string;
+  DisplayName: string;
+}
 
 export interface FVector3Cm {
   X: number;
@@ -85,10 +96,17 @@ export interface FBattle3CHudState {
   ScriptStepIndex: number;
   IsAimMode: boolean;
   IsSkillTargetMode: boolean;
+  CommandStage: FBattleCommandStage;
+  PendingActionKind: FBattlePendingActionKind;
   AimCameraYawDeg: number | null;
   AimCameraPitchDeg: number | null;
   SelectedTargetId: string | null;
   HoveredTargetId: string | null;
+  SkillOptions: FBattleCommandOption[];
+  ItemOptions: FBattleCommandOption[];
+  SelectedSkillOptionIndex: number;
+  SelectedItemOptionIndex: number;
+  SelectedSkillOptionId: string | null;
   Units: FBattleUnitHudState[];
   ScriptFocus: FBattleScriptFocusHudState | null;
   LastShot: FBattleShotHudState | null;
