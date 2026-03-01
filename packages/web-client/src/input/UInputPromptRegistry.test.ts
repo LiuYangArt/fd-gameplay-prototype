@@ -33,10 +33,7 @@ describe("UInputPromptRegistry", () => {
 
   it("应为无图标键位返回文本键帽 fallback", () => {
     const Registry = new UInputPromptRegistry();
-    const Prompt = Registry.ResolvePrompt(
-      EInputAction.BattleSwitchCharacter,
-      EInputDeviceKinds.KeyboardMouse
-    );
+    const Prompt = Registry.ResolvePrompt(EInputAction.BattleFlee, EInputDeviceKinds.KeyboardMouse);
     expect(Prompt).not.toBeNull();
     expect(Prompt?.IconPath).toBeNull();
     expect(Prompt?.IconAssetPath).toBeNull();
@@ -60,6 +57,7 @@ describe("UInputPromptRegistry", () => {
     const FleeGamepad = Registry.ResolvePrompt(EInputAction.BattleFlee, EInputDeviceKinds.Gamepad);
 
     expect(SwitchKeyboard?.Label).toBe("Tab");
+    expect(SwitchKeyboard?.IconPath).not.toBeNull();
     expect(FleeKeyboard?.Label).toBe("C");
     expect(SwitchGamepad?.Label).toBe("RS");
     expect(FleeGamepad?.Label).toBe("LS");

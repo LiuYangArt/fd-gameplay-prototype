@@ -1,4 +1,10 @@
-import { mdiKeyboardEsc, mdiKeyboardReturn, mdiMouseLeftClick, mdiMouseRightClick } from "@mdi/js";
+import {
+  mdiKeyboardEsc,
+  mdiKeyboardReturn,
+  mdiKeyboardTab,
+  mdiMouseLeftClick,
+  mdiMouseRightClick
+} from "@mdi/js";
 
 import {
   EInputAction,
@@ -40,7 +46,7 @@ const KeyboardMousePromptMap: Partial<Record<FInputAction, FInputPromptToken>> =
   [EInputAction.UICancel]: CreatePromptToken("Esc", { IconPath: mdiKeyboardEsc }),
   [EInputAction.BattleToggleAim]: CreatePromptToken("RMB", { IconPath: mdiMouseRightClick }),
   [EInputAction.BattleFire]: CreatePromptToken("LMB", { IconPath: mdiMouseLeftClick }),
-  [EInputAction.BattleSwitchCharacter]: CreatePromptToken("Tab"),
+  [EInputAction.BattleSwitchCharacter]: CreatePromptToken("Tab", { IconPath: mdiKeyboardTab }),
   [EInputAction.BattleFlee]: CreatePromptToken("C"),
   [EInputAction.SystemRestart]: CreatePromptToken("R"),
   [EInputAction.SystemToggleDebug]: CreatePromptToken("F3"),
