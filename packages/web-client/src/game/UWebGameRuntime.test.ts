@@ -49,7 +49,7 @@ interface FMutableRuntime {
     IsAimMode: boolean;
     IsSkillTargetMode: boolean;
     CommandStage?: "Root" | "SkillMenu" | "ItemMenu" | "TargetSelect" | "ActionResolve";
-    PendingActionKind?: "Attack" | "Skill" | null;
+    PendingActionKind?: "Attack" | "Skill" | "Item" | null;
     AimCameraYawDeg: number | null;
     AimCameraPitchDeg?: number | null;
     SelectedTargetIndex: number;
@@ -580,6 +580,28 @@ describe("UWebGameRuntime", () => {
     expect(
       InputHudState.ContextActionSlots.some((Slot) => Slot.Action === EInputAction.UICancel)
     ).toBe(false);
+  });
+
+  it("攻击/技能选敌与道具选己方目标阶段，左下角应提供左右切换与确认目标提示", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.FireBattleAction();
+    let GlobalSlots = Runtime.GetViewModel().InputHudState.GlobalActionSlots;
+    expect(GlobalSlots.some((Slot) => Slot.Action === EInputAction.UINavLeft)).toBe(true);
+    expect(GlobalSlots.some((Slot) => Slot.Action === EInputAction.UINavRight)).toBe(true);
+    expect(GlobalSlots.some((Slot) => Slot.Action === EInputAction.UIConfirm)).toBe(true);
+
+    Runtime.RequestUICancelAction();
+    Runtime.ToggleBattleItemMenu();
+    Runtime.FireBattleAction();
+    GlobalSlots = Runtime.GetViewModel().InputHudState.GlobalActionSlots;
+    expect(Runtime.GetViewModel().Battle3CState.PendingActionKind).toBe("Item");
+    expect(GlobalSlots.some((Slot) => Slot.Action === EInputAction.UINavLeft)).toBe(true);
+    expect(GlobalSlots.some((Slot) => Slot.Action === EInputAction.UINavRight)).toBe(true);
+    expect(GlobalSlots.some((Slot) => Slot.Action === EInputAction.UIConfirm)).toBe(true);
   });
 
   it("RequestUICancelAction 应按战斗上下文统一执行返回", () => {
@@ -1364,7 +1386,7 @@ describe("UWebGameRuntime", () => {
     expect(State.CameraMode).toBe("PlayerFollow");
   });
 
-  it("技能/物品条目点击激活应立即执行对应动作", () => {
+  it("技能条目应进入敌方目标选择，物品条目应进入我方目标选择", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
     MutableRuntime.RuntimePhase = "Battle3C";
@@ -1382,11 +1404,12 @@ describe("UWebGameRuntime", () => {
     Runtime.ToggleBattleItemMenu();
     Runtime.ActivateBattleItemOption(1);
     const ItemState = Runtime.GetViewModel().Battle3CState;
-    expect(ItemState.CommandStage).toBe("Root");
-    expect(ItemState.ActionToastText).toContain("已执行 物品");
+    expect(ItemState.CommandStage).toBe("TargetSelect");
+    expect(ItemState.PendingActionKind).toBe("Item");
+    expect(ItemState.SelectedTargetId).toBe("char01");
     expect(
       Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("UseItemPlaceholder:item02"))
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("目标确认后进入 ActionResolve，锁输入并在阶段结束回到 Root", () => {
@@ -1426,7 +1449,7 @@ describe("UWebGameRuntime", () => {
     }
   });
 
-  it("物品确认仅记录占位行为并返回 Root，不进入目标选择", () => {
+  it("物品确认应进入我方目标选择，并在确认后记录占位行为", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
     MutableRuntime.RuntimePhase = "Battle3C";
@@ -1435,14 +1458,113 @@ describe("UWebGameRuntime", () => {
     Runtime.ToggleBattleItemMenu();
     Runtime.CycleBattleMenuSelection(1);
     Runtime.FireBattleAction();
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("TargetSelect");
+    expect(Runtime.GetViewModel().Battle3CState.PendingActionKind).toBe("Item");
+    expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("char01");
+    expect(Runtime.GetViewModel().Battle3CState.CameraMode).toBe("PlayerItemPreview");
+
+    Runtime.CycleBattleTarget(1);
+    expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("char02");
+    Runtime.FireBattleAction();
 
     const State = Runtime.GetViewModel().Battle3CState;
-    expect(State.CommandStage).toBe("Root");
+    expect(State.CommandStage).toBe("ActionResolve");
     expect(State.PendingActionKind).toBeNull();
     expect(State.LastShot).toBeNull();
+    expect(State.ActionToastText).toContain("已执行 物品2 -> char01");
+    expect(State.CameraMode).toBe("PlayerItemPreview");
+    expect(State.SelectedTargetId).toBe("char02");
     expect(
-      Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("UseItemPlaceholder:item02"))
+      Runtime.GetViewModel().EventLogs.some((Log) =>
+        Log.includes("UseItemPlaceholder:item02:char02")
+      )
     ).toBe(true);
+  });
+
+  it("物品目标选择阶段应响应左右导航语义（键鼠与手柄）", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.ToggleBattleItemMenu();
+    Runtime.FireBattleAction();
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("TargetSelect");
+    expect(Runtime.GetViewModel().Battle3CState.PendingActionKind).toBe("Item");
+    expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("char01");
+    expect(Runtime.GetViewModel().Battle3CState.CameraMode).toBe("PlayerItemPreview");
+
+    Runtime.ConsumeInputSnapshot(
+      CreateActionSnapshot([EInputAction.UINavRight], {
+        ActiveInputDevice: EInputDeviceKinds.KeyboardMouse
+      })
+    );
+    expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("char02");
+    expect(Runtime.GetViewModel().Battle3CState.CameraMode).toBe("PlayerItemPreview");
+
+    Runtime.ConsumeInputSnapshot(
+      CreateActionSnapshot([EInputAction.UINavLeft], {
+        ActiveInputDevice: EInputDeviceKinds.Gamepad
+      })
+    );
+    expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("char01");
+  });
+
+  it("物品目标选择阶段应反转左右步进方向以匹配镜像机位体感", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession({
+      ControlledCharacterId: "char02",
+      PlayerActiveUnitIds: ["char01", "char02", "char03"],
+      SelectedTargetIndex: 1,
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 120 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "char02",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "char03",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: -120 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: -120 },
+          IsEncounterPrimaryEnemy: true
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 120 }
+        })
+      ]
+    });
+
+    Runtime.ToggleBattleItemMenu();
+    Runtime.FireBattleAction();
+    expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("char02");
+
+    Runtime.CycleBattleTarget(1);
+    expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("char01");
+
+    Runtime.CycleBattleTarget(-1);
+    expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("char02");
+
+    Runtime.CycleBattleTarget(-1);
+    expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("char03");
   });
 
   it("TargetSelect 进入后应冻结按屏幕 X 的目标顺序，并据此左右切换", () => {

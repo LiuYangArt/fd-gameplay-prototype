@@ -24,7 +24,7 @@ export type FBattleCommandStage =
   | "TargetSelect"
   | "ActionResolve";
 
-export type FBattlePendingActionKind = "Attack" | "Skill" | null;
+export type FBattlePendingActionKind = "Attack" | "Skill" | "Item" | null;
 
 export interface FBattleCommandOption {
   OptionId: string;

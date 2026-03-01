@@ -1,10 +1,4 @@
-import {
-  mdiKeyboardEsc,
-  mdiKeyboardReturn,
-  mdiKeyboardTab,
-  mdiMouseLeftClick,
-  mdiMouseRightClick
-} from "@mdi/js";
+import { mdiKeyboardEsc, mdiKeyboardTab, mdiMouseLeftClick, mdiMouseRightClick } from "@mdi/js";
 
 import {
   EInputAction,
@@ -42,7 +36,7 @@ function CreateKenneyXboxPromptToken(
 }
 
 const KeyboardMousePromptMap: Partial<Record<FInputAction, FInputPromptToken>> = {
-  [EInputAction.UIConfirm]: CreatePromptToken("Enter", { IconPath: mdiKeyboardReturn }),
+  [EInputAction.UIConfirm]: CreatePromptToken("F"),
   [EInputAction.UICancel]: CreatePromptToken("Esc", { IconPath: mdiKeyboardEsc }),
   [EInputAction.BattleToggleAim]: CreatePromptToken("RMB", { IconPath: mdiMouseRightClick }),
   [EInputAction.BattleFire]: CreatePromptToken("LMB", { IconPath: mdiMouseLeftClick }),

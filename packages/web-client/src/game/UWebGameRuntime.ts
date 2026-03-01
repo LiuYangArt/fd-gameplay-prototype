@@ -421,7 +421,7 @@ export class UWebGameRuntime {
         this.ConfirmSkillSelectionAndEnterTargetSelection(this.ActiveBattleSession);
         return;
       case "ItemMenu":
-        this.ConfirmItemPlaceholderSelection(this.ActiveBattleSession);
+        this.ConfirmItemSelectionAndEnterTargetSelection(this.ActiveBattleSession);
         return;
       case "TargetSelect":
         this.CommitTargetSelectionAction(this.ActiveBattleSession);
@@ -559,7 +559,7 @@ export class UWebGameRuntime {
     }
 
     this.SetItemMenuOptionIndex(this.ActiveBattleSession, OptionIndex);
-    this.ConfirmItemPlaceholderSelection(this.ActiveBattleSession);
+    this.ConfirmItemSelectionAndEnterTargetSelection(this.ActiveBattleSession);
   }
 
   public CycleBattleTarget(Direction: number): void {
@@ -576,15 +576,19 @@ export class UWebGameRuntime {
       return;
     }
 
-    const EnemyTargets = this.ResolveSelectableEnemyTargets(this.ActiveBattleSession);
-    if (EnemyTargets.length <= 1) {
+    const SelectableTargets = this.ResolveSelectableBattleTargetsForCurrentCommand(
+      this.ActiveBattleSession
+    );
+    if (SelectableTargets.length <= 1) {
       return;
     }
 
     const Delta = Direction >= 0 ? 1 : -1;
+    // 物品目标阶段使用镜像机位，左右体感与常规目标特写相反，这里做方向修正。
+    const EffectiveDelta = this.ActiveBattleSession.PendingActionKind === "Item" ? -Delta : Delta;
     const NextIndex =
-      (this.ActiveBattleSession.SelectedTargetIndex + Delta + EnemyTargets.length) %
-      EnemyTargets.length;
+      (this.ActiveBattleSession.SelectedTargetIndex + EffectiveDelta + SelectableTargets.length) %
+      SelectableTargets.length;
     this.ActiveBattleSession.SelectedTargetIndex = NextIndex;
     this.EmitRuntimeEvent(
       "EBattle3CActionRequested",
@@ -883,7 +887,7 @@ export class UWebGameRuntime {
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
   }
 
-  private ConfirmItemPlaceholderSelection(Session: FBattle3CSession): void {
+  private ConfirmItemSelectionAndEnterTargetSelection(Session: FBattle3CSession): void {
     const ItemOptions = Session.ItemOptions ?? [];
     if (ItemOptions.length < 1) {
       this.ReturnToRootCommandStage(Session);
@@ -898,11 +902,21 @@ export class UWebGameRuntime {
     );
     Session.SelectedItemOptionIndex = SelectedIndex;
     const SelectedItem = ItemOptions[SelectedIndex];
-    this.ShowBattleActionToast(Session, `已执行 物品 -> ${SelectedItem.DisplayName}`);
-    this.ReturnToRootCommandStage(Session);
+
+    const PlayerTargets = this.ResolveSelectablePlayerTargets(Session);
+    if (PlayerTargets.length < 1) {
+      this.EmitRuntimeEvent(
+        "EBattle3CActionRequested",
+        `TargetSelect:ItemNoPlayer:${SelectedItem.OptionId}`
+      );
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    this.EnterTargetSelectionStage(Session, "Item");
     this.EmitRuntimeEvent(
       "EBattle3CActionRequested",
-      `UseItemPlaceholder:${SelectedItem.OptionId}`
+      `TargetSelect:ItemStart:${SelectedItem.OptionId}`
     );
     this.NotifyRuntimeUpdated();
   }
@@ -915,13 +929,25 @@ export class UWebGameRuntime {
       return;
     }
 
-    this.EmitBattleShotEvent();
-    const TargetId = this.ResolveCurrentBattleTargetForFire() ?? "MISS";
+    const TargetId = this.ResolveCurrentBattleTargetForCommandSelection(Session) ?? "MISS";
+    if (PendingAction !== "Item") {
+      this.EmitBattleShotEvent();
+    }
     this.EmitRuntimeEvent("EBattle3CActionRequested", `ConfirmTarget:${PendingAction}:${TargetId}`);
     const ActionDisplayName =
-      PendingAction === "Skill" ? this.ResolveSelectedSkillDisplayName(Session) : "攻击";
+      PendingAction === "Skill"
+        ? this.ResolveSelectedSkillDisplayName(Session)
+        : PendingAction === "Item"
+          ? this.ResolveSelectedItemDisplayName(Session)
+          : "攻击";
     const TargetDisplayName = this.ResolveBattleTargetDisplayName(TargetId);
     Session.PendingActionResolvedDetail = `${PendingAction}:${TargetId}`;
+    if (PendingAction === "Item") {
+      this.EmitRuntimeEvent(
+        "EBattle3CActionRequested",
+        `UseItemPlaceholder:${this.ResolveSelectedItemOptionId(Session) ?? "UNKNOWN"}:${TargetId}`
+      );
+    }
     this.ShowBattleActionToast(Session, `已执行 ${ActionDisplayName} -> ${TargetDisplayName}`);
     this.EnterActionResolveStage(Session);
     this.NotifyRuntimeUpdated();
@@ -932,6 +958,8 @@ export class UWebGameRuntime {
     if (Session.CommandStage === "TargetSelect") {
       if (Session.PendingActionKind === "Skill") {
         this.SetCommandStage(Session, "SkillMenu");
+      } else if (Session.PendingActionKind === "Item") {
+        this.SetCommandStage(Session, "ItemMenu");
       } else {
         this.SetCommandStage(Session, "Root");
       }
@@ -1041,6 +1069,30 @@ export class UWebGameRuntime {
     return SkillOptions[SelectedIndex]?.DisplayName ?? "技能";
   }
 
+  private ResolveSelectedItemDisplayName(Session: FBattle3CSession): string {
+    const ItemOptions = Session.ItemOptions ?? [];
+    if (ItemOptions.length < 1) {
+      return "物品";
+    }
+    const SelectedIndex = this.ResolveWrappedIndex(
+      Session.SelectedItemOptionIndex ?? 0,
+      ItemOptions.length
+    );
+    return ItemOptions[SelectedIndex]?.DisplayName ?? "物品";
+  }
+
+  private ResolveSelectedItemOptionId(Session: FBattle3CSession): string | null {
+    const ItemOptions = Session.ItemOptions ?? [];
+    if (ItemOptions.length < 1) {
+      return null;
+    }
+    const SelectedIndex = this.ResolveWrappedIndex(
+      Session.SelectedItemOptionIndex ?? 0,
+      ItemOptions.length
+    );
+    return ItemOptions[SelectedIndex]?.OptionId ?? null;
+  }
+
   private ResolveBattleTargetDisplayName(TargetId: string): string {
     if (TargetId === "MISS") {
       return "未命中";
@@ -1049,6 +1101,11 @@ export class UWebGameRuntime {
   }
 
   private RebuildTargetSelectOrder(Session: FBattle3CSession): void {
+    if (Session.PendingActionKind === "Item") {
+      Session.TargetSelectOrderedEnemyUnitIds = [];
+      return;
+    }
+
     const EnemyTargets = this.GetEnemyBattleUnits(Session.Units).filter((Unit) => Unit.IsAlive);
     if (EnemyTargets.length < 1) {
       Session.TargetSelectOrderedEnemyUnitIds = [];
@@ -1148,6 +1205,54 @@ export class UWebGameRuntime {
     return OrderedTargets;
   }
 
+  private ResolveSelectablePlayerTargets(Session: FBattle3CSession): FBattleUnitRuntimeState[] {
+    const AliveTargets = this.GetPlayerBattleUnits(Session.Units).filter((Unit) => Unit.IsAlive);
+    if (AliveTargets.length < 1) {
+      return [];
+    }
+
+    const TargetMap = new Map(AliveTargets.map((Unit) => [Unit.UnitId, Unit] as const));
+    const OrderedTargets = Session.PlayerActiveUnitIds.map((UnitId) =>
+      TargetMap.get(UnitId)
+    ).filter((Unit): Unit is FBattleUnitRuntimeState => Unit !== undefined);
+    if (OrderedTargets.length >= AliveTargets.length) {
+      return OrderedTargets;
+    }
+
+    const OrderedIdSet = new Set(OrderedTargets.map((Unit) => Unit.UnitId));
+    const MissingTargets = AliveTargets.filter((Unit) => !OrderedIdSet.has(Unit.UnitId)).sort(
+      (Left, Right) => Left.UnitId.localeCompare(Right.UnitId)
+    );
+    return [...OrderedTargets, ...MissingTargets];
+  }
+
+  private ResolveSelectableBattleTargetsForCurrentCommand(
+    Session: FBattle3CSession
+  ): FBattleUnitRuntimeState[] {
+    const IsItemTargetSelect =
+      Session.CommandStage === "TargetSelect" && Session.PendingActionKind === "Item";
+    const IsItemActionResolve =
+      Session.CommandStage === "ActionResolve" &&
+      (Session.PendingActionResolvedDetail ?? "").startsWith("Item:");
+    if (IsItemTargetSelect || IsItemActionResolve) {
+      return this.ResolveSelectablePlayerTargets(Session);
+    }
+    return this.ResolveSelectableEnemyTargets(Session);
+  }
+
+  private ResolveCurrentBattleTargetForCommandSelection(Session: FBattle3CSession): string | null {
+    const SelectableTargets = this.ResolveSelectableBattleTargetsForCurrentCommand(Session);
+    if (SelectableTargets.length < 1) {
+      return null;
+    }
+
+    const SelectedIndex = this.ResolveWrappedIndex(
+      Session.SelectedTargetIndex,
+      SelectableTargets.length
+    );
+    return SelectableTargets[SelectedIndex]?.UnitId ?? null;
+  }
+
   private ResolveWrappedIndex(Index: number, Length: number): number {
     if (Length <= 0) {
       return 0;
@@ -1220,7 +1325,7 @@ export class UWebGameRuntime {
       Battle3CState: this.BuildBattle3CHudState(this.ActiveBattleSession),
       SettlementState: {
         SummaryText: this.SettlementSummaryText,
-        ConfirmHintText: "确认键：Enter / 手柄 A"
+        ConfirmHintText: "确认键：F / Enter / 手柄 A"
       },
       DebugState: {
         IsMenuOpen: this.IsDebugMenuOpen,
@@ -1346,6 +1451,34 @@ export class UWebGameRuntime {
           IsFocused: false,
           IsVisible: true
         });
+        if (Session.CommandStage === "TargetSelect") {
+          GlobalSlots.push(
+            {
+              SlotId: "TargetNavLeft",
+              Action: EInputAction.UINavLeft,
+              DisplayName: "左目标",
+              TriggerType: "Direct",
+              IsFocused: false,
+              IsVisible: true
+            },
+            {
+              SlotId: "TargetNavRight",
+              Action: EInputAction.UINavRight,
+              DisplayName: "右目标",
+              TriggerType: "Direct",
+              IsFocused: false,
+              IsVisible: true
+            },
+            {
+              SlotId: "TargetConfirmGlobal",
+              Action: EInputAction.UIConfirm,
+              DisplayName: "确认目标",
+              TriggerType: "Direct",
+              IsFocused: false,
+              IsVisible: true
+            }
+          );
+        }
         ContextSlots.push({
           SlotId: "ContextConfirm",
           Action: EInputAction.UIConfirm,
@@ -1508,16 +1641,7 @@ export class UWebGameRuntime {
   }
 
   private ResolveBattleSessionSelectedTargetId(Session: FBattle3CSession): string | null {
-    const EnemyTargets = this.ResolveSelectableEnemyTargets(Session);
-    if (EnemyTargets.length < 1) {
-      return null;
-    }
-
-    const SelectedIndex = this.ResolveWrappedIndex(
-      Session.SelectedTargetIndex,
-      EnemyTargets.length
-    );
-    return EnemyTargets[SelectedIndex]?.UnitId ?? null;
+    return this.ResolveCurrentBattleTargetForCommandSelection(Session);
   }
 
   private BuildBattleHudUnits(
@@ -2495,6 +2619,13 @@ export class UWebGameRuntime {
     if (!this.ActiveBattleSession) {
       return;
     }
+    if (
+      this.ActiveBattleSession.CommandStage === "TargetSelect" &&
+      this.ActiveBattleSession.PendingActionKind === "Item"
+    ) {
+      this.AlignSelectedPlayerTargetForItem(this.ActiveBattleSession);
+      return;
+    }
 
     const ControlledUnit = this.FindBattleUnit(this.ActiveBattleSession.ControlledCharacterId);
     if (!ControlledUnit || !ControlledUnit.IsAlive) {
@@ -2526,6 +2657,18 @@ export class UWebGameRuntime {
       }
     }
     this.ActiveBattleSession.SelectedTargetIndex = BestIndex;
+  }
+
+  private AlignSelectedPlayerTargetForItem(Session: FBattle3CSession): void {
+    const PlayerTargets = this.ResolveSelectablePlayerTargets(Session);
+    if (PlayerTargets.length < 1) {
+      return;
+    }
+
+    const ControlledIndex = PlayerTargets.findIndex(
+      (Unit) => Unit.UnitId === Session.ControlledCharacterId
+    );
+    Session.SelectedTargetIndex = ControlledIndex >= 0 ? ControlledIndex : 0;
   }
 
   private ResolvePreferredTargetIndexForControlledCharacter(
@@ -2657,9 +2800,15 @@ export class UWebGameRuntime {
       return "PlayerItemPreview";
     }
     if (Session.CommandStage === "TargetSelect") {
+      if (Session.PendingActionKind === "Item") {
+        return "PlayerItemPreview";
+      }
       return "SkillTargetZoom";
     }
     if (Session.CommandStage === "ActionResolve") {
+      if ((Session.PendingActionResolvedDetail ?? "").startsWith("Item:")) {
+        return "PlayerItemPreview";
+      }
       return "SkillTargetZoom";
     }
     if (Session.IsAimMode) {

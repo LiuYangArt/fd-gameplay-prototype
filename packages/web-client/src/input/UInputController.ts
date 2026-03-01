@@ -347,6 +347,8 @@ export class UInputController {
     if (
       Event.code === "ArrowUp" ||
       Event.code === "ArrowDown" ||
+      Event.code === "ArrowLeft" ||
+      Event.code === "ArrowRight" ||
       Event.code === "F3" ||
       Event.code === "Tab"
     ) {
@@ -699,6 +701,9 @@ export class UInputController {
       Enter: () => {
         this.PendingConfirmSettlementEdge = true;
       },
+      KeyF: () => {
+        this.PendingConfirmSettlementEdge = true;
+      },
       KeyR: () => {
         this.PendingRestartEdge = true;
       },
@@ -708,10 +713,16 @@ export class UInputController {
       ArrowLeft: () => {
         this.PendingCycleTargetAxis = -1;
       },
+      KeyA: () => {
+        this.PendingCycleTargetAxis = -1;
+      },
       ArrowUp: () => {
         this.PendingCycleMenuAxis = -1;
       },
       ArrowRight: () => {
+        this.PendingCycleTargetAxis = 1;
+      },
+      KeyD: () => {
         this.PendingCycleTargetAxis = 1;
       },
       ArrowDown: () => {

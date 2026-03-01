@@ -1,7 +1,10 @@
 import { Vector3 } from "@babylonjs/core";
 import { describe, expect, it } from "vitest";
 
-import { ResolveTargetSelectBasisForwardFromPositions } from "./USceneBridge";
+import {
+  ResolveTargetSelectBasisForwardFromPositions,
+  ShouldBlendOnBattleTargetSwitch
+} from "./USceneBridge";
 
 describe("ResolveTargetSelectBasisForwardFromPositions", () => {
   it("目标特写方向不应受战场中心位置影响", () => {
@@ -68,5 +71,17 @@ describe("ResolveTargetSelectBasisForwardFromPositions", () => {
     expect(BasisForward.z).toBeCloseTo(0, 6);
     expect(DiagonalForward.x).toBeLessThan(0);
     expect(DiagonalForward.z).toBeGreaterThan(0);
+  });
+});
+
+describe("ShouldBlendOnBattleTargetSwitch", () => {
+  it("在 PlayerItemPreview 切换目标时应触发镜头混合", () => {
+    const ShouldBlend = ShouldBlendOnBattleTargetSwitch({
+      IsModeChanged: false,
+      CameraMode: "PlayerItemPreview",
+      PreviousSelectedTargetId: "char01",
+      CurrentSelectedTargetId: "char02"
+    });
+    expect(ShouldBlend).toBe(true);
   });
 });

@@ -50,7 +50,12 @@
 - [x] 技能菜单条目点击即激活并进入统一目标选择，同时记录 `SelectedSkillOptionId`；取消可返回技能菜单（`UWebGameRuntime.test.ts`）。
 - [x] 攻击来源的目标选择取消后返回根命令层（`UWebGameRuntime.test.ts`）。
 - [x] 技能菜单与物品菜单分别使用 `PlayerSkillPreview` / `PlayerItemPreview` 机位（`UWebGameRuntime.test.ts`）。
-- [x] 物品菜单条目点击即激活，仅记录占位行为 `UseItemPlaceholder:*` 并返回 Root（`UWebGameRuntime.test.ts`）。
+- [x] 物品菜单条目点击即激活后进入我方目标选择；确认后记录占位行为 `UseItemPlaceholder:<itemId>:<targetId>`（`UWebGameRuntime.test.ts`）。
+- [x] 物品流程在 `TargetSelect/ActionResolve` 期间保持 `PlayerItemPreview` 机位风格，并随左右切换对准当前我方目标角色（`UWebGameRuntime.test.ts` + `USceneBridge.ts`）。
+- [x] 物品目标选择阶段应响应左右导航语义（键鼠/手柄），并在右下队伍卡给出当前目标高亮反馈（`UWebGameRuntime.test.ts` + `App.tsx`）。
+- [x] 物品目标选择阶段左右切换目标时，镜头应使用与其他战斗机位一致的 lerp 过渡，避免硬切（`USceneBridge.test.ts` + `USceneBridge.ts`）。
+- [x] 物品目标选择阶段因镜像机位导致左右体感反向时，应修正为“左键选屏幕左侧 / 右键选屏幕右侧”（`UWebGameRuntime.test.ts` + `UWebGameRuntime.ts`）。
+- [x] 攻击/技能选敌与道具选己方目标阶段，左下角动作栏应展示“左目标/右目标/确认目标”提示，并支持键盘 `F` 与手柄 `A` 确认（`UWebGameRuntime.test.ts` + `UInputController.test.ts` + `App.tsx`）。
 - [x] 无存活敌人时阻断进入目标选择并记录事件日志（`UWebGameRuntime.test.ts`）。
 - [x] 左下角战斗操作栏显示由 `GlobalActionSlots` 驱动：菜单态/目标态/瞄准态可显示“返回”，Root 待机显示“逃跑/跳过回合”（`UBattleHudVisibility.test.ts`）。
 - [x] 菜单输入映射统一为 `↑/↓/←/→` 导航 + `Enter/A` 确认 + `Esc/B` 返回（`UInputController.test.ts` + `UWebGameRuntime.test.ts`）。
@@ -135,6 +140,59 @@
 - [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
 
 ## F. 本次修复记录
+
+- 问题描述：按体验反馈补充目标选择阶段的左下角操作提示，要求同时覆盖“攻击/技能选敌”和“道具选己方目标”，并新增键盘 `F` 确认目标（手柄保持 `A`）。
+- 对应测试文件：
+  - `packages/web-client/src/game/UWebGameRuntime.test.ts`（新增目标选择阶段左下角槽位回归）
+  - `packages/web-client/src/input/UInputController.test.ts`（确认边沿覆盖 `F/Enter/Escape`）
+  - `packages/web-client/src/input/UInputPromptRegistry.test.ts`（键鼠确认提示文案为 `F`）
+- 新增/修改条目：C 节新增“目标选择阶段左下角提示 + F/A 确认”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts -t "攻击/技能选敌与道具选己方目标阶段，左下角应提供左右切换与确认目标提示"`：通过（1 项命中）。
+  - `pnpm --filter @fd/web-client test -- src/input/UInputController.test.ts src/input/UInputPromptRegistry.test.ts`：通过。
+  - `pnpm --filter @fd/web-client test`：通过。
+- 是否新增 postmortem：`否`（未触发模板中的新增条件）。
+
+- 问题描述：修复“物品目标选择时左右方向体感反向（按左选到屏幕右侧角色）”问题，要求恢复为直觉方向。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增三人队伍回归，覆盖物品阶段左右步进方向修正）。
+- 新增/修改条目：C 节新增“物品目标左右体感方向修正”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts -t "物品目标选择阶段应反转左右步进方向以匹配镜像机位体感"`：通过（1 项命中）。
+  - `pnpm --filter @fd/web-client test -- src/game/USceneBridge.test.ts`：通过（4 项）。
+- 是否新增 postmortem：`否`（未触发模板中的新增条件）。
+
+- 问题描述：修复“物品目标选择左右切换时镜头硬切”体验问题，要求切换目标角色时 camera 使用与现有系统一致的 lerp 过渡。
+- 对应测试文件：`packages/web-client/src/game/USceneBridge.test.ts`（新增 `ShouldBlendOnBattleTargetSwitch` 回归，覆盖 `PlayerItemPreview` 目标切换）。
+- 新增/修改条目：C 节新增“物品目标切换镜头 lerp 过渡”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/USceneBridge.test.ts`：先失败后通过（4 项）。
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts`：通过（34 项）。
+- 是否新增 postmortem：`否`（未触发模板中的新增条件）。
+
+- 问题描述：按玩法体验反馈调整“物品目标选择镜头”，最终要求为“保持 `PlayerItemPreview` 风格，但左右切换目标时镜头必须对到当前目标角色”。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（物品目标选择/执行阶段镜头断言为 `PlayerItemPreview`，并校验目标切换）。
+- 新增/修改条目：C 节“物品流程镜头”条目统一为“`PlayerItemPreview` + 随左右切换对准目标”。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts -t "物品确认应进入我方目标选择，并在确认后记录占位行为|物品目标选择阶段应响应左右导航语义"`：通过（2 项命中）。
+  - `pnpm --filter @fd/web-client test`：通过（71 项）。
+- 是否新增 postmortem：`否`（需求调整，非线上故障）。
+
+- 问题描述：修复“物品目标选择阶段看起来左右输入无效（缺少可见反馈）”；补充目标高亮反馈并验证键鼠/手柄导航语义都能驱动目标切换。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增“物品目标选择阶段应响应左右导航语义（键鼠与手柄）”回归）。
+- 新增/修改条目：C 节新增“物品目标选择阶段响应左右导航 + 队伍卡高亮反馈”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts src/input/UInputController.test.ts`：通过（54 项）。
+  - `pnpm smoke:web`：通过（页面加载与基础输入链路正常；仅 `favicon.ico` 404，为历史非阻断项）。
+- 是否新增 postmortem：`否`（未触发模板中的新增条件）。
+
+- 问题描述：修复“物品选目标时镜头切到敌方特写导致视角突变不适”；同时移除物品目标阶段额外确认 HUD 面板，避免 UI 干扰。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（在“物品确认应进入我方目标选择，并在确认后记录占位行为”中新增机位断言，先失败后修复）。
+- 新增/修改条目：C 节更新“物品目标选择行为”描述，并新增“物品流程镜头保持 `PlayerItemPreview`”条目（已完成）。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts -t "物品确认应进入我方目标选择，并在确认后记录占位行为"`：先失败后通过。
+  - `pnpm --filter @fd/web-client test`：通过（70 项）。
+  - `pnpm smoke:web`：通过（页面加载与基础输入链路正常；仅 `favicon.ico` 404，为历史非阻断项）。
+- 是否新增 postmortem：`否`（未触发模板中的新增条件）。
 
 - 问题描述：修复“目标选择特写镜头朝向受当前操控角色/战场中心影响，导致同一目标在不同上下文下构图漂移与遮挡”。
 - 对应测试文件：`packages/web-client/src/game/USceneBridge.test.ts`（新增“目标特写方向不应受战场中心位置影响”回归）。

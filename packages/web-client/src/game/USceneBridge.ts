@@ -112,6 +112,24 @@ interface FShotProjectileVisual {
   DurationSec: number;
 }
 
+interface FTargetSwitchBlendOptions {
+  IsModeChanged: boolean;
+  CameraMode: FBattleCameraMode;
+  PreviousSelectedTargetId: string | null;
+  CurrentSelectedTargetId: string | null;
+}
+
+export function ShouldBlendOnBattleTargetSwitch(Options: FTargetSwitchBlendOptions): boolean {
+  const BlendModes = new Set<FBattleCameraMode>(["SkillTargetZoom", "PlayerItemPreview"]);
+  return (
+    !Options.IsModeChanged &&
+    BlendModes.has(Options.CameraMode) &&
+    Options.PreviousSelectedTargetId !== null &&
+    Options.CurrentSelectedTargetId !== null &&
+    Options.PreviousSelectedTargetId !== Options.CurrentSelectedTargetId
+  );
+}
+
 export function ResolveTargetSelectBasisForwardFromPositions(
   _SelectedPos: Vector3,
   _ControlledPos: Vector3,
@@ -536,27 +554,25 @@ export class USceneBridge {
 
   private BuildBattleCameraContext(ViewModel: FHudViewModel): FBattleCameraContext {
     const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
-    const ControlledUnit = this.FindBattleUnit(
-      ViewModel,
-      ViewModel.Battle3CState.ControlledCharacterId
+    const BattleState = ViewModel.Battle3CState;
+    const ControlledUnit = this.FindBattleUnit(ViewModel, BattleState.ControlledCharacterId);
+    const SelectedUnit = this.FindBattleUnit(ViewModel, BattleState.SelectedTargetId);
+    const CameraAnchorUnit = this.ResolveBattleCameraAnchorUnit(
+      BattleState,
+      ControlledUnit,
+      SelectedUnit
     );
-    const ControlledPos =
-      ControlledUnit !== null
-        ? this.ResolveBattleUnitPositionMeters(ControlledUnit, DropOffsetCm)
-        : Vector3.Zero();
-    const SelectedUnit = this.FindBattleUnit(ViewModel, ViewModel.Battle3CState.SelectedTargetId);
-    const SelectedPos =
-      SelectedUnit !== null
-        ? this.ResolveBattleUnitPositionMeters(SelectedUnit, DropOffsetCm)
-        : this.ResolveBattleCenterMeters(ViewModel, DropOffsetCm);
-    const YawDeg =
-      ViewModel.Battle3CState.IsAimMode && ViewModel.Battle3CState.AimCameraYawDeg !== null
-        ? ViewModel.Battle3CState.AimCameraYawDeg
-        : (ControlledUnit?.YawDeg ?? 0);
-    const PitchDeg =
-      ViewModel.Battle3CState.IsAimMode && ViewModel.Battle3CState.AimCameraPitchDeg !== null
-        ? ViewModel.Battle3CState.AimCameraPitchDeg
-        : 0;
+    const ControlledPos = this.ResolveBattleUnitPositionOrZero(CameraAnchorUnit, DropOffsetCm);
+    const BattleCenter = this.ResolveBattleCenterMeters(ViewModel, DropOffsetCm);
+    const SelectedPos = this.ResolveBattleUnitPositionOrFallback(
+      SelectedUnit,
+      DropOffsetCm,
+      BattleCenter
+    );
+    const { YawDeg, PitchDeg } = this.ResolveBattleCameraAnchorYawPitch(
+      BattleState,
+      CameraAnchorUnit
+    );
 
     return {
       ViewModel,
@@ -565,9 +581,63 @@ export class USceneBridge {
       ControlledUnit,
       ControlledPos,
       SelectedPos,
-      BattleCenter: this.ResolveBattleCenterMeters(ViewModel, DropOffsetCm),
+      BattleCenter,
       Forward: this.ResolveForwardVectorFromYawPitchDeg(YawDeg, PitchDeg),
       Right: this.ResolveRightVectorFromYawDeg(YawDeg)
+    };
+  }
+
+  private ResolveBattleCameraAnchorUnit(
+    BattleState: FHudViewModel["Battle3CState"],
+    ControlledUnit: FBattleUnitHudState | null,
+    SelectedUnit: FBattleUnitHudState | null
+  ): FBattleUnitHudState | null {
+    if (BattleState.CommandStage === "TargetSelect" && BattleState.PendingActionKind === "Item") {
+      return SelectedUnit ?? ControlledUnit;
+    }
+    if (
+      BattleState.CommandStage === "ActionResolve" &&
+      BattleState.CameraMode === "PlayerItemPreview"
+    ) {
+      return SelectedUnit ?? ControlledUnit;
+    }
+    return ControlledUnit;
+  }
+
+  private ResolveBattleUnitPositionOrZero(
+    Unit: FBattleUnitHudState | null,
+    DropOffsetCm: number
+  ): Vector3 {
+    if (Unit === null) {
+      return Vector3.Zero();
+    }
+    return this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+  }
+
+  private ResolveBattleUnitPositionOrFallback(
+    Unit: FBattleUnitHudState | null,
+    DropOffsetCm: number,
+    Fallback: Vector3
+  ): Vector3 {
+    if (Unit === null) {
+      return Fallback;
+    }
+    return this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+  }
+
+  private ResolveBattleCameraAnchorYawPitch(
+    BattleState: FHudViewModel["Battle3CState"],
+    CameraAnchorUnit: FBattleUnitHudState | null
+  ): { YawDeg: number; PitchDeg: number } {
+    if (BattleState.IsAimMode) {
+      return {
+        YawDeg: BattleState.AimCameraYawDeg ?? CameraAnchorUnit?.YawDeg ?? 0,
+        PitchDeg: BattleState.AimCameraPitchDeg ?? 0
+      };
+    }
+    return {
+      YawDeg: CameraAnchorUnit?.YawDeg ?? 0,
+      PitchDeg: 0
     };
   }
 
@@ -864,13 +934,12 @@ export class USceneBridge {
     PreviousSelectedTargetId: string | null,
     CurrentSelectedTargetId: string | null
   ): boolean {
-    return (
-      !IsModeChanged &&
-      CameraMode === "SkillTargetZoom" &&
-      PreviousSelectedTargetId !== null &&
-      CurrentSelectedTargetId !== null &&
-      PreviousSelectedTargetId !== CurrentSelectedTargetId
-    );
+    return ShouldBlendOnBattleTargetSwitch({
+      IsModeChanged,
+      CameraMode,
+      PreviousSelectedTargetId,
+      CurrentSelectedTargetId
+    });
   }
 
   private ResolveBattleCameraBlendDecision(Options: {

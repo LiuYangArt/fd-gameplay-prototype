@@ -4,6 +4,13 @@ import { EInputAction, EInputDeviceKinds } from "./EInputAction";
 import { UInputPromptRegistry } from "./UInputPromptRegistry";
 
 describe("UInputPromptRegistry", () => {
+  it("应为键鼠确认键返回 F 提示", () => {
+    const Registry = new UInputPromptRegistry();
+    const Prompt = Registry.ResolvePrompt(EInputAction.UIConfirm, EInputDeviceKinds.KeyboardMouse);
+    expect(Prompt).not.toBeNull();
+    expect(Prompt?.Label).toBe("F");
+  });
+
   it("应为手柄确认键返回 A 绿色提示", () => {
     const Registry = new UInputPromptRegistry();
     const Prompt = Registry.ResolvePrompt(EInputAction.UIConfirm, EInputDeviceKinds.Gamepad);

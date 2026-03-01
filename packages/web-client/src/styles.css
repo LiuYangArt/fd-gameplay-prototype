@@ -717,6 +717,20 @@ ul {
   box-shadow: 0 0 0 1px rgba(255, 185, 86, 0.25);
 }
 
+.BattlePartyCard.IsTargeted {
+  border-color: rgba(116, 214, 255, 0.86);
+  box-shadow:
+    0 0 0 1px rgba(74, 182, 255, 0.4),
+    0 0 12px rgba(68, 170, 255, 0.34);
+}
+
+.BattlePartyCard.IsControlled.IsTargeted {
+  border-color: rgba(164, 223, 255, 0.92);
+  box-shadow:
+    0 0 0 1px rgba(95, 189, 255, 0.46),
+    0 0 14px rgba(72, 176, 255, 0.38);
+}
+
 .BattlePartyPortrait {
   width: 52px;
   height: 52px;

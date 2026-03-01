@@ -42,7 +42,7 @@ export const UDefaultInputBindingProfile: FInputBindingProfile = {
   StickDigitalThreshold: 0.55,
   ActionBindings: {
     [EInputAction.UIConfirm]: CreateActionBinding({
-      KeyboardKeys: [{ Code: "Enter" }],
+      KeyboardKeys: [{ Code: "Enter" }, { Code: "KeyF" }],
       MouseButtons: [0],
       GamepadButtons: [0]
     }),
@@ -59,11 +59,11 @@ export const UDefaultInputBindingProfile: FInputBindingProfile = {
       GamepadButtons: [13]
     }),
     [EInputAction.UINavLeft]: CreateActionBinding({
-      KeyboardKeys: [{ Code: "ArrowLeft" }],
+      KeyboardKeys: [{ Code: "ArrowLeft" }, { Code: "KeyA" }],
       GamepadButtons: [14]
     }),
     [EInputAction.UINavRight]: CreateActionBinding({
-      KeyboardKeys: [{ Code: "ArrowRight" }],
+      KeyboardKeys: [{ Code: "ArrowRight" }, { Code: "KeyD" }],
       GamepadButtons: [15]
     }),
     [EInputAction.BattleToggleAim]: CreateActionBinding({

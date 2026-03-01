@@ -283,7 +283,7 @@ describe("UInputController", () => {
     expect(MutableController.PendingBattleFleeEdge).toBe(false);
   });
 
-  it("键盘 Enter/Escape 应分别映射 Confirm/Cancel 语义边沿", () => {
+  it("键盘 F/Enter/Escape 应分别映射 Confirm/Cancel 语义边沿", () => {
     const Controller = new UInputController(() => undefined);
     const MutableController = Controller as unknown as {
       HandleKeyDown: (Event: KeyboardEvent) => void;
@@ -293,6 +293,12 @@ describe("UInputController", () => {
 
     MutableController.PendingConfirmSettlementEdge = false;
     MutableController.PendingCancelAimEdge = false;
+    MutableController.HandleKeyDown({
+      code: "KeyF",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
     MutableController.HandleKeyDown({
       code: "Enter",
       altKey: false,
@@ -479,6 +485,50 @@ describe("UInputController", () => {
       preventDefault: () => undefined
     } as KeyboardEvent);
     expect(MutableController.PendingCycleMenuAxis).toBe(1);
+  });
+
+  it("方向键与 A/D 应输出同一目标切换轴", () => {
+    const Controller = new UInputController(() => undefined);
+    const MutableController = Controller as unknown as {
+      HandleKeyDown: (Event: KeyboardEvent) => void;
+      PendingCycleTargetAxis: number;
+    };
+
+    MutableController.PendingCycleTargetAxis = 0;
+    MutableController.HandleKeyDown({
+      code: "ArrowLeft",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.PendingCycleTargetAxis).toBe(-1);
+
+    MutableController.PendingCycleTargetAxis = 0;
+    MutableController.HandleKeyDown({
+      code: "KeyA",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.PendingCycleTargetAxis).toBe(-1);
+
+    MutableController.PendingCycleTargetAxis = 0;
+    MutableController.HandleKeyDown({
+      code: "ArrowRight",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.PendingCycleTargetAxis).toBe(1);
+
+    MutableController.PendingCycleTargetAxis = 0;
+    MutableController.HandleKeyDown({
+      code: "KeyD",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.PendingCycleTargetAxis).toBe(1);
   });
 
   it("手柄 L3/R3 应输出逃跑/跳过回合长按状态，D-Pad 上下应触发菜单切换轴", () => {

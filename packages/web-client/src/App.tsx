@@ -317,6 +317,8 @@ export function App() {
   const IsBattleItemMenuStage = IsBattle3CPhase && BattleCommandStage === "ItemMenu";
   const IsBattleTargetSelectStage = IsBattle3CPhase && BattleCommandStage === "TargetSelect";
   const IsBattleActionResolveStage = IsBattle3CPhase && BattleCommandStage === "ActionResolve";
+  const IsItemTargetSelectStage =
+    IsBattleTargetSelectStage && Hud.Battle3CState.PendingActionKind === "Item";
   const IsAimCursorHidden = IsBattle3CPhase && Hud.Battle3CState.CameraMode === "PlayerAim";
   const IsBattleCornerActionsVisible = ShouldShowBattleCornerActions(Hud);
   const ControlledUnit =
@@ -328,13 +330,10 @@ export function App() {
   const BattlePartyUnits = Hud.Battle3CState.PlayerActiveUnitIds.map((UnitId) =>
     Hud.Battle3CState.Units.find((Unit) => Unit.UnitId === UnitId)
   ).filter((Unit): Unit is NonNullable<typeof ControlledUnit> => Unit !== undefined);
-  const SelectedTargetEnemyUnit =
+  const SelectedTargetBattleUnit =
     Hud.Battle3CState.SelectedTargetId !== null
       ? (Hud.Battle3CState.Units.find(
-          (Unit) =>
-            Unit.UnitId === Hud.Battle3CState.SelectedTargetId &&
-            Unit.TeamId === "Enemy" &&
-            Unit.IsAlive
+          (Unit) => Unit.UnitId === Hud.Battle3CState.SelectedTargetId && Unit.IsAlive
         ) ?? null)
       : null;
   const HoveredEnemyUnit =
@@ -454,16 +453,27 @@ export function App() {
   );
   const HandleGlobalActionTriggered = useCallback(
     (Action: EInputAction) => {
-      if (Action === EInputAction.UICancel) {
-        Runtime.RequestUICancelAction();
-        return;
-      }
-      if (Action === EInputAction.BattleFlee) {
-        Runtime.FleeBattleToOverworld();
-        return;
-      }
-      if (Action === EInputAction.BattleSwitchCharacter) {
-        Runtime.SwitchControlledCharacter();
+      switch (Action) {
+        case EInputAction.UICancel:
+          Runtime.RequestUICancelAction();
+          return;
+        case EInputAction.UINavLeft:
+          Runtime.CycleBattleTarget(-1);
+          return;
+        case EInputAction.UINavRight:
+          Runtime.CycleBattleTarget(1);
+          return;
+        case EInputAction.UIConfirm:
+          Runtime.FireBattleAction();
+          return;
+        case EInputAction.BattleFlee:
+          Runtime.FleeBattleToOverworld();
+          return;
+        case EInputAction.BattleSwitchCharacter:
+          Runtime.SwitchControlledCharacter();
+          return;
+        default:
+          return;
       }
     },
     [Runtime]
@@ -550,27 +560,31 @@ export function App() {
                   />
                 </div>
               ) : IsBattleTargetSelectStage ? (
-                <div className="BattleCommandPanel">
-                  <div className="BattleCommandPanel__Title">选择目标敌人</div>
-                  <div className="BattleCommandPanel__Target">
-                    当前目标：{SelectedTargetEnemyUnit?.DisplayName ?? "无可用目标"}
+                IsItemTargetSelectStage ? null : (
+                  <div className="BattleCommandPanel">
+                    <div className="BattleCommandPanel__Title">选择目标敌人</div>
+                    <div className="BattleCommandPanel__Target">
+                      当前目标：{SelectedTargetBattleUnit?.DisplayName ?? "无可用目标"}
+                    </div>
+                    <div className="BattleCommandPanel__Actions">
+                      <button
+                        type="button"
+                        className="BattleActionButton BattleActionButton--Confirm"
+                        onClick={() => Runtime.FireBattleAction()}
+                      >
+                        <span className="BattleActionButton__Main">
+                          {ContextConfirmPrompt ? (
+                            <UInputPromptBadge Token={ContextConfirmPrompt} />
+                          ) : null}
+                          <span className="BattleActionButton__LabelText">确认目标</span>
+                        </span>
+                      </button>
+                    </div>
+                    <p className="BattleCommandHint">
+                      左右切换：A/D 或 ←/→ 或 D-Pad 左/右；确认：F 或 Enter 或 手柄 A
+                    </p>
                   </div>
-                  <div className="BattleCommandPanel__Actions">
-                    <button
-                      type="button"
-                      className="BattleActionButton BattleActionButton--Confirm"
-                      onClick={() => Runtime.FireBattleAction()}
-                    >
-                      <span className="BattleActionButton__Main">
-                        {ResolveContextPrompt("ContextConfirm") ? (
-                          <UInputPromptBadge Token={ResolveContextPrompt("ContextConfirm")!} />
-                        ) : null}
-                        <span className="BattleActionButton__LabelText">确认目标</span>
-                      </span>
-                    </button>
-                  </div>
-                  <p className="BattleCommandHint">左右切换：←/→ 或 D-Pad 左/右</p>
-                </div>
+                )
               ) : IsBattleActionResolveStage ? (
                 <div className="BattleCommandPanel BattleCommandPanel--Resolve">
                   <div className="BattleCommandPanel__Title">动作执行中</div>
@@ -620,10 +634,11 @@ export function App() {
               {BattlePartyUnits.map((Unit) => {
                 const HpRatio = Unit.CurrentHp / Math.max(Unit.MaxHp, 1);
                 const MpRatio = Unit.CurrentMp / Math.max(Unit.MaxMp, 1);
+                const IsItemTargetHighlighted = IsItemTargetSelectStage && Unit.IsSelectedTarget;
                 return (
                   <article
                     key={Unit.UnitId}
-                    className={`BattlePartyCard${Unit.IsControlled ? " IsControlled" : ""}`}
+                    className={`BattlePartyCard${Unit.IsControlled ? " IsControlled" : ""}${IsItemTargetHighlighted ? " IsTargeted" : ""}`}
                   >
                     <div className="BattlePartyPortrait">{Unit.DisplayName.slice(0, 1)}</div>
                     <div className="BattlePartyVitals">
@@ -680,8 +695,9 @@ export function App() {
             </button>
           </div>
           <p className="HintText">
-            战斗输入：RMB/LT 切瞄准，Enter/A 确认，Esc/B 返回，↑/↓/←/→ 与 D-Pad 导航；瞄准开火使用
-            LMB/RT。左下 HUD：长按 C/LS 逃跑，长按 Tab/RS 跳过回合。
+            战斗输入：RMB/LT 切瞄准，F/Enter/A 确认，Esc/B 返回，↑/↓ 与 D-Pad 上下做菜单导航，A/D 或
+            ←/→ 与 D-Pad 左右做目标导航；瞄准开火使用 LMB/RT。左下 HUD：长按 C/LS 逃跑，长按 Tab/RS
+            跳过回合。
           </p>
         </section>
 
@@ -807,14 +823,14 @@ export function App() {
               disabled={!IsBattle3CPhase}
               onClick={() => Runtime.CycleBattleTarget(-1)}
             >
-              上一个目标（Left / D-Pad 左）
+              上一个目标（A / Left / D-Pad 左）
             </button>
             <button
               type="button"
               disabled={!IsBattle3CPhase}
               onClick={() => Runtime.CycleBattleTarget(1)}
             >
-              下一个目标（Right / D-Pad 右）
+              下一个目标（D / Right / D-Pad 右）
             </button>
             <button
               type="button"
