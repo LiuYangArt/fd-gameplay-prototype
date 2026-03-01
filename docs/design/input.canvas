@@ -1,0 +1,15 @@
+{
+	"nodes":[
+		{"id":"fdc79b1331564f5c","x":148,"y":-195,"width":400,"height":222,"type":"text","text":"按键显示style\n\nA | 按钮文字（功能）\n按键提示 如果是对应手柄 ABXY四个键的， 需要有对应的颜色\nA-绿 B-红 X-蓝 Y-黄\n其它按键提示灰白色"},
+		{"id":"e80d6c95df51e4e9","x":148,"y":59,"width":400,"height":278,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301112040.png"},
+		{"id":"bdaf05249fab9d0b","x":-412,"y":-195,"width":498,"height":187,"type":"text","text":"支持键鼠/手柄输入\n- 检测latest input device， 并切换UI上按钮对应的按键提示"},
+		{"id":"f655c9b13d115561","x":-412,"y":125,"width":479,"height":146,"type":"text","text":"todo:  \n- 33号里面 瞄准范围如何控制\n- 33里面的战斗键位， 切换敌人目标键鼠如何配置"},
+		{"id":"e6d5c15b916f0b19","x":676,"y":-154,"width":250,"height":56,"type":"text","text":"按钮样式"},
+		{"id":"17e2471810a4966f","x":676,"y":-32,"width":400,"height":183,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301112918.png"}
+	],
+	"edges":[
+		{"id":"6b2dbb44f4782f85","fromNode":"fdc79b1331564f5c","fromSide":"bottom","toNode":"e80d6c95df51e4e9","toSide":"top"},
+		{"id":"8b022c188c683f4e","fromNode":"e6d5c15b916f0b19","fromSide":"bottom","toNode":"17e2471810a4966f","toSide":"top"},
+		{"id":"86d59a43c73f682e","fromNode":"fdc79b1331564f5c","fromSide":"right","toNode":"e6d5c15b916f0b19","toSide":"left"}
+	]
+}
