@@ -3,6 +3,16 @@
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
   background: #0a1018;
   color: #e6edf8;
+  --input-btn-bg-normal: #2e2e2e;
+  --input-btn-bg-hover: #1e4367;
+  --input-btn-text: #b9c0c9;
+  --input-key-a: #63ff38;
+  --input-key-b: #ff6b3d;
+  --input-key-x: #3f9dff;
+  --input-key-y: #ffd233;
+  --input-key-neutral: #d2d6db;
+  --input-btn-radius: 12px;
+  --input-btn-shadow: 0 10px 18px rgba(0, 0, 0, 0.35);
 }
 
 * {
@@ -421,9 +431,10 @@ ul {
   gap: 10px;
   padding: 12px;
   border-radius: 12px;
-  border: 1px solid rgba(201, 220, 246, 0.34);
-  background: linear-gradient(140deg, rgba(9, 18, 31, 0.9), rgba(16, 30, 49, 0.84));
+  border: 1px solid #58606c;
+  background: #24272c;
   pointer-events: auto;
+  box-shadow: var(--input-btn-shadow);
 }
 
 .BattleCommandPanel__Title {
@@ -453,8 +464,8 @@ ul {
 .BattleCommandOption {
   padding: 0;
   border-radius: 8px;
-  border: 1px solid rgba(182, 203, 231, 0.2);
-  background: rgba(12, 22, 36, 0.78);
+  border: 1px solid #535b67;
+  background: #2b2f35;
   overflow: hidden;
 }
 
@@ -464,19 +475,19 @@ ul {
   border: 0;
   border-radius: 0;
   background: transparent;
-  color: #d8e6f8;
+  color: var(--input-btn-text);
   font-size: 14px;
   text-align: left;
 }
 
 .BattleCommandOptionButton:hover {
-  background: rgba(28, 44, 68, 0.48);
+  background: #1e4367;
 }
 
 .BattleCommandOption.IsActive {
-  border-color: rgba(255, 212, 132, 0.85);
-  box-shadow: 0 0 0 1px rgba(255, 184, 90, 0.26);
-  color: #fff6df;
+  border-color: #73a6d4;
+  box-shadow: 0 0 0 1px rgba(115, 166, 212, 0.4);
+  color: #f0f6ff;
 }
 
 .BattleCommandHint {
@@ -488,29 +499,102 @@ ul {
 .BattleActionButton {
   width: auto;
   min-width: 146px;
-  padding: 11px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(210, 230, 255, 0.32);
-  background: linear-gradient(120deg, rgba(8, 16, 28, 0.9), rgba(18, 36, 58, 0.76));
+  padding: 9px 12px;
+  border-radius: var(--input-btn-radius);
+  border: none;
+  background: var(--input-btn-bg-normal);
   text-align: left;
   display: grid;
   gap: 4px;
-  font-size: 16px;
+  font-size: 14px;
   letter-spacing: 0.02em;
+  color: var(--input-btn-text);
+  box-shadow: var(--input-btn-shadow);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  transition:
+    background 120ms ease,
+    transform 120ms ease;
 }
 
-.BattleActionButton span {
+.BattleActionButton__Main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 20px;
+  line-height: 1;
+  position: relative;
+  z-index: 1;
+}
+
+.BattleActionButton__LabelText {
+  font-size: 1em;
+  color: var(--input-btn-text);
+}
+
+.BattleActionButton__HintText {
   font-size: 11px;
-  color: #bfd4ea;
+  color: #aeb5be;
+  position: relative;
+  z-index: 1;
 }
 
 .BattleActionButton:hover {
-  background: linear-gradient(120deg, rgba(12, 24, 41, 0.95), rgba(24, 47, 74, 0.82));
+  background: var(--input-btn-bg-hover);
 }
 
 .BattleActionButton.IsActive {
-  border-color: rgba(255, 216, 138, 0.8);
-  box-shadow: 0 0 0 1px rgba(255, 197, 86, 0.35);
+  background: var(--input-btn-bg-hover);
+  box-shadow: var(--input-btn-shadow);
+}
+
+.BattleActionButton.IsHoldAction::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(67, 136, 192, 0.82), rgba(67, 136, 192, 0.36));
+  transform-origin: left center;
+  transform: scaleX(var(--hold-progress, 0));
+  transition: transform 66ms linear;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.BattleActionButton.IsHoldAction::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px rgba(169, 188, 210, 0.22);
+  opacity: 0.45;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.BattleActionButton.IsHoldAction.IsHoldActive {
+  transform: translateY(-1px);
+}
+
+.BattleActionButton.IsHoldAction.IsHoldActive::after {
+  opacity: 1;
+  animation: HoldPulse 0.85s ease-in-out infinite;
+}
+
+.BattleActionButton.IsHoldAction.IsHoldReady {
+  background: #235d8b;
+}
+
+@keyframes HoldPulse {
+  0% {
+    box-shadow: inset 0 0 0 1px rgba(184, 205, 228, 0.35);
+  }
+  50% {
+    box-shadow: inset 0 0 0 1px rgba(184, 205, 228, 0.85);
+  }
+  100% {
+    box-shadow: inset 0 0 0 1px rgba(184, 205, 228, 0.35);
+  }
 }
 
 .BattleActionButton--Aim {
@@ -541,15 +625,63 @@ ul {
 .BattleCornerButton {
   width: auto;
   min-width: 126px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(231, 237, 248, 0.3);
-  background: rgba(11, 20, 32, 0.82);
-  backdrop-filter: blur(3px);
+  padding: 9px 14px;
+  border-radius: var(--input-btn-radius);
+  border: none;
+  background: #31343a;
 }
 
 .BattleCornerButton:hover {
-  background: rgba(18, 34, 54, 0.9);
+  background: #224867;
+}
+
+.BattleCommandList {
+  display: grid;
+  gap: 10px;
+}
+
+.BattleCommandList__Button {
+  min-width: 170px;
+}
+
+.InputPromptBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--input-key-neutral);
+}
+
+.InputPromptBadge--Mono {
+  font-family: "Cascadia Code", "Consolas", monospace;
+}
+
+.InputPromptBadge__Icon {
+  color: currentColor;
+}
+
+.InputPromptBadge__Label {
+  font-size: 0.92em;
+  line-height: 1;
+}
+
+.InputPromptBadge--A {
+  color: var(--input-key-a);
+}
+
+.InputPromptBadge--B {
+  color: var(--input-key-b);
+}
+
+.InputPromptBadge--X {
+  color: var(--input-key-x);
+}
+
+.InputPromptBadge--Y {
+  color: var(--input-key-y);
+}
+
+.InputPromptBadge--Neutral {
+  color: var(--input-key-neutral);
 }
 
 .BattlePartyHud {

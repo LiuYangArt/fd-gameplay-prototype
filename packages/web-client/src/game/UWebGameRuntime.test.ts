@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  EInputAction,
+  EInputDeviceKinds,
+  type EInputAction as FInputAction
+} from "../input/EInputAction";
+import { CreateEmptyInputActionFrame } from "../input/FInputActionFrame";
+
 import { UWebGameRuntime } from "./UWebGameRuntime";
 
 import type { FInputSnapshot } from "../input/FInputSnapshot";
@@ -100,6 +107,8 @@ interface FBattleUnitSeed {
 
 function CreateSnapshot(): FInputSnapshot {
   return {
+    ActiveInputDevice: EInputDeviceKinds.KeyboardMouse,
+    ActionFrame: CreateEmptyInputActionFrame(),
     MoveAxis: { X: 0, Y: 0 },
     LookYawDeltaDegrees: 0,
     LookPitchDeltaDegrees: 0,
@@ -120,6 +129,50 @@ function CreateSnapshot(): FInputSnapshot {
     ToggleDebugEdge: false,
     DeltaSeconds: 1 / 60
   };
+}
+
+function CreateActionSnapshot(
+  Actions: FInputAction[],
+  Override: Partial<FInputSnapshot> = {}
+): FInputSnapshot {
+  const Snapshot = {
+    ...CreateSnapshot(),
+    ...Override
+  };
+  const ActionFrame = CreateEmptyInputActionFrame();
+  for (const Action of Actions) {
+    ActionFrame.Actions[Action] = {
+      IsTriggered: true,
+      IsHeld: true,
+      Axis: 1,
+      SourceDevice: Snapshot.ActiveInputDevice
+    };
+    ActionFrame.TriggeredActions.push(Action);
+    ActionFrame.HeldActions.push(Action);
+  }
+  Snapshot.ActionFrame = ActionFrame;
+  return Snapshot;
+}
+
+function CreateHeldActionSnapshot(
+  Action: FInputAction,
+  Axis: number,
+  Override: Partial<FInputSnapshot> = {}
+): FInputSnapshot {
+  const Snapshot = {
+    ...CreateSnapshot(),
+    ...Override
+  };
+  const ActionFrame = CreateEmptyInputActionFrame();
+  ActionFrame.Actions[Action] = {
+    IsTriggered: false,
+    IsHeld: true,
+    Axis,
+    SourceDevice: Snapshot.ActiveInputDevice
+  };
+  ActionFrame.HeldActions.push(Action);
+  Snapshot.ActionFrame = ActionFrame;
+  return Snapshot;
 }
 
 function CreateBattleUnit(Override: Partial<FBattleUnitSeed>) {
@@ -486,14 +539,144 @@ describe("UWebGameRuntime", () => {
       ScriptFocus: null
     };
 
-    Runtime.ConsumeInputSnapshot({
-      ...CreateSnapshot(),
-      CancelAimEdge: true
-    });
+    Runtime.ConsumeInputSnapshot(CreateActionSnapshot([EInputAction.UICancel]));
 
     const Battle3CState = Runtime.GetViewModel().Battle3CState;
     expect(Battle3CState.IsAimMode).toBe(false);
     expect(Battle3CState.CameraMode).toBe("PlayerFollow");
+  });
+
+  it("瞄准/菜单/目标阶段的返回动作应进入左下角全局动作槽", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.ToggleBattleAim();
+    let InputHudState = Runtime.GetViewModel().InputHudState;
+    expect(
+      InputHudState.GlobalActionSlots.some((Slot) => Slot.Action === EInputAction.UICancel)
+    ).toBe(true);
+    expect(
+      InputHudState.ContextActionSlots.some((Slot) => Slot.Action === EInputAction.UICancel)
+    ).toBe(false);
+
+    Runtime.ExitBattleAimMode();
+    Runtime.ToggleBattleSkillTargetMode();
+    InputHudState = Runtime.GetViewModel().InputHudState;
+    expect(
+      InputHudState.GlobalActionSlots.some((Slot) => Slot.Action === EInputAction.UICancel)
+    ).toBe(true);
+    expect(
+      InputHudState.ContextActionSlots.some((Slot) => Slot.Action === EInputAction.UICancel)
+    ).toBe(false);
+
+    Runtime.ToggleBattleSkillTargetMode();
+    Runtime.FireBattleAction();
+    InputHudState = Runtime.GetViewModel().InputHudState;
+    expect(
+      InputHudState.GlobalActionSlots.some((Slot) => Slot.Action === EInputAction.UICancel)
+    ).toBe(true);
+    expect(
+      InputHudState.ContextActionSlots.some((Slot) => Slot.Action === EInputAction.UICancel)
+    ).toBe(false);
+  });
+
+  it("RequestUICancelAction 应按战斗上下文统一执行返回", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.ToggleBattleAim();
+    expect(Runtime.RequestUICancelAction()).toBe(true);
+    expect(Runtime.GetViewModel().Battle3CState.IsAimMode).toBe(false);
+
+    Runtime.ToggleBattleSkillTargetMode();
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("SkillMenu");
+    expect(Runtime.RequestUICancelAction()).toBe(true);
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("Root");
+
+    Runtime.FireBattleAction();
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("TargetSelect");
+    expect(Runtime.RequestUICancelAction()).toBe(true);
+    expect(Runtime.GetViewModel().Battle3CState.CommandStage).toBe("Root");
+  });
+
+  it("Root 待机下左下角长按动作应透出持有进度状态", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    Runtime.ConsumeInputSnapshot(CreateHeldActionSnapshot(EInputAction.BattleFlee, 0.46));
+    const HoldHud = Runtime.GetViewModel().InputHudState.GlobalActionSlots.find(
+      (Slot) => Slot.Action === EInputAction.BattleFlee
+    );
+    expect(HoldHud?.RequiresHold).toBe(true);
+    expect(HoldHud?.IsHoldActive).toBe(true);
+    expect(HoldHud?.HoldProgressNormalized).toBeCloseTo(0.46, 3);
+
+    Runtime.ConsumeInputSnapshot(CreateSnapshot());
+    const ResetHud = Runtime.GetViewModel().InputHudState.GlobalActionSlots.find(
+      (Slot) => Slot.Action === EInputAction.BattleFlee
+    );
+    expect(ResetHud?.IsHoldActive).toBe(false);
+    expect(ResetHud?.HoldProgressNormalized).toBe(0);
+  });
+
+  it("Root 待机下仅逃跑长按进度变化时也应触发 Runtime 更新事件", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    const Listener = vi.fn();
+    const Dispose = Runtime.OnRuntimeUpdated(Listener);
+    expect(Listener).toHaveBeenCalledTimes(1);
+
+    const IdleNoAimDelta = {
+      AimScreenDelta: { X: 0, Y: 0 },
+      AimScreenPosition: null
+    } as const;
+
+    Runtime.ConsumeInputSnapshot(
+      CreateHeldActionSnapshot(EInputAction.BattleFlee, 0.2, IdleNoAimDelta)
+    );
+    Runtime.ConsumeInputSnapshot(
+      CreateHeldActionSnapshot(EInputAction.BattleFlee, 0.7, IdleNoAimDelta)
+    );
+    Runtime.ConsumeInputSnapshot({
+      ...CreateSnapshot(),
+      ...IdleNoAimDelta
+    });
+
+    expect(Listener).toHaveBeenCalledTimes(4);
+    Dispose();
+  });
+
+  it("键鼠默认不应显示列表选中，高亮应在方向键导航后激活", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    let RootSlots = Runtime.GetViewModel().InputHudState.ContextActionSlots.filter(
+      (Slot) =>
+        Slot.SlotId === "RootAttack" || Slot.SlotId === "RootSkill" || Slot.SlotId === "RootItem"
+    );
+    expect(RootSlots.some((Slot) => Slot.IsFocused)).toBe(false);
+
+    Runtime.ConsumeInputSnapshot(
+      CreateActionSnapshot([EInputAction.UINavDown], {
+        ActiveInputDevice: EInputDeviceKinds.KeyboardMouse
+      })
+    );
+    RootSlots = Runtime.GetViewModel().InputHudState.ContextActionSlots.filter(
+      (Slot) =>
+        Slot.SlotId === "RootAttack" || Slot.SlotId === "RootSkill" || Slot.SlotId === "RootItem"
+    );
+    expect(RootSlots.some((Slot) => Slot.IsFocused)).toBe(true);
   });
 
   it("切换角色应在上阵且存活成员中循环并跳过死亡成员", () => {
@@ -1159,10 +1342,7 @@ describe("UWebGameRuntime", () => {
     expect(TargetSelectState.SelectedSkillOptionId).toBe("skill02");
     expect(TargetSelectState.CameraMode).toBe("SkillTargetZoom");
 
-    Runtime.ConsumeInputSnapshot({
-      ...CreateSnapshot(),
-      CancelAimEdge: true
-    });
+    Runtime.ConsumeInputSnapshot(CreateActionSnapshot([EInputAction.UICancel]));
     const BackToSkillMenuState = Runtime.GetViewModel().Battle3CState;
     expect(BackToSkillMenuState.CommandStage).toBe("SkillMenu");
     expect(BackToSkillMenuState.PendingActionKind).toBeNull();
@@ -1176,10 +1356,7 @@ describe("UWebGameRuntime", () => {
     MutableRuntime.ActiveBattleSession = CreateBattleSession();
 
     Runtime.FireBattleAction();
-    Runtime.ConsumeInputSnapshot({
-      ...CreateSnapshot(),
-      CancelAimEdge: true
-    });
+    Runtime.ConsumeInputSnapshot(CreateActionSnapshot([EInputAction.UICancel]));
 
     const State = Runtime.GetViewModel().Battle3CState;
     expect(State.CommandStage).toBe("Root");
@@ -1200,10 +1377,7 @@ describe("UWebGameRuntime", () => {
     expect(SkillState.PendingActionKind).toBe("Skill");
     expect(SkillState.SelectedSkillOptionId).toBe("skill02");
 
-    Runtime.ConsumeInputSnapshot({
-      ...CreateSnapshot(),
-      CancelAimEdge: true
-    });
+    Runtime.ConsumeInputSnapshot(CreateActionSnapshot([EInputAction.UICancel]));
     Runtime.ToggleBattleSkillTargetMode();
     Runtime.ToggleBattleItemMenu();
     Runtime.ActivateBattleItemOption(1);

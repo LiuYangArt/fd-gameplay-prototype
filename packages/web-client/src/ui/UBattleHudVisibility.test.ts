@@ -2,14 +2,30 @@ import { EOverworldPhase } from "@fd/gameplay-core";
 import { describe, expect, it } from "vitest";
 
 import { UDebugConfigStore } from "../debug/UDebugConfigStore";
+import { EInputAction, EInputDeviceKinds } from "../input/EInputAction";
 
 import { ShouldShowBattleCornerActions } from "./UBattleHudVisibility";
 
 import type { FBattle3CHudState, FHudViewModel, FRuntimePhase } from "./FHudViewModel";
+import type { FResolvedActionSlot } from "../input/FInputPrompt";
+
+function CreateGlobalSlot(): FResolvedActionSlot {
+  return {
+    SlotId: "BattleFlee",
+    Action: EInputAction.BattleFlee,
+    DisplayName: "逃跑",
+    TriggerType: "Direct",
+    IsFocused: false,
+    IsVisible: true,
+    ActiveDevice: EInputDeviceKinds.KeyboardMouse,
+    Prompt: null
+  };
+}
 
 function CreateHud(Overrides?: {
   RuntimePhase?: FRuntimePhase;
   Battle3CState?: Partial<FBattle3CHudState>;
+  InputHudState?: Partial<FHudViewModel["InputHudState"]>;
 }): FHudViewModel {
   const DebugConfig = new UDebugConfigStore().GetDefaultConfig();
   const DefaultHud: FHudViewModel = {
@@ -55,6 +71,7 @@ function CreateHud(Overrides?: {
       ItemOptions: [],
       SelectedSkillOptionIndex: 0,
       SelectedItemOptionIndex: 0,
+      SelectedRootCommandIndex: 0,
       SelectedSkillOptionId: null,
       Units: [],
       ScriptFocus: null,
@@ -72,11 +89,20 @@ function CreateHud(Overrides?: {
       Config: DebugConfig,
       LastUpdatedAtIso: null
     },
+    InputHudState: {
+      ActiveDevice: EInputDeviceKinds.KeyboardMouse,
+      GlobalActionSlots: [CreateGlobalSlot()],
+      ContextActionSlots: []
+    },
     EventLogs: []
   };
 
   return {
     ...DefaultHud,
+    InputHudState: {
+      ...DefaultHud.InputHudState,
+      ...(Overrides?.InputHudState ?? {})
+    },
     Battle3CState: {
       ...DefaultHud.Battle3CState,
       ...(Overrides?.Battle3CState ?? {})
@@ -85,7 +111,7 @@ function CreateHud(Overrides?: {
 }
 
 describe("ShouldShowBattleCornerActions", () => {
-  it("仅在 Battle3C 阶段显示左下角战斗操作 HUD", () => {
+  it("仅在 Battle3C 且存在全局动作时显示左下角战斗操作 HUD", () => {
     expect(ShouldShowBattleCornerActions(CreateHud({ RuntimePhase: "Overworld" }))).toBe(false);
     expect(ShouldShowBattleCornerActions(CreateHud({ RuntimePhase: "EncounterTransition" }))).toBe(
       false
@@ -94,27 +120,20 @@ describe("ShouldShowBattleCornerActions", () => {
       false
     );
     expect(ShouldShowBattleCornerActions(CreateHud())).toBe(true);
+    expect(
+      ShouldShowBattleCornerActions(CreateHud({ InputHudState: { GlobalActionSlots: [] } }))
+    ).toBe(false);
   });
 
-  it("瞄准/目标模式/脚本机位下应隐藏左下角战斗操作 HUD", () => {
+  it("瞄准与菜单阶段只要存在全局动作都应显示左下角战斗操作 HUD", () => {
     expect(ShouldShowBattleCornerActions(CreateHud({ Battle3CState: { IsAimMode: true } }))).toBe(
-      false
+      true
     );
     expect(
       ShouldShowBattleCornerActions(CreateHud({ Battle3CState: { CommandStage: "TargetSelect" } }))
-    ).toBe(false);
+    ).toBe(true);
     expect(
       ShouldShowBattleCornerActions(CreateHud({ Battle3CState: { CommandStage: "SkillMenu" } }))
-    ).toBe(false);
-    expect(
-      ShouldShowBattleCornerActions(
-        CreateHud({
-          Battle3CState: {
-            CameraMode: "EnemyAttackSingle",
-            ScriptFocus: { AttackerUnitId: "enemy01", TargetUnitIds: ["char01"] }
-          }
-        })
-      )
-    ).toBe(false);
+    ).toBe(true);
   });
 });

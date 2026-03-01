@@ -24,7 +24,116 @@ function CreateControllerProbe(): FInputControllerProbe {
   return Object.create(UInputController.prototype) as FInputControllerProbe;
 }
 
+const PreviousGamepadBooleanKeys = [
+  "PreviousGamepadA",
+  "PreviousGamepadB",
+  "PreviousGamepadLeftStick",
+  "PreviousGamepadLB",
+  "PreviousGamepadLT",
+  "PreviousGamepadRT",
+  "PreviousGamepadDpadUp",
+  "PreviousGamepadDpadDown",
+  "PreviousGamepadDpadLeft",
+  "PreviousGamepadDpadRight",
+  "PreviousGamepadStart",
+  "PreviousGamepadBack",
+  "PreviousGamepadRightStick"
+] as const;
+
+const PreviousGamepadNumberKeys = [
+  "PreviousGamepadStickTargetDirection",
+  "PreviousGamepadStickMenuDirection"
+] as const;
+
+function ResetGamepadPreviousState(Controller: Record<string, unknown>): void {
+  for (const Key of PreviousGamepadBooleanKeys) {
+    if (Key in Controller) {
+      Controller[Key] = false;
+    }
+  }
+  for (const Key of PreviousGamepadNumberKeys) {
+    if (Key in Controller) {
+      Controller[Key] = 0;
+    }
+  }
+}
+
+function CreateGamepadWithButtons(
+  Buttons: Partial<Record<number, { pressed: boolean; value: number }>>
+): Gamepad {
+  return {
+    connected: true,
+    axes: [0, 0, 0, 0],
+    buttons: Array.from(
+      { length: 16 },
+      (_, Index) => Buttons[Index] ?? { pressed: false, value: 0 }
+    )
+  } as unknown as Gamepad;
+}
+
+function CreateGamepadWithAxes(Axes: number[]): Gamepad {
+  return {
+    connected: true,
+    axes: Axes,
+    buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }))
+  } as unknown as Gamepad;
+}
+
 describe("UInputController", () => {
+  it("输入绑定应在捕获阶段监听鼠标右键相关事件，避免画布层吞掉冒泡导致 RMB 切瞄准失效", () => {
+    const OriginalWindow = (globalThis as { window?: Window }).window;
+    const AddEventListener = vi.fn();
+    const RemoveEventListener = vi.fn();
+    const RequestAnimationFrame = vi.fn(() => 1);
+    const CancelAnimationFrame = vi.fn();
+    const FakeWindow = {
+      addEventListener: AddEventListener,
+      removeEventListener: RemoveEventListener,
+      requestAnimationFrame: RequestAnimationFrame,
+      cancelAnimationFrame: CancelAnimationFrame
+    } as unknown as Window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      writable: true,
+      value: FakeWindow
+    });
+
+    try {
+      const Controller = new UInputController(() => undefined);
+      const Unbind = Controller.Bind();
+
+      expect(AddEventListener).toHaveBeenCalledWith(
+        "mousedown",
+        expect.any(Function),
+        expect.objectContaining({ capture: true })
+      );
+      expect(AddEventListener).toHaveBeenCalledWith(
+        "contextmenu",
+        expect.any(Function),
+        expect.objectContaining({ capture: true })
+      );
+
+      Unbind();
+
+      expect(RemoveEventListener).toHaveBeenCalledWith(
+        "mousedown",
+        expect.any(Function),
+        expect.objectContaining({ capture: true })
+      );
+      expect(RemoveEventListener).toHaveBeenCalledWith(
+        "contextmenu",
+        expect.any(Function),
+        expect.objectContaining({ capture: true })
+      );
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        writable: true,
+        value: OriginalWindow
+      });
+    }
+  });
+
   it("瞄准态下 pointer lock 被 Esc 解除时应自动生成一次 CancelAimEdge，避免需要按两次 Esc", () => {
     const Probe = CreateControllerProbe();
     const PointerTarget = {} as HTMLElement;
@@ -314,34 +423,10 @@ describe("UInputController", () => {
       PreviousGamepadStickMenuDirection: number;
     };
 
-    const CreateGamepad = (Buttons: Partial<Record<number, { pressed: boolean; value: number }>>) =>
-      ({
-        connected: true,
-        axes: [0, 0, 0, 0],
-        buttons: Array.from(
-          { length: 16 },
-          (_, Index) => Buttons[Index] ?? { pressed: false, value: 0 }
-        )
-      }) as unknown as Gamepad;
-
-    MutableController.PreviousGamepadA = false;
-    MutableController.PreviousGamepadB = false;
-    MutableController.PreviousGamepadLeftStick = false;
-    MutableController.PreviousGamepadLB = false;
-    MutableController.PreviousGamepadLT = false;
-    MutableController.PreviousGamepadRT = false;
-    MutableController.PreviousGamepadDpadUp = false;
-    MutableController.PreviousGamepadDpadDown = false;
-    MutableController.PreviousGamepadDpadLeft = false;
-    MutableController.PreviousGamepadDpadRight = false;
-    MutableController.PreviousGamepadStart = false;
-    MutableController.PreviousGamepadBack = false;
-    MutableController.PreviousGamepadRightStick = false;
-    MutableController.PreviousGamepadStickTargetDirection = 0;
-    MutableController.PreviousGamepadStickMenuDirection = 0;
+    ResetGamepadPreviousState(MutableController as unknown as Record<string, unknown>);
 
     MutableController.GetActiveGamepad = () =>
-      CreateGamepad({
+      CreateGamepadWithButtons({
         10: { pressed: true, value: 1 },
         11: { pressed: true, value: 1 },
         12: { pressed: true, value: 1 }
@@ -352,7 +437,7 @@ describe("UInputController", () => {
     expect(SnapshotUp.CycleMenuAxis).toBe(-1);
 
     MutableController.GetActiveGamepad = () =>
-      CreateGamepad({
+      CreateGamepadWithButtons({
         10: { pressed: false, value: 0 },
         11: { pressed: false, value: 0 },
         13: { pressed: true, value: 1 }
@@ -423,33 +508,13 @@ describe("UInputController", () => {
       PreviousGamepadStickMenuDirection: number;
     };
 
-    const CreateGamepad = (Axes: number[]) =>
-      ({
-        connected: true,
-        axes: Axes,
-        buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }))
-      }) as unknown as Gamepad;
+    ResetGamepadPreviousState(MutableController as unknown as Record<string, unknown>);
 
-    MutableController.PreviousGamepadA = false;
-    MutableController.PreviousGamepadB = false;
-    MutableController.PreviousGamepadLB = false;
-    MutableController.PreviousGamepadLT = false;
-    MutableController.PreviousGamepadRT = false;
-    MutableController.PreviousGamepadDpadUp = false;
-    MutableController.PreviousGamepadDpadDown = false;
-    MutableController.PreviousGamepadDpadLeft = false;
-    MutableController.PreviousGamepadDpadRight = false;
-    MutableController.PreviousGamepadStart = false;
-    MutableController.PreviousGamepadBack = false;
-    MutableController.PreviousGamepadRightStick = false;
-    MutableController.PreviousGamepadStickTargetDirection = 0;
-    MutableController.PreviousGamepadStickMenuDirection = 0;
-
-    MutableController.GetActiveGamepad = () => CreateGamepad([0, -1, 0, 0]);
+    MutableController.GetActiveGamepad = () => CreateGamepadWithAxes([0, -1, 0, 0]);
     const SnapshotUp = MutableController.ReadGamepadSnapshot();
     expect(SnapshotUp.CycleMenuAxis).toBe(-1);
 
-    MutableController.GetActiveGamepad = () => CreateGamepad([0, 1, 0, 0]);
+    MutableController.GetActiveGamepad = () => CreateGamepadWithAxes([0, 1, 0, 0]);
     const SnapshotDown = MutableController.ReadGamepadSnapshot();
     expect(SnapshotDown.CycleMenuAxis).toBe(1);
   });
@@ -478,33 +543,10 @@ describe("UInputController", () => {
       PreviousGamepadStickTargetDirection: number;
       PreviousGamepadStickMenuDirection: number;
     };
-    const CreateGamepad = (Buttons: Partial<Record<number, { pressed: boolean; value: number }>>) =>
-      ({
-        connected: true,
-        axes: [0, 0, 0, 0],
-        buttons: Array.from(
-          { length: 16 },
-          (_, Index) => Buttons[Index] ?? { pressed: false, value: 0 }
-        )
-      }) as unknown as Gamepad;
-
-    MutableController.PreviousGamepadA = false;
-    MutableController.PreviousGamepadB = false;
-    MutableController.PreviousGamepadLB = false;
-    MutableController.PreviousGamepadLT = false;
-    MutableController.PreviousGamepadRT = false;
-    MutableController.PreviousGamepadDpadUp = false;
-    MutableController.PreviousGamepadDpadDown = false;
-    MutableController.PreviousGamepadDpadLeft = false;
-    MutableController.PreviousGamepadDpadRight = false;
-    MutableController.PreviousGamepadStart = false;
-    MutableController.PreviousGamepadBack = false;
-    MutableController.PreviousGamepadRightStick = false;
-    MutableController.PreviousGamepadStickTargetDirection = 0;
-    MutableController.PreviousGamepadStickMenuDirection = 0;
+    ResetGamepadPreviousState(MutableController as unknown as Record<string, unknown>);
 
     MutableController.GetActiveGamepad = () =>
-      CreateGamepad({
+      CreateGamepadWithButtons({
         0: { pressed: true, value: 1 },
         1: { pressed: true, value: 1 },
         6: { pressed: true, value: 1 }
@@ -538,35 +580,12 @@ describe("UInputController", () => {
       PreviousGamepadStickTargetDirection: number;
       PreviousGamepadStickMenuDirection: number;
     };
-    const CreateGamepad = (Buttons: Partial<Record<number, { pressed: boolean; value: number }>>) =>
-      ({
-        connected: true,
-        axes: [0, 0, 0, 0],
-        buttons: Array.from(
-          { length: 16 },
-          (_, Index) => Buttons[Index] ?? { pressed: false, value: 0 }
-        )
-      }) as unknown as Gamepad;
-
-    MutableController.PreviousGamepadA = false;
-    MutableController.PreviousGamepadB = false;
-    MutableController.PreviousGamepadLB = false;
-    MutableController.PreviousGamepadLT = false;
-    MutableController.PreviousGamepadRT = false;
-    MutableController.PreviousGamepadDpadUp = false;
-    MutableController.PreviousGamepadDpadDown = false;
-    MutableController.PreviousGamepadDpadLeft = false;
-    MutableController.PreviousGamepadDpadRight = false;
-    MutableController.PreviousGamepadStart = false;
-    MutableController.PreviousGamepadBack = false;
-    MutableController.PreviousGamepadRightStick = false;
-    MutableController.PreviousGamepadStickTargetDirection = 0;
-    MutableController.PreviousGamepadStickMenuDirection = 0;
+    ResetGamepadPreviousState(MutableController as unknown as Record<string, unknown>);
 
     const ReadSprintHold = (
       Buttons: Partial<Record<number, { pressed: boolean; value: number }>>
     ): boolean => {
-      MutableController.GetActiveGamepad = () => CreateGamepad(Buttons);
+      MutableController.GetActiveGamepad = () => CreateGamepadWithButtons(Buttons);
       return MutableController.ReadGamepadSnapshot().SprintHold;
     };
 

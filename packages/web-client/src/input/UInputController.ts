@@ -72,6 +72,7 @@ const BattleSwitchHoldDurationMs =
 const IgnoreFireInputSelector = '[data-ignore-fire-input="true"]';
 const InteractiveInputSelector =
   "button, input, textarea, select, option, label, a, [role='button']";
+const MouseInputCaptureOptions: AddEventListenerOptions = { capture: true };
 
 interface FInputControllerOptions {
   ResolveAimViewportRect?: () => DOMRect | null;
@@ -192,8 +193,8 @@ export class UInputController {
     window.addEventListener("keydown", OnKeyDown);
     window.addEventListener("keyup", OnKeyUp);
     window.addEventListener("mousemove", OnMouseMove);
-    window.addEventListener("mousedown", OnMouseDown);
-    window.addEventListener("contextmenu", OnContextMenu);
+    window.addEventListener("mousedown", OnMouseDown, MouseInputCaptureOptions);
+    window.addEventListener("contextmenu", OnContextMenu, MouseInputCaptureOptions);
     window.addEventListener("blur", OnWindowBlur);
     this.StartLoop();
 
@@ -201,8 +202,8 @@ export class UInputController {
       window.removeEventListener("keydown", OnKeyDown);
       window.removeEventListener("keyup", OnKeyUp);
       window.removeEventListener("mousemove", OnMouseMove);
-      window.removeEventListener("mousedown", OnMouseDown);
-      window.removeEventListener("contextmenu", OnContextMenu);
+      window.removeEventListener("mousedown", OnMouseDown, MouseInputCaptureOptions);
+      window.removeEventListener("contextmenu", OnContextMenu, MouseInputCaptureOptions);
       window.removeEventListener("blur", OnWindowBlur);
       this.StopLoop();
     };

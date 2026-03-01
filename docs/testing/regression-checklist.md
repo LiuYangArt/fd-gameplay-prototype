@@ -1,6 +1,6 @@
 # 回归检查清单（Gameplay Prototype）
 
-更新时间：2026-02-28
+更新时间：2026-03-01
 
 > 用法
 >
@@ -28,15 +28,15 @@
 
 ## C. 输入与交互（web-client）
 
-- [x] 浏览器可测试条目已使用 `playwright-cli` 执行并保留命令记录（本次执行 `pnpm smoke:web`，产物：`output/playwright/2026-02-28T16-06-56-766Z/`）。
+- [x] 浏览器可测试条目已使用 `playwright-cli` 执行并保留命令记录（本次执行 `pnpm smoke:web`，含键盘/鼠标交互步骤，产物：`output/playwright/2026-03-01T11-58-04-154Z/`）。
 - [ ] 键鼠映射：确认/切目标/重开战斗均可触发。
 - [ ] 手柄映射：A / D-Pad Right / Start 均可触发。
 - [ ] 输入边沿触发无连发问题（按住不会重复触发一次性动作）。
 - [ ] 战斗结束后 UI 与 3D 表现同步到完成态。
 - [x] 瞄准模式下准星固定屏幕中心，忽略绝对鼠标位置输入，且隐藏系统鼠标光标（`PlayerAim`，`UWebGameRuntime.test.ts`）。
 - [x] 战斗 HUD 点击不会误触发开火输入（`mousedown` 过滤 UI 元素）。
-- [x] 瞄准模式下支持 `Esc / 手柄 B / HUD 返回按钮` 退出瞄准并回到跟随镜头。
-- [x] 瞄准模式下 HUD 返回按钮挂在角色右侧偏下，避免角色靠左时按钮超出视口且遮挡角色（`BattleAimReturnLayout.test.ts`）。
+- [x] 瞄准模式下支持 `Esc / 手柄 B / HUD 返回按钮` 退出瞄准并回到跟随镜头（`UWebGameRuntime.test.ts` + `UInputController.test.ts`）。
+- [x] 所有返回动作统一在 HUD 左下角全局动作栏（screenspace 左下锚点）触发，不再在角色锚点或菜单面板内散落（`UBattleHudVisibility.test.ts` + `pnpm smoke:web`）。
 - [x] 战斗结束回到 `Overworld` 后，左下角战斗 HUD（逃跑/跳过回合）会完全清理。
 - [x] 瞄准模式下悬停敌人会同步 `HoveredTargetId`，并支持头顶血条显示（`UWebGameRuntime.test.ts`）。
 - [x] 战斗开火会产出 Shot 可视化事件（`UWebGameRuntime.test.ts`）。
@@ -52,8 +52,16 @@
 - [x] 技能菜单与物品菜单分别使用 `PlayerSkillPreview` / `PlayerItemPreview` 机位（`UWebGameRuntime.test.ts`）。
 - [x] 物品菜单条目点击即激活，仅记录占位行为 `UseItemPlaceholder:*` 并返回 Root（`UWebGameRuntime.test.ts`）。
 - [x] 无存活敌人时阻断进入目标选择并记录事件日志（`UWebGameRuntime.test.ts`）。
-- [x] 菜单态/目标态下左下角战斗操作隐藏（`UBattleHudVisibility.test.ts`）。
-- [x] 菜单输入映射覆盖 `W/Y`（物品菜单）、`↑/↓`（菜单切换）、`F`（确认）（`UInputController.test.ts`）。
+- [x] 左下角战斗操作栏显示由 `GlobalActionSlots` 驱动：菜单态/目标态/瞄准态可显示“返回”，Root 待机显示“逃跑/跳过回合”（`UBattleHudVisibility.test.ts`）。
+- [x] 菜单输入映射统一为 `↑/↓/←/→` 导航 + `Enter/A` 确认 + `Esc/B` 返回（`UInputController.test.ts` + `UWebGameRuntime.test.ts`）。
+- [x] 战斗中右键提示与行为一致：RMB 可稳定触发瞄准切换，不受忽略开火 UI 区域与浏览器右键菜单干扰（`UInputController.test.ts`）。
+- [x] 战斗屏幕任意位置右键都可切瞄准（包括 3D 画布空白区），不依赖点在按钮上（`UInputController.test.ts` + `pnpm smoke:web`）。
+- [x] 手柄根命令列表支持 `D-Pad` 与左摇杆上下同等导航（`UInputController.test.ts`）。
+- [x] `Overworld` 手柄冲刺维持 `RT` 按住触发；`L3` 仅用于长按逃跑，不再误触发冲刺（`UInputController.test.ts`）。
+- [x] 左下角“逃跑/跳过回合”改为长按触发：键盘 `C/Tab`，手柄 `LS/RS`，并提供长按进度反馈（`UInputController.test.ts` + `UWebGameRuntime.test.ts` + `pnpm smoke:web`）。
+- [x] Root 待机且无镜头/准星位移时，长按 `逃跑`/`跳过回合` 的进度变化与松开重置也会触发 HUD 刷新（`UWebGameRuntime.test.ts`）。
+- [x] 键鼠设备默认不显示列表焦点高亮，方向键导航后才显示高亮焦点（`UWebGameRuntime.test.ts`）。
+- [x] 鼠标点击战斗视口空白区域不会直接触发攻击或进入目标选择（`App.tsx` + `pnpm smoke:web`）。
 - [x] 目标确认后进入 `ActionResolve`（锁输入），结束后自动回到 `Root + PlayerFollow`，期间不跳敌方脚本机位（`UWebGameRuntime.test.ts`）。
 - [x] `ActionResolve` 结束时触发 `EPlayerActionResolved` 占位事件（`UWebGameRuntime.test.ts`）。
 - [x] `TargetSelect` 左右切换遵循“按屏幕 X 冻结顺序”规则（`UWebGameRuntime.test.ts`）。
@@ -106,11 +114,11 @@
 ## H. 遭遇到战斗 3C 衔接（2026-02-26）
 
 - [x] 运行时阶段链路为 `Overworld -> EncounterTransition -> Battle3C -> SettlementPreview -> Overworld`。
-- [x] 输入语义映射已接入：`Q/LT` 切瞄准，`LMB/RT/A` 开火，`C/LB` 切角色，`Tab/RB` 目标模式，`Alt+Q` 结算。
+- [x] 输入语义映射已接入：`RMB/LT` 切瞄准，`LMB/RT` 瞄准开火，`Enter/A` 确认，`Esc/B` 取消，长按 `Tab/RS` 跳过回合，长按 `C/LS` 逃跑，`Alt+S` 调试结算。
 - [x] Debug 配置升级到 `FD_DEBUG_CONFIG_V3`，并兼容读取 V2。
 - [ ] 遭遇过渡演出（提示、镜头拉出/推进、单位高位落地）通过手动冒烟。
 - [ ] 敌方三段机位脚本（单体黄/单体红/AOE）构图通过手动冒烟。
-- [ ] `Alt+Q` 结算预览 + Enter/A 返回探索闭环通过手动冒烟。
+- [ ] `Alt+S` 结算预览 + Enter/A 返回探索闭环通过手动冒烟。
 - [ ] Battle Tab 参数修改后刷新页面仍保留（手动冒烟）。
 
 ## I. TeamPackage 到 BattleTeam 重构（2026-02-27）

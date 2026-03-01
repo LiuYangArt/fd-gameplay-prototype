@@ -13,6 +13,8 @@
     "@babylonjs/core": "^8.8.1",
     "@babylonjs/loaders": "^8.8.1",
     "@fd/gameplay-core": "workspace:*",
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
   },

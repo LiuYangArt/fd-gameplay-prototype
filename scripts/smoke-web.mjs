@@ -220,8 +220,20 @@ async function runSmokeFlow() {
 
     const steps = [
       ["open", smokeUrl],
-      ["snapshot"],
       ["eval", "document.title"],
+      ["snapshot"],
+      ["keydown", "w"],
+      ["keyup", "w"],
+      ["press", "ArrowDown"],
+      ["press", "Enter"],
+      ["press", "Escape"],
+      ["mousedown", "right"],
+      ["mouseup", "right"],
+      ["press", "Escape"],
+      ["press", "ArrowUp"],
+      ["press", "ArrowLeft"],
+      ["press", "ArrowRight"],
+      ["snapshot"],
       ["screenshot"],
       ["console", "warning"],
       ["network"]

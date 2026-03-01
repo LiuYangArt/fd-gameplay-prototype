@@ -1,0 +1,82 @@
+{
+  "Version": 1,
+  "GlyphStyle": {
+    "NeutralColorToken": "Neutral",
+    "ABXY": {
+      "A": "GamepadA",
+      "B": "GamepadB",
+      "X": "GamepadX",
+      "Y": "GamepadY"
+    }
+  },
+  "CommonUIActions": [
+    {
+      "ActionTag": "UI.Confirm",
+      "DisplayName": "确认",
+      "TriggerType": "FocusedConfirm",
+      "PromptByDevice": {
+        "KeyboardMouse": {
+          "Label": "Enter",
+          "IconKey": "mdiKeyboardReturn",
+          "ColorToken": "Neutral"
+        },
+        "Gamepad": {
+          "Label": "A",
+          "IconKey": null,
+          "ColorToken": "GamepadA"
+        }
+      }
+    },
+    {
+      "ActionTag": "UI.Cancel",
+      "DisplayName": "返回",
+      "TriggerType": "Direct",
+      "PromptByDevice": {
+        "KeyboardMouse": {
+          "Label": "ESC",
+          "IconKey": "mdiKeyboardEsc",
+          "ColorToken": "Neutral"
+        },
+        "Gamepad": {
+          "Label": "B",
+          "IconKey": null,
+          "ColorToken": "GamepadB"
+        }
+      }
+    },
+    {
+      "ActionTag": "Battle.ToggleAim",
+      "DisplayName": "切换瞄准",
+      "TriggerType": "Direct",
+      "PromptByDevice": {
+        "KeyboardMouse": {
+          "Label": "RMB",
+          "IconKey": "mdiMouseRightClick",
+          "ColorToken": "Neutral"
+        },
+        "Gamepad": {
+          "Label": "LT",
+          "IconKey": null,
+          "ColorToken": "Neutral"
+        }
+      }
+    },
+    {
+      "ActionTag": "Battle.Fire",
+      "DisplayName": "瞄准开火",
+      "TriggerType": "Direct",
+      "PromptByDevice": {
+        "KeyboardMouse": {
+          "Label": "LMB",
+          "IconKey": "mdiMouseLeftClick",
+          "ColorToken": "Neutral"
+        },
+        "Gamepad": {
+          "Label": "RT",
+          "IconKey": null,
+          "ColorToken": "Neutral"
+        }
+      }
+    }
+  ]
+}

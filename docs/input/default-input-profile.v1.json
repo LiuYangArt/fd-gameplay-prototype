@@ -1,0 +1,103 @@
+{
+  "ProfileName": "Default.ConsolePc.V1",
+  "Version": 1,
+  "DeviceSwitchDebounceMs": 180,
+  "StickDigitalThreshold": 0.55,
+  "ActionBindings": [
+    {
+      "ActionTag": "UI.Confirm",
+      "DisplayName": "确认",
+      "TriggerType": "FocusedConfirm",
+      "KeyboardMouseBindings": ["Enter", "MouseLeftClick"],
+      "GamepadBindings": ["Gamepad_FaceButtonBottom"]
+    },
+    {
+      "ActionTag": "UI.Cancel",
+      "DisplayName": "返回",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["Escape"],
+      "GamepadBindings": ["Gamepad_FaceButtonRight"]
+    },
+    {
+      "ActionTag": "UI.NavUp",
+      "DisplayName": "上导航",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["ArrowUp"],
+      "GamepadBindings": ["Gamepad_DPadUp", "Gamepad_LeftStickUp"]
+    },
+    {
+      "ActionTag": "UI.NavDown",
+      "DisplayName": "下导航",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["ArrowDown"],
+      "GamepadBindings": ["Gamepad_DPadDown", "Gamepad_LeftStickDown"]
+    },
+    {
+      "ActionTag": "UI.NavLeft",
+      "DisplayName": "左导航",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["ArrowLeft"],
+      "GamepadBindings": ["Gamepad_DPadLeft", "Gamepad_LeftStickLeft"]
+    },
+    {
+      "ActionTag": "UI.NavRight",
+      "DisplayName": "右导航",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["ArrowRight"],
+      "GamepadBindings": ["Gamepad_DPadRight", "Gamepad_LeftStickRight"]
+    },
+    {
+      "ActionTag": "Battle.ToggleAim",
+      "DisplayName": "切换瞄准",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["MouseRightClick"],
+      "GamepadBindings": ["Gamepad_LeftTrigger"]
+    },
+    {
+      "ActionTag": "Battle.Fire",
+      "DisplayName": "瞄准开火",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["MouseLeftClick"],
+      "GamepadBindings": ["Gamepad_RightTrigger"]
+    },
+    {
+      "ActionTag": "Battle.SwitchCharacter",
+      "DisplayName": "跳过回合",
+      "TriggerType": "Direct",
+      "Interaction": "Hold",
+      "HoldDurationMs": 620,
+      "KeyboardMouseBindings": ["Tab"],
+      "GamepadBindings": ["Gamepad_RightStickPress"]
+    },
+    {
+      "ActionTag": "Battle.Flee",
+      "DisplayName": "逃跑",
+      "TriggerType": "Direct",
+      "Interaction": "Hold",
+      "HoldDurationMs": 620,
+      "KeyboardMouseBindings": ["KeyC"],
+      "GamepadBindings": ["Gamepad_LeftStickPress"]
+    },
+    {
+      "ActionTag": "System.Restart",
+      "DisplayName": "重开",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["KeyR"],
+      "GamepadBindings": ["Gamepad_Menu"]
+    },
+    {
+      "ActionTag": "System.ToggleDebug",
+      "DisplayName": "调试菜单",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["F3"],
+      "GamepadBindings": ["Gamepad_View"]
+    },
+    {
+      "ActionTag": "System.ForceSettlement",
+      "DisplayName": "调试结算",
+      "TriggerType": "Direct",
+      "KeyboardMouseBindings": ["Alt+KeyS"],
+      "GamepadBindings": []
+    }
+  ]
+}

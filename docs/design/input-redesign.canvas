@@ -11,8 +11,8 @@
 		{"id":"427dffc038e86b27","type":"text","text":"标准按钮样式2","x":1122,"y":28,"width":250,"height":56},
 		{"id":"e6d5c15b916f0b19","type":"text","text":"标准按钮样式1","x":814,"y":28,"width":250,"height":56},
 		{"id":"17e2471810a4966f","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301112918.png","x":831,"y":486,"width":399,"height":183},
-		{"id":"3806ea283702f194","x":1116,"y":126,"width":228,"height":272,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301170822.png"},
-		{"id":"781e518fbfc58310","x":1474,"y":28,"width":308,"height":60,"type":"text","text":"按钮style： 圆角矩形/单色/无渐变/无半透明/按钮投影"},
+		{"id":"3806ea283702f194","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301170822.png","x":1116,"y":126,"width":228,"height":272},
+		{"id":"781e518fbfc58310","type":"text","text":"按钮style： 圆角矩形/单色/无渐变/无半透明/按钮投影","x":1474,"y":28,"width":308,"height":60},
 		{"id":"bdaf05249fab9d0b","type":"text","text":"为以后移植UE方便，需要能适配ue common ui的规范，可以导出按键的JSON  https://dev.epicgames.com/documentation/en-us/unreal-engine/common-ui-quickstart-guide-for-unreal-engine\n\n支持键鼠/手柄输入\n- 检测 latest input device， 并切换UI上按钮对应的按键提示","x":96,"y":-678,"width":498,"height":279},
 		{"id":"49145412ccbfdac1","type":"text","text":"DEMO 操作规范化","x":220,"y":-796,"width":250,"height":60},
 		{"id":"e80d6c95df51e4e9","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301112040.png","x":194,"y":486,"width":400,"height":278}

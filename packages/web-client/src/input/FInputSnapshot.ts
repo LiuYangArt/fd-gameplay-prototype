@@ -1,9 +1,14 @@
+import type { EInputDeviceKind } from "./EInputAction";
+import type { FInputActionFrame } from "./FInputActionFrame";
+
 export interface FInputVector2 {
   X: number;
   Y: number;
 }
 
 export interface FInputSnapshot {
+  ActiveInputDevice: EInputDeviceKind;
+  ActionFrame: FInputActionFrame;
   MoveAxis: FInputVector2;
   LookYawDeltaDegrees: number;
   LookPitchDeltaDegrees: number;

@@ -1,4 +1,6 @@
 import type { FDebugConfig } from "../debug/UDebugConfigStore";
+import type { EInputDeviceKind } from "../input/EInputAction";
+import type { FResolvedActionSlot } from "../input/FInputPrompt";
 import type { EOverworldPhase, FOverworldEnemyState, FOverworldVector2 } from "@fd/gameplay-core";
 
 export type FRuntimePhase = "Overworld" | "EncounterTransition" | "Battle3C" | "SettlementPreview";
@@ -111,6 +113,7 @@ export interface FBattle3CHudState {
   ItemOptions: FBattleCommandOption[];
   SelectedSkillOptionIndex: number;
   SelectedItemOptionIndex: number;
+  SelectedRootCommandIndex: number;
   SelectedSkillOptionId: string | null;
   Units: FBattleUnitHudState[];
   ScriptFocus: FBattleScriptFocusHudState | null;
@@ -131,6 +134,12 @@ export interface FDebugHudState {
   LastUpdatedAtIso: string | null;
 }
 
+export interface FInputHudState {
+  ActiveDevice: EInputDeviceKind;
+  GlobalActionSlots: FResolvedActionSlot[];
+  ContextActionSlots: FResolvedActionSlot[];
+}
+
 export interface FHudViewModel {
   RuntimePhase: FRuntimePhase;
   OverworldState: FOverworldHudState;
@@ -138,5 +147,6 @@ export interface FHudViewModel {
   Battle3CState: FBattle3CHudState;
   SettlementState: FSettlementPreviewHudState;
   DebugState: FDebugHudState;
+  InputHudState: FInputHudState;
   EventLogs: string[];
 }

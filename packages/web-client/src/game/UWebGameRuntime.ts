@@ -10,7 +10,11 @@ import {
 } from "@fd/gameplay-core";
 
 import { UDebugConfigStore, type FDebugConfig } from "../debug/UDebugConfigStore";
+import { EInputAction, EInputDeviceKinds, type EInputDeviceKind } from "../input/EInputAction";
+import { CreateEmptyInputActionFrame, type FInputActionFrame } from "../input/FInputActionFrame";
+import { UInputPromptRegistry } from "../input/UInputPromptRegistry";
 
+import type { FContextualActionSlot } from "../input/FInputPrompt";
 import type { FInputSnapshot } from "../input/FInputSnapshot";
 import type {
   FBattle3CHudState,
@@ -92,6 +96,7 @@ interface FBattle3CSession {
   ItemOptions?: FBattleCommandOption[];
   SelectedSkillOptionIndex?: number;
   SelectedItemOptionIndex?: number;
+  SelectedRootCommandIndex?: number;
   SelectedSkillOptionId?: string | null;
   TargetSelectOrderedEnemyUnitIds?: string[];
   PendingActionResolvedDetail?: string | null;
@@ -135,6 +140,7 @@ const BattleItemPlaceholderOptions: FBattleCommandOption[] = [
   { OptionId: "item01", DisplayName: "物品1" },
   { OptionId: "item02", DisplayName: "物品2" }
 ];
+const BattleRootCommandCount = 3;
 const BattleLaneTableByTeam: Record<"Player" | "Enemy", Record<number, number[]>> = {
   Player: {
     1: [0],
@@ -152,6 +158,7 @@ export class UWebGameRuntime {
   private readonly RuntimeListeners: Set<TRuntimeListener>;
   private readonly OverworldSimulation: UOverworldSimulation;
   private readonly DebugConfigStore: UDebugConfigStore;
+  private readonly InputPromptRegistry: UInputPromptRegistry;
   private RuntimePhase: FRuntimePhase;
   private EventLogs: string[];
   private ActiveEncounterContext: FEncounterContext | null;
@@ -170,11 +177,15 @@ export class UWebGameRuntime {
   private ActionResolveTimerHandle: number | null;
   private ActionToastTimerHandle: number | null;
   private SettlementSummaryText: string;
+  private ActiveInputDevice: EInputDeviceKind = EInputDeviceKinds.KeyboardMouse;
+  private LastInputActionFrame: FInputActionFrame;
+  private HasKeyboardDirectionalFocus: boolean;
 
   public constructor() {
     this.RuntimeListeners = new Set();
     this.OverworldSimulation = new UOverworldSimulation();
     this.DebugConfigStore = new UDebugConfigStore();
+    this.InputPromptRegistry = new UInputPromptRegistry();
     const LoadedDebugConfig = this.DebugConfigStore.Load();
     this.DebugConfig = LoadedDebugConfig.Config;
     this.LastDebugUpdatedAtIso = LoadedDebugConfig.LastUpdatedAtIso;
@@ -194,6 +205,8 @@ export class UWebGameRuntime {
     this.ActionResolveTimerHandle = null;
     this.ActionToastTimerHandle = null;
     this.SettlementSummaryText = "按 Enter 或手柄 A 返回大地图探索";
+    this.LastInputActionFrame = CreateEmptyInputActionFrame();
+    this.HasKeyboardDirectionalFocus = false;
 
     this.SyncCameraPitchFromConfig();
     this.BindOverworldEvents();
@@ -210,6 +223,7 @@ export class UWebGameRuntime {
     this.EncounterTransitionStartedAtMs = null;
     this.EncounterTransitionEndAtMs = null;
     this.SettlementSummaryText = "按 Enter 或手柄 A 返回大地图探索";
+    this.HasKeyboardDirectionalFocus = false;
     this.SyncCameraPitchFromConfig();
 
     this.OverworldSimulation.SubmitCommand({
@@ -232,20 +246,26 @@ export class UWebGameRuntime {
   }
 
   public ConsumeInputSnapshot(InputSnapshot: FInputSnapshot): void {
-    if (InputSnapshot.ToggleDebugEdge) {
+    const PreviousInputActionFrame = this.LastInputActionFrame;
+    this.LastInputActionFrame = InputSnapshot.ActionFrame;
+    if (InputSnapshot.ActiveInputDevice) {
+      this.ActiveInputDevice = InputSnapshot.ActiveInputDevice;
+    }
+
+    if (this.IsActionTriggered(InputSnapshot, EInputAction.SystemToggleDebug)) {
       this.ToggleDebugMenu();
     }
 
-    if (InputSnapshot.RestartEdge) {
+    if (this.IsActionTriggered(InputSnapshot, EInputAction.SystemRestart)) {
       this.StartGame();
       return;
     }
 
     if (
-      InputSnapshot.ForceSettlementEdge &&
+      this.IsActionTriggered(InputSnapshot, EInputAction.SystemForceSettlement) &&
       (this.RuntimePhase === "Battle3C" || this.RuntimePhase === "EncounterTransition")
     ) {
-      this.RequestSettlementPreview("调试触发（Alt+Q）");
+      this.RequestSettlementPreview("调试触发（Alt+S）");
       return;
     }
 
@@ -254,10 +274,10 @@ export class UWebGameRuntime {
         this.ConsumeOverworldInput(InputSnapshot);
         return;
       case "Battle3C":
-        this.ConsumeBattle3CInput(InputSnapshot);
+        this.ConsumeBattle3CInput(InputSnapshot, PreviousInputActionFrame);
         return;
       case "SettlementPreview":
-        if (InputSnapshot.ConfirmSettlementEdge) {
+        if (this.IsActionTriggered(InputSnapshot, EInputAction.UIConfirm)) {
           this.ConfirmSettlementPreview();
         }
         return;
@@ -265,6 +285,51 @@ export class UWebGameRuntime {
       default:
         return;
     }
+  }
+
+  private IsActionTriggered(InputSnapshot: FInputSnapshot, Action: EInputAction): boolean {
+    const Value = InputSnapshot.ActionFrame?.Actions?.[Action];
+    return Value?.IsTriggered === true;
+  }
+
+  private IsActionTriggeredByKeyboardMouse(
+    InputSnapshot: FInputSnapshot,
+    Action: EInputAction
+  ): boolean {
+    const Value = InputSnapshot.ActionFrame?.Actions?.[Action];
+    return Value?.IsTriggered === true && Value.SourceDevice === EInputDeviceKinds.KeyboardMouse;
+  }
+
+  private HasBattleHoldHudStateChanged(
+    CurrentFrame: FInputActionFrame,
+    PreviousFrame: FInputActionFrame
+  ): boolean {
+    return (
+      this.HasHoldActionStateChanged(EInputAction.BattleFlee, CurrentFrame, PreviousFrame) ||
+      this.HasHoldActionStateChanged(
+        EInputAction.BattleSwitchCharacter,
+        CurrentFrame,
+        PreviousFrame
+      )
+    );
+  }
+
+  private HasHoldActionStateChanged(
+    Action: EInputAction,
+    CurrentFrame: FInputActionFrame,
+    PreviousFrame: FInputActionFrame
+  ): boolean {
+    const CurrentValue = CurrentFrame.Actions[Action];
+    const PreviousValue = PreviousFrame.Actions[Action];
+    const IsCurrentHeld = CurrentValue?.IsHeld === true;
+    const IsPreviousHeld = PreviousValue?.IsHeld === true;
+    if (IsCurrentHeld !== IsPreviousHeld) {
+      return true;
+    }
+
+    const CurrentProgress = IsCurrentHeld ? this.Clamp(CurrentValue?.Axis ?? 0, 0, 1) : 0;
+    const PreviousProgress = IsPreviousHeld ? this.Clamp(PreviousValue?.Axis ?? 0, 0, 1) : 0;
+    return Math.abs(CurrentProgress - PreviousProgress) > 0.001;
   }
 
   public ToggleBattleAim(): void {
@@ -318,6 +383,17 @@ export class UWebGameRuntime {
     );
     this.EmitRuntimeEvent("EBattle3CActionRequested", "CancelAim");
     this.NotifyRuntimeUpdated();
+  }
+
+  public RequestUICancelAction(): boolean {
+    if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
+      return false;
+    }
+    if (this.ActiveBattleSession.IsAimMode) {
+      this.ExitBattleAimMode();
+      return true;
+    }
+    return this.CancelBattleCommandStage(this.ActiveBattleSession);
   }
 
   public FireBattleAction(): void {
@@ -604,6 +680,13 @@ export class UWebGameRuntime {
     Session.CommandStage =
       Session.CommandStage ?? (Session.IsSkillTargetMode ? "TargetSelect" : "Root");
     Session.PendingActionKind = Session.PendingActionKind ?? null;
+    this.EnsureBattleCommandOptions(Session);
+    this.EnsureBattleCommandSelection(Session);
+    this.EnsureBattleActionResolveState(Session);
+    Session.IsSkillTargetMode = Session.CommandStage === "TargetSelect";
+  }
+
+  private EnsureBattleCommandOptions(Session: FBattle3CSession): void {
     Session.SkillOptions = this.ResolveBattleCommandOptions(
       Session.SkillOptions,
       BattleSkillPlaceholderOptions
@@ -612,21 +695,30 @@ export class UWebGameRuntime {
       Session.ItemOptions,
       BattleItemPlaceholderOptions
     );
+  }
+
+  private EnsureBattleCommandSelection(Session: FBattle3CSession): void {
     Session.SelectedSkillOptionIndex = this.ResolveWrappedIndex(
       Session.SelectedSkillOptionIndex ?? 0,
-      Session.SkillOptions.length
+      Session.SkillOptions?.length ?? 0
     );
     Session.SelectedItemOptionIndex = this.ResolveWrappedIndex(
       Session.SelectedItemOptionIndex ?? 0,
-      Session.ItemOptions.length
+      Session.ItemOptions?.length ?? 0
+    );
+    Session.SelectedRootCommandIndex = this.ResolveWrappedIndex(
+      Session.SelectedRootCommandIndex ?? 0,
+      BattleRootCommandCount
     );
     Session.SelectedSkillOptionId = Session.SelectedSkillOptionId ?? null;
+  }
+
+  private EnsureBattleActionResolveState(Session: FBattle3CSession): void {
     Session.TargetSelectOrderedEnemyUnitIds = Session.TargetSelectOrderedEnemyUnitIds ?? [];
     Session.PendingActionResolvedDetail = Session.PendingActionResolvedDetail ?? null;
     Session.ActionResolveEndsAtMs = Session.ActionResolveEndsAtMs ?? null;
     Session.ActionToastText = Session.ActionToastText ?? null;
     Session.ActionToastEndsAtMs = Session.ActionToastEndsAtMs ?? null;
-    Session.IsSkillTargetMode = Session.CommandStage === "TargetSelect";
   }
 
   private ResolveBattleCommandOptions(
@@ -1138,7 +1230,157 @@ export class UWebGameRuntime {
         },
         LastUpdatedAtIso: this.LastDebugUpdatedAtIso
       },
+      InputHudState: this.BuildInputHudState(),
       EventLogs: this.EventLogs
+    };
+  }
+
+  // 输入 HUD 组装会按阶段与设备聚合多个动作槽位，分支较多但集中可维护。
+  // eslint-disable-next-line complexity
+  private BuildInputHudState(): FHudViewModel["InputHudState"] {
+    const GlobalSlots: FContextualActionSlot[] = [];
+    const ContextSlots: FContextualActionSlot[] = [];
+
+    if (this.RuntimePhase === "SettlementPreview") {
+      ContextSlots.push({
+        SlotId: "SettlementConfirm",
+        Action: EInputAction.UIConfirm,
+        DisplayName: "确认返回探索",
+        TriggerType: "Direct",
+        IsFocused: false,
+        IsVisible: true
+      });
+    }
+
+    if (this.RuntimePhase === "Battle3C" && this.ActiveBattleSession) {
+      this.EnsureBattleCommandState(this.ActiveBattleSession);
+      const Session = this.ActiveBattleSession;
+      const ShouldShowFocusedSelection =
+        this.ActiveInputDevice === EInputDeviceKinds.Gamepad || this.HasKeyboardDirectionalFocus;
+      const IsRootIdle =
+        Session.CommandStage === "Root" && !Session.IsAimMode && Session.ScriptFocus === null;
+      if (IsRootIdle) {
+        const BattleFleeHoldState = this.ResolveHoldActionState(EInputAction.BattleFlee);
+        const BattleSwitchHoldState = this.ResolveHoldActionState(
+          EInputAction.BattleSwitchCharacter
+        );
+        GlobalSlots.push(
+          {
+            SlotId: "BattleFlee",
+            Action: EInputAction.BattleFlee,
+            DisplayName: "逃跑",
+            TriggerType: "Direct",
+            IsFocused: false,
+            IsVisible: true,
+            RequiresHold: true,
+            IsHoldActive: BattleFleeHoldState.IsActive,
+            HoldProgressNormalized: BattleFleeHoldState.ProgressNormalized
+          },
+          {
+            SlotId: "BattleSwitchCharacter",
+            Action: EInputAction.BattleSwitchCharacter,
+            DisplayName: "跳过回合",
+            TriggerType: "Direct",
+            IsFocused: false,
+            IsVisible: true,
+            RequiresHold: true,
+            IsHoldActive: BattleSwitchHoldState.IsActive,
+            HoldProgressNormalized: BattleSwitchHoldState.ProgressNormalized
+          }
+        );
+      }
+
+      if (Session.IsAimMode) {
+        GlobalSlots.push({
+          SlotId: "AimCancelGlobal",
+          Action: EInputAction.UICancel,
+          DisplayName: "返回",
+          TriggerType: "Direct",
+          IsFocused: false,
+          IsVisible: true
+        });
+      } else if (Session.CommandStage === "Root") {
+        const FocusedRootIndex = Session.SelectedRootCommandIndex ?? 0;
+        ContextSlots.push(
+          {
+            SlotId: "RootAim",
+            Action: EInputAction.BattleToggleAim,
+            DisplayName: "瞄准",
+            TriggerType: "Direct",
+            IsFocused: false,
+            IsVisible: true
+          },
+          {
+            SlotId: "RootAttack",
+            Action: EInputAction.UIConfirm,
+            DisplayName: "攻击",
+            TriggerType: "FocusedConfirm",
+            IsFocused: ShouldShowFocusedSelection && FocusedRootIndex === 0,
+            IsVisible: true
+          },
+          {
+            SlotId: "RootSkill",
+            Action: EInputAction.UIConfirm,
+            DisplayName: "技能",
+            TriggerType: "FocusedConfirm",
+            IsFocused: ShouldShowFocusedSelection && FocusedRootIndex === 1,
+            IsVisible: true
+          },
+          {
+            SlotId: "RootItem",
+            Action: EInputAction.UIConfirm,
+            DisplayName: "物品",
+            TriggerType: "FocusedConfirm",
+            IsFocused: ShouldShowFocusedSelection && FocusedRootIndex === 2,
+            IsVisible: true
+          }
+        );
+      } else if (Session.CommandStage === "ActionResolve") {
+        // 动作执行阶段输入锁定，不展示确认/返回动作。
+      } else {
+        GlobalSlots.push({
+          SlotId: "ContextCancelGlobal",
+          Action: EInputAction.UICancel,
+          DisplayName: "返回",
+          TriggerType: "Direct",
+          IsFocused: false,
+          IsVisible: true
+        });
+        ContextSlots.push({
+          SlotId: "ContextConfirm",
+          Action: EInputAction.UIConfirm,
+          DisplayName: "确认",
+          TriggerType: "FocusedConfirm",
+          IsFocused: ShouldShowFocusedSelection,
+          IsVisible: true
+        });
+      }
+    }
+
+    return {
+      ActiveDevice: this.ActiveInputDevice,
+      GlobalActionSlots: this.InputPromptRegistry.ResolveSlots(GlobalSlots, this.ActiveInputDevice),
+      ContextActionSlots: this.InputPromptRegistry.ResolveSlots(
+        ContextSlots,
+        this.ActiveInputDevice
+      )
+    };
+  }
+
+  private ResolveHoldActionState(Action: EInputAction): {
+    IsActive: boolean;
+    ProgressNormalized: number;
+  } {
+    const Value = this.LastInputActionFrame.Actions[Action];
+    if (!Value || !Value.IsHeld) {
+      return {
+        IsActive: false,
+        ProgressNormalized: 0
+      };
+    }
+    return {
+      IsActive: true,
+      ProgressNormalized: this.Clamp(Value.Axis, 0, 1)
     };
   }
 
@@ -1183,6 +1425,10 @@ export class UWebGameRuntime {
     }
 
     this.EnsureBattleCommandState(BattleSession);
+    return this.BuildBattle3CHudStateFromSession(BattleSession);
+  }
+
+  private BuildBattle3CHudStateFromSession(BattleSession: FBattle3CSession): FBattle3CHudState {
     const SelectedTargetId = this.ResolveBattleSessionSelectedTargetId(BattleSession);
     const NowMs = Date.now();
     const ActionResolveRemainingMs = this.ResolveRemainingMs(
@@ -1217,6 +1463,7 @@ export class UWebGameRuntime {
       ItemOptions: [...(BattleSession.ItemOptions ?? [])],
       SelectedSkillOptionIndex: BattleSession.SelectedSkillOptionIndex ?? 0,
       SelectedItemOptionIndex: BattleSession.SelectedItemOptionIndex ?? 0,
+      SelectedRootCommandIndex: BattleSession.SelectedRootCommandIndex ?? 0,
       SelectedSkillOptionId: BattleSession.SelectedSkillOptionId ?? null,
       Units: this.BuildBattleHudUnits(BattleSession, SelectedTargetId),
       ScriptFocus: this.CloneBattleScriptFocus(BattleSession.ScriptFocus),
@@ -1249,6 +1496,7 @@ export class UWebGameRuntime {
       ItemOptions: [...BattleItemPlaceholderOptions],
       SelectedSkillOptionIndex: 0,
       SelectedItemOptionIndex: 0,
+      SelectedRootCommandIndex: 0,
       SelectedSkillOptionId: null,
       Units: [],
       ScriptFocus: null,
@@ -1337,7 +1585,10 @@ export class UWebGameRuntime {
     this.NotifyRuntimeUpdated();
   }
 
-  private ConsumeBattle3CInput(InputSnapshot: FInputSnapshot): void {
+  private ConsumeBattle3CInput(
+    InputSnapshot: FInputSnapshot,
+    PreviousInputActionFrame: FInputActionFrame
+  ): void {
     if (!this.ActiveBattleSession) {
       return;
     }
@@ -1351,7 +1602,11 @@ export class UWebGameRuntime {
       ? this.ConsumeBattleAimInput(InputSnapshot)
       : this.ConsumeBattleRootCrosshairInput(InputSnapshot);
 
-    if (IsDirty) {
+    const HasHoldHudDelta = this.HasBattleHoldHudStateChanged(
+      InputSnapshot.ActionFrame,
+      PreviousInputActionFrame
+    );
+    if (IsDirty || HasHoldHudDelta) {
       this.NotifyRuntimeUpdated();
     }
   }
@@ -1368,8 +1623,11 @@ export class UWebGameRuntime {
     if (this.TryHandleBattleToggleAimAction(InputSnapshot)) {
       return true;
     }
-    if (InputSnapshot.SwitchCharacterEdge) {
+    if (this.IsActionTriggered(InputSnapshot, EInputAction.BattleSwitchCharacter)) {
       return this.SwitchControlledCharacter();
+    }
+    if (this.IsActionTriggered(InputSnapshot, EInputAction.BattleFlee)) {
+      return this.FleeBattleToOverworld();
     }
     return this.TryHandleBattleCommandAction(InputSnapshot);
   }
@@ -1418,18 +1676,20 @@ export class UWebGameRuntime {
   }
 
   private TryHandleBattleCancelAction(InputSnapshot: FInputSnapshot): boolean {
-    if (!this.ActiveBattleSession || !InputSnapshot.CancelAimEdge) {
+    if (
+      !this.ActiveBattleSession ||
+      !this.IsActionTriggered(InputSnapshot, EInputAction.UICancel)
+    ) {
       return false;
     }
-    if (this.ActiveBattleSession.IsAimMode) {
-      this.ExitBattleAimMode();
-      return true;
-    }
-    return this.CancelBattleCommandStage(this.ActiveBattleSession);
+    return this.RequestUICancelAction();
   }
 
   private TryHandleBattleToggleAimAction(InputSnapshot: FInputSnapshot): boolean {
-    if (!this.ActiveBattleSession || !InputSnapshot.ToggleAimEdge) {
+    if (
+      !this.ActiveBattleSession ||
+      !this.IsActionTriggered(InputSnapshot, EInputAction.BattleToggleAim)
+    ) {
       return false;
     }
     if (this.ActiveBattleSession.CommandStage !== "Root") {
@@ -1440,28 +1700,130 @@ export class UWebGameRuntime {
   }
 
   private TryHandleBattleCommandAction(InputSnapshot: FInputSnapshot): boolean {
-    if (InputSnapshot.ToggleSkillTargetModeEdge) {
-      this.ToggleBattleSkillTargetMode();
-      return true;
-    }
-    if (InputSnapshot.ToggleItemMenuEdge) {
-      this.ToggleBattleItemMenu();
-      return true;
-    }
-    if (InputSnapshot.CycleMenuAxis !== 0) {
-      this.CycleBattleMenuSelection(InputSnapshot.CycleMenuAxis);
-      return true;
-    }
-    if (InputSnapshot.CycleTargetAxis !== 0) {
-      this.CycleBattleTarget(InputSnapshot.CycleTargetAxis);
-      return true;
-    }
-    if (!InputSnapshot.FireEdge) {
+    if (!this.ActiveBattleSession) {
       return false;
     }
 
+    const IsKeyboardDirectionalNavTriggered =
+      this.IsActionTriggeredByKeyboardMouse(InputSnapshot, EInputAction.UINavUp) ||
+      this.IsActionTriggeredByKeyboardMouse(InputSnapshot, EInputAction.UINavDown) ||
+      this.IsActionTriggeredByKeyboardMouse(InputSnapshot, EInputAction.UINavLeft) ||
+      this.IsActionTriggeredByKeyboardMouse(InputSnapshot, EInputAction.UINavRight);
+    if (IsKeyboardDirectionalNavTriggered) {
+      this.HasKeyboardDirectionalFocus = true;
+    }
+
+    const VerticalDelta = this.ResolveBattleMenuVerticalDelta(InputSnapshot);
+    if (VerticalDelta !== 0) {
+      this.HandleBattleMenuVerticalNavigate(VerticalDelta);
+      return true;
+    }
+
+    const HorizontalDelta = this.ResolveBattleTargetHorizontalDelta(InputSnapshot);
+    if (HorizontalDelta !== 0) {
+      this.CycleBattleTarget(HorizontalDelta);
+      return true;
+    }
+
+    if (this.TryHandleBattleConfirmAction(InputSnapshot)) {
+      return true;
+    }
+
+    return this.TryHandleBattleFireAction(InputSnapshot);
+  }
+
+  private ResolveBattleMenuVerticalDelta(InputSnapshot: FInputSnapshot): number {
+    return (
+      (this.IsActionTriggered(InputSnapshot, EInputAction.UINavDown) ? 1 : 0) -
+      (this.IsActionTriggered(InputSnapshot, EInputAction.UINavUp) ? 1 : 0)
+    );
+  }
+
+  private ResolveBattleTargetHorizontalDelta(InputSnapshot: FInputSnapshot): number {
+    return (
+      (this.IsActionTriggered(InputSnapshot, EInputAction.UINavRight) ? 1 : 0) -
+      (this.IsActionTriggered(InputSnapshot, EInputAction.UINavLeft) ? 1 : 0)
+    );
+  }
+
+  private HandleBattleMenuVerticalNavigate(VerticalDelta: number): void {
+    if (!this.ActiveBattleSession) {
+      return;
+    }
+    if (this.ActiveBattleSession.CommandStage === "Root" && !this.ActiveBattleSession.IsAimMode) {
+      this.CycleBattleRootCommandSelection(VerticalDelta);
+      return;
+    }
+    this.CycleBattleMenuSelection(VerticalDelta);
+  }
+
+  private TryHandleBattleConfirmAction(InputSnapshot: FInputSnapshot): boolean {
+    if (!this.ActiveBattleSession) {
+      return false;
+    }
+    if (!this.IsActionTriggered(InputSnapshot, EInputAction.UIConfirm)) {
+      return false;
+    }
+    if (this.ActiveBattleSession.CommandStage === "Root" && !this.ActiveBattleSession.IsAimMode) {
+      this.ConfirmBattleRootCommandSelection(this.ActiveBattleSession);
+      return true;
+    }
     this.FireBattleAction();
     return true;
+  }
+
+  private TryHandleBattleFireAction(InputSnapshot: FInputSnapshot): boolean {
+    if (!this.ActiveBattleSession) {
+      return false;
+    }
+    if (!this.IsActionTriggered(InputSnapshot, EInputAction.BattleFire)) {
+      return false;
+    }
+    if (!this.ActiveBattleSession.IsAimMode) {
+      return false;
+    }
+    this.FireBattleAction();
+    return true;
+  }
+
+  private CycleBattleRootCommandSelection(Direction: number): void {
+    if (!this.ActiveBattleSession) {
+      return;
+    }
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (this.ActiveBattleSession.CommandStage !== "Root" || this.ActiveBattleSession.IsAimMode) {
+      return;
+    }
+
+    const Delta = Direction >= 0 ? 1 : -1;
+    this.ActiveBattleSession.SelectedRootCommandIndex = this.ResolveWrappedIndex(
+      (this.ActiveBattleSession.SelectedRootCommandIndex ?? 0) + Delta,
+      BattleRootCommandCount
+    );
+    this.EmitRuntimeEvent(
+      "EBattle3CActionRequested",
+      `RootMenu:Cycle:${Delta > 0 ? "Down" : "Up"}`
+    );
+    this.NotifyRuntimeUpdated();
+  }
+
+  private ConfirmBattleRootCommandSelection(Session: FBattle3CSession): void {
+    this.EnsureBattleCommandState(Session);
+    const SelectedIndex = Session.SelectedRootCommandIndex ?? 0;
+    if (SelectedIndex === 1) {
+      this.EnterSkillMenuStage(Session);
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "SkillMenu:Open");
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+    if (SelectedIndex === 2) {
+      this.EnterItemMenuStage(Session);
+      this.EmitRuntimeEvent("EBattle3CActionRequested", "ItemMenu:Open");
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    this.BeginTargetSelectionFromAttack(Session);
   }
 
   private BindOverworldEvents(): void {
@@ -1548,6 +1910,7 @@ export class UWebGameRuntime {
     }
 
     this.ActiveBattleSession = BattleSession;
+    this.HasKeyboardDirectionalFocus = false;
     this.ActiveBattleSession.CameraMode = "IntroDropIn";
     this.RuntimePhase = "EncounterTransition";
     this.EncounterPromptText = null;
@@ -1675,6 +2038,7 @@ export class UWebGameRuntime {
       ItemOptions: [...BattleItemPlaceholderOptions],
       SelectedSkillOptionIndex: 0,
       SelectedItemOptionIndex: 0,
+      SelectedRootCommandIndex: 0,
       SelectedSkillOptionId: null,
       TargetSelectOrderedEnemyUnitIds: [],
       PendingActionResolvedDetail: null,
