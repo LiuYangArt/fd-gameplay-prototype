@@ -134,6 +134,51 @@ describe("UInputController", () => {
     }
   });
 
+  it("浏览器支持 PointerEvent 时应优先监听 pointerdown，避免 mousedown 兼容事件被画布层抑制", () => {
+    const OriginalWindow = (globalThis as { window?: Window }).window;
+    const AddEventListener = vi.fn();
+    const RemoveEventListener = vi.fn();
+    const RequestAnimationFrame = vi.fn(() => 1);
+    const CancelAnimationFrame = vi.fn();
+    const FakeWindow = {
+      addEventListener: AddEventListener,
+      removeEventListener: RemoveEventListener,
+      requestAnimationFrame: RequestAnimationFrame,
+      cancelAnimationFrame: CancelAnimationFrame,
+      PointerEvent: function PointerEvent() {}
+    } as unknown as Window;
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      writable: true,
+      value: FakeWindow
+    });
+
+    try {
+      const Controller = new UInputController(() => undefined);
+      const Unbind = Controller.Bind();
+
+      expect(AddEventListener).toHaveBeenCalledWith(
+        "pointerdown",
+        expect.any(Function),
+        expect.objectContaining({ capture: true })
+      );
+
+      Unbind();
+
+      expect(RemoveEventListener).toHaveBeenCalledWith(
+        "pointerdown",
+        expect.any(Function),
+        expect.objectContaining({ capture: true })
+      );
+    } finally {
+      Object.defineProperty(globalThis, "window", {
+        configurable: true,
+        writable: true,
+        value: OriginalWindow
+      });
+    }
+  });
+
   it("瞄准态下 pointer lock 被 Esc 解除时应自动生成一次 CancelAimEdge，避免需要按两次 Esc", () => {
     const Probe = CreateControllerProbe();
     const PointerTarget = {} as HTMLElement;
@@ -289,6 +334,8 @@ describe("UInputController", () => {
     MutableController.HandleMouseDown({
       button: 2,
       target: null,
+      clientX: 300,
+      clientY: 200,
       preventDefault: () => undefined
     } as MouseEvent);
     MutableController.HandleMouseDown({
@@ -301,6 +348,43 @@ describe("UInputController", () => {
 
     expect(MutableController.PendingToggleAimEdge).toBe(true);
     expect(MutableController.PendingFireEdge).toBe(true);
+  });
+
+  it("战斗输入仅应在 viewport 内响应 RMB：内部触发、外部忽略", () => {
+    const Controller = new UInputController(() => undefined, {
+      ShouldRequestPointerLockOnToggleAim: () => true,
+      ResolveAimViewportRect: () =>
+        ({
+          left: 100,
+          top: 50,
+          width: 400,
+          height: 300
+        }) as DOMRect
+    });
+    const MutableController = Controller as unknown as {
+      HandleMouseDown: (Event: MouseEvent) => void;
+      PendingToggleAimEdge: boolean;
+    };
+
+    MutableController.PendingToggleAimEdge = false;
+    MutableController.HandleMouseDown({
+      button: 2,
+      target: null,
+      clientX: 180,
+      clientY: 120,
+      preventDefault: () => undefined
+    } as MouseEvent);
+    expect(MutableController.PendingToggleAimEdge).toBe(true);
+
+    MutableController.PendingToggleAimEdge = false;
+    MutableController.HandleMouseDown({
+      button: 2,
+      target: null,
+      clientX: 20,
+      clientY: 20,
+      preventDefault: () => undefined
+    } as MouseEvent);
+    expect(MutableController.PendingToggleAimEdge).toBe(false);
   });
 
   it("右键即使落在忽略开火区域也应触发瞄准切换，避免提示存在但实际不生效", () => {

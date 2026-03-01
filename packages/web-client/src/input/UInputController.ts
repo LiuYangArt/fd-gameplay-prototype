@@ -186,14 +186,16 @@ export class UInputController {
     const OnKeyDown = (Event: KeyboardEvent) => this.HandleKeyDown(Event);
     const OnKeyUp = (Event: KeyboardEvent) => this.HandleKeyUp(Event);
     const OnMouseMove = (Event: MouseEvent) => this.HandleMouseMove(Event);
-    const OnMouseDown = (Event: MouseEvent) => this.HandleMouseDown(Event);
+    const OnPointerOrMouseDown: EventListener = (Event) =>
+      this.HandleMouseDown(Event as MouseEvent);
     const OnContextMenu = (Event: MouseEvent) => this.HandleContextMenu(Event);
     const OnWindowBlur = () => this.HandleWindowBlur();
+    const MouseDownEventName = this.ResolveMouseDownEventName();
 
     window.addEventListener("keydown", OnKeyDown);
     window.addEventListener("keyup", OnKeyUp);
     window.addEventListener("mousemove", OnMouseMove);
-    window.addEventListener("mousedown", OnMouseDown, MouseInputCaptureOptions);
+    window.addEventListener(MouseDownEventName, OnPointerOrMouseDown, MouseInputCaptureOptions);
     window.addEventListener("contextmenu", OnContextMenu, MouseInputCaptureOptions);
     window.addEventListener("blur", OnWindowBlur);
     this.StartLoop();
@@ -202,11 +204,22 @@ export class UInputController {
       window.removeEventListener("keydown", OnKeyDown);
       window.removeEventListener("keyup", OnKeyUp);
       window.removeEventListener("mousemove", OnMouseMove);
-      window.removeEventListener("mousedown", OnMouseDown, MouseInputCaptureOptions);
+      window.removeEventListener(
+        MouseDownEventName,
+        OnPointerOrMouseDown,
+        MouseInputCaptureOptions
+      );
       window.removeEventListener("contextmenu", OnContextMenu, MouseInputCaptureOptions);
       window.removeEventListener("blur", OnWindowBlur);
       this.StopLoop();
     };
+  }
+
+  private ResolveMouseDownEventName(): "pointerdown" | "mousedown" {
+    if (typeof window !== "undefined" && typeof window.PointerEvent !== "undefined") {
+      return "pointerdown";
+    }
+    return "mousedown";
   }
 
   private StartLoop(): void {
@@ -375,10 +388,13 @@ export class UInputController {
   }
 
   private HandleMouseDown(Event: MouseEvent): void {
+    const IsInBattleViewport = this.IsMouseEventInBattleViewport(Event);
     const ShouldIgnoreFire = this.ShouldIgnoreMouseFire(Event.target);
-    const IsBattleInputContext =
-      this.ShouldRequestPointerLockOnToggleAim() || this.ShouldLockPointer();
+    const IsBattleInputContext = this.IsBattleInputContext();
     if (Event.button === 2) {
+      if (!IsInBattleViewport) {
+        return;
+      }
       if (IsBattleInputContext) {
         Event.preventDefault();
       }
@@ -390,6 +406,9 @@ export class UInputController {
       return;
     }
 
+    if (!IsInBattleViewport) {
+      return;
+    }
     if (Event.button === 0 && this.ShouldLockPointer() && !ShouldIgnoreFire) {
       this.TryRequestPointerLock();
     }
@@ -402,9 +421,31 @@ export class UInputController {
   }
 
   private HandleContextMenu(Event: MouseEvent): void {
-    if (this.ShouldRequestPointerLockOnToggleAim() || this.ShouldLockPointer()) {
+    if (this.IsBattleInputContext() && this.IsMouseEventInBattleViewport(Event)) {
       Event.preventDefault();
     }
+  }
+
+  private IsBattleInputContext(): boolean {
+    return this.ShouldRequestPointerLockOnToggleAim() || this.ShouldLockPointer();
+  }
+
+  private IsMouseEventInBattleViewport(Event: MouseEvent): boolean {
+    const ViewportRect = this.ResolveAimViewportRect();
+    if (!ViewportRect) {
+      return true;
+    }
+    if (!Number.isFinite(Event.clientX) || !Number.isFinite(Event.clientY)) {
+      return true;
+    }
+    const Right = ViewportRect.left + ViewportRect.width;
+    const Bottom = ViewportRect.top + ViewportRect.height;
+    return (
+      Event.clientX >= ViewportRect.left &&
+      Event.clientX <= Right &&
+      Event.clientY >= ViewportRect.top &&
+      Event.clientY <= Bottom
+    );
   }
 
   private HandleWindowBlur(): void {

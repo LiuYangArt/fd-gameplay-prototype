@@ -56,6 +56,7 @@
 - [x] 菜单输入映射统一为 `↑/↓/←/→` 导航 + `Enter/A` 确认 + `Esc/B` 返回（`UInputController.test.ts` + `UWebGameRuntime.test.ts`）。
 - [x] 战斗中右键提示与行为一致：RMB 可稳定触发瞄准切换，不受忽略开火 UI 区域与浏览器右键菜单干扰（`UInputController.test.ts`）。
 - [x] 战斗屏幕任意位置右键都可切瞄准（包括 3D 画布空白区），不依赖点在按钮上（`UInputController.test.ts` + `pnpm smoke:web`）。
+- [x] 战斗输入的鼠标战斗动作仅在 3D viewport 内响应：viewport 内 RMB 可切瞄准，viewport 外 RMB 不触发战斗动作（`UInputController.test.ts`）。
 - [x] 手柄根命令列表支持 `D-Pad` 与左摇杆上下同等导航（`UInputController.test.ts`）。
 - [x] `Overworld` 手柄冲刺维持 `RT` 按住触发；`L3` 仅用于长按逃跑，不再误触发冲刺（`UInputController.test.ts`）。
 - [x] 左下角“逃跑/跳过回合”改为长按触发：键盘 `C/Tab`，手柄 `LS/RS`，并提供长按进度反馈（`UInputController.test.ts` + `UWebGameRuntime.test.ts` + `pnpm smoke:web`）。
