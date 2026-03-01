@@ -1,3 +1,13 @@
+import {
+  EInputAction,
+  EInputDeviceKinds,
+  type EInputAction as FInputAction,
+  type EInputDeviceKind
+} from "./EInputAction";
+import { CreateEmptyInputActionFrame, type FInputActionFrame } from "./FInputActionFrame";
+import { UDefaultInputBindingProfile } from "./UInputBindingProfile";
+import { ULastInputDeviceTracker } from "./ULastInputDeviceTracker";
+
 import type { FInputSnapshot, FInputVector2 } from "./FInputSnapshot";
 
 interface FGamepadSnapshot {
@@ -8,6 +18,7 @@ interface FGamepadSnapshot {
   CancelAimEdge: boolean;
   FireEdge: boolean;
   SwitchCharacterEdge: boolean;
+  SwitchCharacterHold: boolean;
   ToggleSkillTargetModeEdge: boolean;
   ToggleItemMenuEdge: boolean;
   CycleTargetAxis: number;
@@ -15,14 +26,15 @@ interface FGamepadSnapshot {
   ConfirmSettlementEdge: boolean;
   RestartEdge: boolean;
   ToggleDebugEdge: boolean;
+  BattleFleeEdge: boolean;
+  BattleFleeHold: boolean;
 }
 
 interface FGamepadButtonState {
   A: boolean;
   B: boolean;
-  Y: boolean;
+  LeftStick: boolean;
   LB: boolean;
-  RB: boolean;
   LT: boolean;
   RT: boolean;
   DpadUp: boolean;
@@ -31,6 +43,18 @@ interface FGamepadButtonState {
   DpadRight: boolean;
   Start: boolean;
   Back: boolean;
+  RightStick: boolean;
+}
+
+interface FLongHoldTracker {
+  StartedAtMs: number | null;
+  HasTriggered: boolean;
+}
+
+interface FLongHoldFrameState {
+  IsHeld: boolean;
+  IsTriggered: boolean;
+  ProgressNormalized: number;
 }
 
 const MoveDeadzone = 0.16;
@@ -40,7 +64,11 @@ const MousePitchDegreesPerPixel = 0.14;
 const GamepadYawDegreesPerSecond = 180;
 const GamepadPitchDegreesPerSecond = 135;
 const GamepadAimPixelsPerSecond = 520;
-const GamepadCycleAxisThreshold = 0.65;
+const BattleFleeHoldDurationMs =
+  UDefaultInputBindingProfile.ActionBindings[EInputAction.BattleFlee].HoldDurationMs ?? 620;
+const BattleSwitchHoldDurationMs =
+  UDefaultInputBindingProfile.ActionBindings[EInputAction.BattleSwitchCharacter].HoldDurationMs ??
+  620;
 const IgnoreFireInputSelector = '[data-ignore-fire-input="true"]';
 const InteractiveInputSelector =
   "button, input, textarea, select, option, label, a, [role='button']";
@@ -58,6 +86,7 @@ export class UInputController {
   private readonly ResolvePointerLockElement: () => HTMLElement | null;
   private readonly ShouldLockPointer: () => boolean;
   private readonly ShouldRequestPointerLockOnToggleAim: () => boolean;
+  private readonly LastInputDeviceTracker: ULastInputDeviceTracker;
   private readonly PressedKeys: Set<string>;
   private readonly KeyDownEdgeHandlers: Record<string, () => void>;
   private FrameHandle: number | null;
@@ -69,8 +98,7 @@ export class UInputController {
   private PendingCancelAimEdge: boolean;
   private PendingFireEdge: boolean;
   private PendingSwitchCharacterEdge: boolean;
-  private PendingToggleSkillTargetModeEdge: boolean;
-  private PendingToggleItemMenuEdge: boolean;
+  private PendingBattleFleeEdge: boolean;
   private PendingCycleTargetAxis: number;
   private PendingCycleMenuAxis: number;
   private PendingForceSettlementEdge: boolean;
@@ -80,9 +108,7 @@ export class UInputController {
   private WasPointerLockedToBattleViewport: boolean;
   private PreviousGamepadA: boolean;
   private PreviousGamepadB: boolean;
-  private PreviousGamepadY: boolean;
   private PreviousGamepadLB: boolean;
-  private PreviousGamepadRB: boolean;
   private PreviousGamepadLT: boolean;
   private PreviousGamepadRT: boolean;
   private PreviousGamepadDpadUp: boolean;
@@ -91,7 +117,12 @@ export class UInputController {
   private PreviousGamepadDpadRight: boolean;
   private PreviousGamepadStart: boolean;
   private PreviousGamepadBack: boolean;
-  private PreviousGamepadStickCycleDirection: number;
+  private PreviousGamepadLeftStick: boolean;
+  private PreviousGamepadRightStick: boolean;
+  private PreviousGamepadStickTargetDirection: number;
+  private PreviousGamepadStickMenuDirection: number;
+  private readonly BattleFleeHoldTracker: FLongHoldTracker;
+  private readonly BattleSwitchHoldTracker: FLongHoldTracker;
 
   public constructor(
     OnInputFrame: (Snapshot: FInputSnapshot) => void,
@@ -103,6 +134,9 @@ export class UInputController {
     this.ShouldLockPointer = Options?.ShouldLockPointer ?? (() => false);
     this.ShouldRequestPointerLockOnToggleAim =
       Options?.ShouldRequestPointerLockOnToggleAim ?? (() => false);
+    this.LastInputDeviceTracker = new ULastInputDeviceTracker({
+      DeviceSwitchDebounceMs: UDefaultInputBindingProfile.DeviceSwitchDebounceMs
+    });
     this.PressedKeys = new Set();
     this.KeyDownEdgeHandlers = this.CreateKeyDownEdgeHandlers();
     this.FrameHandle = null;
@@ -114,8 +148,7 @@ export class UInputController {
     this.PendingCancelAimEdge = false;
     this.PendingFireEdge = false;
     this.PendingSwitchCharacterEdge = false;
-    this.PendingToggleSkillTargetModeEdge = false;
-    this.PendingToggleItemMenuEdge = false;
+    this.PendingBattleFleeEdge = false;
     this.PendingCycleTargetAxis = 0;
     this.PendingCycleMenuAxis = 0;
     this.PendingForceSettlementEdge = false;
@@ -125,9 +158,7 @@ export class UInputController {
     this.WasPointerLockedToBattleViewport = false;
     this.PreviousGamepadA = false;
     this.PreviousGamepadB = false;
-    this.PreviousGamepadY = false;
     this.PreviousGamepadLB = false;
-    this.PreviousGamepadRB = false;
     this.PreviousGamepadLT = false;
     this.PreviousGamepadRT = false;
     this.PreviousGamepadDpadUp = false;
@@ -136,7 +167,18 @@ export class UInputController {
     this.PreviousGamepadDpadRight = false;
     this.PreviousGamepadStart = false;
     this.PreviousGamepadBack = false;
-    this.PreviousGamepadStickCycleDirection = 0;
+    this.PreviousGamepadLeftStick = false;
+    this.PreviousGamepadRightStick = false;
+    this.PreviousGamepadStickTargetDirection = 0;
+    this.PreviousGamepadStickMenuDirection = 0;
+    this.BattleFleeHoldTracker = {
+      StartedAtMs: null,
+      HasTriggered: false
+    };
+    this.BattleSwitchHoldTracker = {
+      StartedAtMs: null,
+      HasTriggered: false
+    };
   }
 
   public Bind(): () => void {
@@ -144,12 +186,14 @@ export class UInputController {
     const OnKeyUp = (Event: KeyboardEvent) => this.HandleKeyUp(Event);
     const OnMouseMove = (Event: MouseEvent) => this.HandleMouseMove(Event);
     const OnMouseDown = (Event: MouseEvent) => this.HandleMouseDown(Event);
+    const OnContextMenu = (Event: MouseEvent) => this.HandleContextMenu(Event);
     const OnWindowBlur = () => this.HandleWindowBlur();
 
     window.addEventListener("keydown", OnKeyDown);
     window.addEventListener("keyup", OnKeyUp);
     window.addEventListener("mousemove", OnMouseMove);
     window.addEventListener("mousedown", OnMouseDown);
+    window.addEventListener("contextmenu", OnContextMenu);
     window.addEventListener("blur", OnWindowBlur);
     this.StartLoop();
 
@@ -158,25 +202,87 @@ export class UInputController {
       window.removeEventListener("keyup", OnKeyUp);
       window.removeEventListener("mousemove", OnMouseMove);
       window.removeEventListener("mousedown", OnMouseDown);
+      window.removeEventListener("contextmenu", OnContextMenu);
       window.removeEventListener("blur", OnWindowBlur);
       this.StopLoop();
     };
   }
 
   private StartLoop(): void {
+    // 采样主循环会聚合设备输入、边沿与长按状态，逻辑不可避免较集中。
+    // eslint-disable-next-line complexity
     const Tick = (Timestamp: number) => {
       const DeltaSeconds = this.ResolveDeltaSeconds(Timestamp);
       this.SyncPointerLockState();
       const GamepadSnapshot = this.ReadGamepadSnapshot();
+      const NowMs = performance.now();
       const KeyboardMoveAxis = this.ReadKeyboardMoveAxis();
       const MoveAxis = this.NormalizeAxis(
         KeyboardMoveAxis.X + GamepadSnapshot.MoveAxis.X,
         KeyboardMoveAxis.Y + GamepadSnapshot.MoveAxis.Y
       );
+      const IsKeyboardFleeHold = this.PressedKeys.has("KeyC");
+      const IsKeyboardSwitchHold = this.PressedKeys.has("Tab");
+      const BattleFleeHoldState = this.UpdateLongHoldTracker(
+        this.BattleFleeHoldTracker,
+        IsKeyboardFleeHold || GamepadSnapshot.BattleFleeHold,
+        NowMs,
+        BattleFleeHoldDurationMs
+      );
+      const BattleSwitchHoldState = this.UpdateLongHoldTracker(
+        this.BattleSwitchHoldTracker,
+        IsKeyboardSwitchHold || GamepadSnapshot.SwitchCharacterHold,
+        NowMs,
+        BattleSwitchHoldDurationMs
+      );
 
       const CycleTargetAxis = this.ResolveCycleTargetAxis(GamepadSnapshot.CycleTargetAxis);
       const CycleMenuAxis = this.ResolveCycleMenuAxis(GamepadSnapshot.CycleMenuAxis);
+      const ToggleAimEdge = this.PendingToggleAimEdge || GamepadSnapshot.ToggleAimEdge;
+      const CancelEdge = this.PendingCancelAimEdge || GamepadSnapshot.CancelAimEdge;
+      const FireEdge = this.PendingFireEdge || GamepadSnapshot.FireEdge;
+      const SwitchCharacterEdge =
+        this.PendingSwitchCharacterEdge ||
+        GamepadSnapshot.SwitchCharacterEdge ||
+        BattleSwitchHoldState.IsTriggered;
+      const ConfirmEdge =
+        this.PendingConfirmSettlementEdge || GamepadSnapshot.ConfirmSettlementEdge;
+      const RestartEdge = this.PendingRestartEdge || GamepadSnapshot.RestartEdge;
+      const ToggleDebugEdge = this.PendingToggleDebugEdge || GamepadSnapshot.ToggleDebugEdge;
+      const BattleFleeEdge =
+        this.PendingBattleFleeEdge ||
+        GamepadSnapshot.BattleFleeEdge ||
+        BattleFleeHoldState.IsTriggered;
+      const BattleFleeSourceDevice = this.ResolveHoldSourceDevice(
+        IsKeyboardFleeHold,
+        GamepadSnapshot.BattleFleeHold
+      );
+      const BattleSwitchSourceDevice = this.ResolveHoldSourceDevice(
+        IsKeyboardSwitchHold,
+        GamepadSnapshot.SwitchCharacterHold
+      );
+      const ActionFrame = this.BuildActionFrame({
+        ToggleAimEdge,
+        CancelEdge,
+        FireEdge,
+        SwitchCharacterEdge,
+        SwitchCharacterHold: BattleSwitchHoldState.IsHeld,
+        SwitchCharacterHoldProgress: BattleSwitchHoldState.ProgressNormalized,
+        SwitchCharacterSourceDevice: BattleSwitchSourceDevice,
+        BattleFleeEdge,
+        BattleFleeHold: BattleFleeHoldState.IsHeld,
+        BattleFleeHoldProgress: BattleFleeHoldState.ProgressNormalized,
+        BattleFleeSourceDevice,
+        ConfirmEdge,
+        RestartEdge,
+        ToggleDebugEdge,
+        ForceSettlementEdge: this.PendingForceSettlementEdge,
+        CycleTargetAxis,
+        CycleMenuAxis
+      });
       const Snapshot: FInputSnapshot = {
+        ActiveInputDevice: this.LastInputDeviceTracker.GetActiveDevice(),
+        ActionFrame,
         MoveAxis,
         LookYawDeltaDegrees: this.ComposeLookYawDeltaDegrees(
           GamepadSnapshot.LookAxis.X,
@@ -192,20 +298,18 @@ export class UInputController {
           this.PressedKeys.has("ShiftLeft") ||
           this.PressedKeys.has("ShiftRight") ||
           GamepadSnapshot.SprintHold,
-        ToggleAimEdge: this.PendingToggleAimEdge || GamepadSnapshot.ToggleAimEdge,
-        CancelAimEdge: this.PendingCancelAimEdge || GamepadSnapshot.CancelAimEdge,
-        FireEdge: this.PendingFireEdge || GamepadSnapshot.FireEdge,
-        SwitchCharacterEdge: this.PendingSwitchCharacterEdge || GamepadSnapshot.SwitchCharacterEdge,
-        ToggleSkillTargetModeEdge:
-          this.PendingToggleSkillTargetModeEdge || GamepadSnapshot.ToggleSkillTargetModeEdge,
-        ToggleItemMenuEdge: this.PendingToggleItemMenuEdge || GamepadSnapshot.ToggleItemMenuEdge,
+        ToggleAimEdge,
+        CancelAimEdge: CancelEdge,
+        FireEdge,
+        SwitchCharacterEdge,
+        ToggleSkillTargetModeEdge: false,
+        ToggleItemMenuEdge: false,
         CycleTargetAxis,
         CycleMenuAxis,
         ForceSettlementEdge: this.PendingForceSettlementEdge,
-        ConfirmSettlementEdge:
-          this.PendingConfirmSettlementEdge || GamepadSnapshot.ConfirmSettlementEdge,
-        RestartEdge: this.PendingRestartEdge || GamepadSnapshot.RestartEdge,
-        ToggleDebugEdge: this.PendingToggleDebugEdge || GamepadSnapshot.ToggleDebugEdge,
+        ConfirmSettlementEdge: ConfirmEdge,
+        RestartEdge,
+        ToggleDebugEdge,
         DeltaSeconds
       };
 
@@ -226,22 +330,25 @@ export class UInputController {
   }
 
   private HandleKeyDown(Event: KeyboardEvent): void {
-    if (Event.code === "Tab" || Event.code === "F3") {
+    if (
+      Event.code === "ArrowUp" ||
+      Event.code === "ArrowDown" ||
+      Event.code === "F3" ||
+      Event.code === "Tab"
+    ) {
       Event.preventDefault();
-    }
-    if (Event.code === "KeyQ" && !Event.altKey && this.ShouldRequestPointerLockOnToggleAim()) {
-      this.TryRequestPointerLock();
     }
 
     if (this.IsStateKey(Event.code)) {
       this.PressedKeys.add(Event.code);
     }
+    this.LastInputDeviceTracker.RegisterInput(EInputDeviceKinds.KeyboardMouse, performance.now());
 
     if (Event.repeat) {
       return;
     }
 
-    if (Event.code === "KeyQ" && Event.altKey) {
+    if (Event.code === "KeyS" && Event.altKey) {
       Event.preventDefault();
       this.PendingForceSettlementEdge = true;
       return;
@@ -261,10 +368,27 @@ export class UInputController {
     this.MouseDeltaX += Event.movementX;
     this.MouseDeltaY += Event.movementY;
     this.PendingAimScreenPosition = this.ResolveAimScreenPosition(Event.clientX, Event.clientY);
+    if (Math.abs(Event.movementX) + Math.abs(Event.movementY) > 0.5) {
+      this.LastInputDeviceTracker.RegisterInput(EInputDeviceKinds.KeyboardMouse, performance.now());
+    }
   }
 
   private HandleMouseDown(Event: MouseEvent): void {
     const ShouldIgnoreFire = this.ShouldIgnoreMouseFire(Event.target);
+    const IsBattleInputContext =
+      this.ShouldRequestPointerLockOnToggleAim() || this.ShouldLockPointer();
+    if (Event.button === 2) {
+      if (IsBattleInputContext) {
+        Event.preventDefault();
+      }
+      if (this.ShouldRequestPointerLockOnToggleAim()) {
+        this.TryRequestPointerLock();
+      }
+      this.PendingToggleAimEdge = true;
+      this.LastInputDeviceTracker.RegisterInput(EInputDeviceKinds.KeyboardMouse, performance.now());
+      return;
+    }
+
     if (Event.button === 0 && this.ShouldLockPointer() && !ShouldIgnoreFire) {
       this.TryRequestPointerLock();
     }
@@ -272,6 +396,14 @@ export class UInputController {
       return;
     }
     this.PendingAimScreenPosition = this.ResolveAimScreenPosition(Event.clientX, Event.clientY);
+    this.PendingFireEdge = true;
+    this.LastInputDeviceTracker.RegisterInput(EInputDeviceKinds.KeyboardMouse, performance.now());
+  }
+
+  private HandleContextMenu(Event: MouseEvent): void {
+    if (this.ShouldRequestPointerLockOnToggleAim() || this.ShouldLockPointer()) {
+      Event.preventDefault();
+    }
   }
 
   private HandleWindowBlur(): void {
@@ -280,7 +412,9 @@ export class UInputController {
     this.MouseDeltaY = 0;
     this.PendingAimScreenPosition = null;
     this.ClearFrameEdges();
+    this.ResetLongHoldTrackers();
     this.ResetGamepadEdges();
+    this.LastInputDeviceTracker.Reset();
   }
 
   private ResolveDeltaSeconds(Timestamp: number): number {
@@ -308,35 +442,87 @@ export class UInputController {
     }
 
     const Buttons = this.ReadGamepadButtonState(ActiveGamepad);
-    const StickCycleAxis = this.ReadGamepadStickCycleAxis(ActiveGamepad);
+    const StickTargetAxis = this.ReadGamepadStickTargetAxis(ActiveGamepad);
+    const StickMenuAxis = this.ReadGamepadStickMenuAxis(ActiveGamepad);
     const DpadCycleAxis = this.ResolveDpadCycleAxis(Buttons);
     const DpadMenuAxis = this.ResolveDpadMenuAxis(Buttons);
-    const CycleTargetAxis = DpadCycleAxis !== 0 ? DpadCycleAxis : StickCycleAxis;
-    const FireFromA = this.ResolvePressedEdge(Buttons.A, this.PreviousGamepadA);
-    const FireFromRT = this.ResolvePressedEdge(Buttons.RT, this.PreviousGamepadRT);
+    const CycleTargetAxis = DpadCycleAxis !== 0 ? DpadCycleAxis : StickTargetAxis;
+    const CycleMenuAxis = DpadMenuAxis !== 0 ? DpadMenuAxis : StickMenuAxis;
+    const Snapshot = this.BuildGamepadSnapshot(
+      ActiveGamepad,
+      Buttons,
+      CycleTargetAxis,
+      CycleMenuAxis
+    );
 
-    const Snapshot: FGamepadSnapshot = {
+    if (this.IsGamepadSnapshotActive(Snapshot)) {
+      this.LastInputDeviceTracker.RegisterInput(EInputDeviceKinds.Gamepad, performance.now());
+    }
+
+    this.UpdatePreviousGamepadButtons(Buttons);
+
+    return Snapshot;
+  }
+
+  private BuildGamepadSnapshot(
+    ActiveGamepad: Gamepad,
+    Buttons: FGamepadButtonState,
+    CycleTargetAxis: number,
+    CycleMenuAxis: number
+  ): FGamepadSnapshot {
+    return {
       MoveAxis: this.ReadGamepadMoveAxis(ActiveGamepad),
       LookAxis: this.ReadGamepadLookAxis(ActiveGamepad),
-      SprintHold: ActiveGamepad.buttons[10]?.pressed ?? false,
+      SprintHold: Buttons.RT,
       ToggleAimEdge: this.ResolvePressedEdge(Buttons.LT, this.PreviousGamepadLT),
       CancelAimEdge: this.ResolvePressedEdge(Buttons.B, this.PreviousGamepadB),
-      FireEdge: FireFromA || FireFromRT,
-      SwitchCharacterEdge: this.ResolvePressedEdge(Buttons.LB, this.PreviousGamepadLB),
-      ToggleSkillTargetModeEdge: this.ResolvePressedEdge(Buttons.RB, this.PreviousGamepadRB),
-      ToggleItemMenuEdge: this.ResolvePressedEdge(Buttons.Y, this.PreviousGamepadY),
+      FireEdge: this.ResolvePressedEdge(Buttons.RT, this.PreviousGamepadRT),
+      SwitchCharacterEdge: false,
+      SwitchCharacterHold: Buttons.RightStick,
+      ToggleSkillTargetModeEdge: false,
+      ToggleItemMenuEdge: false,
       CycleTargetAxis,
-      CycleMenuAxis: DpadMenuAxis,
-      ConfirmSettlementEdge: FireFromA,
+      CycleMenuAxis,
+      ConfirmSettlementEdge: this.ResolvePressedEdge(Buttons.A, this.PreviousGamepadA),
       RestartEdge: this.ResolvePressedEdge(Buttons.Start, this.PreviousGamepadStart),
-      ToggleDebugEdge: this.ResolvePressedEdge(Buttons.Back, this.PreviousGamepadBack)
+      ToggleDebugEdge: this.ResolvePressedEdge(Buttons.Back, this.PreviousGamepadBack),
+      BattleFleeEdge: false,
+      BattleFleeHold: Buttons.LeftStick
     };
+  }
 
+  private IsGamepadSnapshotActive(Snapshot: FGamepadSnapshot): boolean {
+    const EdgeTriggeredFlags = [
+      Snapshot.ToggleAimEdge,
+      Snapshot.CancelAimEdge,
+      Snapshot.FireEdge,
+      Snapshot.SwitchCharacterEdge,
+      Snapshot.SwitchCharacterHold,
+      Snapshot.CycleTargetAxis !== 0,
+      Snapshot.CycleMenuAxis !== 0,
+      Snapshot.ConfirmSettlementEdge,
+      Snapshot.RestartEdge,
+      Snapshot.ToggleDebugEdge,
+      Snapshot.BattleFleeEdge,
+      Snapshot.BattleFleeHold
+    ];
+    if (EdgeTriggeredFlags.some((IsTriggered) => IsTriggered)) {
+      return true;
+    }
+
+    const AxisMagnitudes = [
+      Math.abs(Snapshot.MoveAxis.X),
+      Math.abs(Snapshot.MoveAxis.Y),
+      Math.abs(Snapshot.LookAxis.X),
+      Math.abs(Snapshot.LookAxis.Y)
+    ];
+    return AxisMagnitudes.some((Magnitude) => Magnitude > 0.05);
+  }
+
+  private UpdatePreviousGamepadButtons(Buttons: FGamepadButtonState): void {
     this.PreviousGamepadA = Buttons.A;
     this.PreviousGamepadB = Buttons.B;
-    this.PreviousGamepadY = Buttons.Y;
     this.PreviousGamepadLB = Buttons.LB;
-    this.PreviousGamepadRB = Buttons.RB;
     this.PreviousGamepadLT = Buttons.LT;
     this.PreviousGamepadRT = Buttons.RT;
     this.PreviousGamepadDpadUp = Buttons.DpadUp;
@@ -345,8 +531,8 @@ export class UInputController {
     this.PreviousGamepadDpadRight = Buttons.DpadRight;
     this.PreviousGamepadStart = Buttons.Start;
     this.PreviousGamepadBack = Buttons.Back;
-
-    return Snapshot;
+    this.PreviousGamepadLeftStick = Buttons.LeftStick;
+    this.PreviousGamepadRightStick = Buttons.RightStick;
   }
 
   private CreateEmptyGamepadSnapshot(): FGamepadSnapshot {
@@ -358,13 +544,16 @@ export class UInputController {
       CancelAimEdge: false,
       FireEdge: false,
       SwitchCharacterEdge: false,
+      SwitchCharacterHold: false,
       ToggleSkillTargetModeEdge: false,
       ToggleItemMenuEdge: false,
       CycleTargetAxis: 0,
       CycleMenuAxis: 0,
       ConfirmSettlementEdge: false,
       RestartEdge: false,
-      ToggleDebugEdge: false
+      ToggleDebugEdge: false,
+      BattleFleeEdge: false,
+      BattleFleeHold: false
     };
   }
 
@@ -374,9 +563,8 @@ export class UInputController {
     return {
       A: this.ReadGamepadButtonPressed(Pad, 0),
       B: this.ReadGamepadButtonPressed(Pad, 1),
-      Y: this.ReadGamepadButtonPressed(Pad, 3),
+      LeftStick: this.ReadGamepadButtonPressed(Pad, 10),
       LB: this.ReadGamepadButtonPressed(Pad, 4),
-      RB: this.ReadGamepadButtonPressed(Pad, 5),
       LT: LTValue > 0.5,
       RT: RTValue > 0.35,
       DpadUp: this.ReadGamepadButtonPressed(Pad, 12),
@@ -384,7 +572,8 @@ export class UInputController {
       DpadLeft: this.ReadGamepadButtonPressed(Pad, 14),
       DpadRight: this.ReadGamepadButtonPressed(Pad, 15),
       Start: this.ReadGamepadButtonPressed(Pad, 9),
-      Back: this.ReadGamepadButtonPressed(Pad, 8)
+      Back: this.ReadGamepadButtonPressed(Pad, 8),
+      RightStick: this.ReadGamepadButtonPressed(Pad, 11)
     };
   }
 
@@ -408,13 +597,31 @@ export class UInputController {
     );
   }
 
-  private ReadGamepadStickCycleAxis(Pad: Gamepad): number {
+  private ReadGamepadStickTargetAxis(Pad: Gamepad): number {
     const StickX = Pad.axes[0] ?? 0;
     const DigitalDirection =
-      StickX >= GamepadCycleAxisThreshold ? 1 : StickX <= -GamepadCycleAxisThreshold ? -1 : 0;
+      StickX >= UDefaultInputBindingProfile.StickDigitalThreshold
+        ? 1
+        : StickX <= -UDefaultInputBindingProfile.StickDigitalThreshold
+          ? -1
+          : 0;
     const IsRisingEdge =
-      DigitalDirection !== 0 && DigitalDirection !== this.PreviousGamepadStickCycleDirection;
-    this.PreviousGamepadStickCycleDirection = DigitalDirection;
+      DigitalDirection !== 0 && DigitalDirection !== this.PreviousGamepadStickTargetDirection;
+    this.PreviousGamepadStickTargetDirection = DigitalDirection;
+    return IsRisingEdge ? DigitalDirection : 0;
+  }
+
+  private ReadGamepadStickMenuAxis(Pad: Gamepad): number {
+    const StickY = -(Pad.axes[1] ?? 0);
+    const DigitalDirection =
+      StickY >= UDefaultInputBindingProfile.StickDigitalThreshold
+        ? -1
+        : StickY <= -UDefaultInputBindingProfile.StickDigitalThreshold
+          ? 1
+          : 0;
+    const IsRisingEdge =
+      DigitalDirection !== 0 && DigitalDirection !== this.PreviousGamepadStickMenuDirection;
+    this.PreviousGamepadStickMenuDirection = DigitalDirection;
     return IsRisingEdge ? DigitalDirection : 0;
   }
 
@@ -444,23 +651,8 @@ export class UInputController {
 
   private CreateKeyDownEdgeHandlers(): Record<string, () => void> {
     return {
-      KeyQ: () => {
-        this.PendingToggleAimEdge = true;
-      },
       Escape: () => {
         this.PendingCancelAimEdge = true;
-      },
-      KeyC: () => {
-        this.PendingSwitchCharacterEdge = true;
-      },
-      KeyF: () => {
-        this.PendingFireEdge = true;
-      },
-      Tab: () => {
-        this.PendingToggleSkillTargetModeEdge = true;
-      },
-      KeyW: () => {
-        this.PendingToggleItemMenuEdge = true;
       },
       Enter: () => {
         this.PendingConfirmSettlementEdge = true;
@@ -477,17 +669,11 @@ export class UInputController {
       ArrowUp: () => {
         this.PendingCycleMenuAxis = -1;
       },
-      KeyA: () => {
-        this.PendingCycleTargetAxis = -1;
-      },
       ArrowRight: () => {
         this.PendingCycleTargetAxis = 1;
       },
       ArrowDown: () => {
         this.PendingCycleMenuAxis = 1;
-      },
-      KeyD: () => {
-        this.PendingCycleTargetAxis = 1;
       }
     };
   }
@@ -595,6 +781,8 @@ export class UInputController {
       Code === "KeyA" ||
       Code === "KeyS" ||
       Code === "KeyD" ||
+      Code === "KeyC" ||
+      Code === "Tab" ||
       Code === "ShiftLeft" ||
       Code === "ShiftRight"
     );
@@ -618,8 +806,165 @@ export class UInputController {
     return Current && !Previous;
   }
 
+  private UpdateLongHoldTracker(
+    Tracker: FLongHoldTracker,
+    IsHoldInputActive: boolean,
+    TimestampMs: number,
+    HoldDurationMs: number
+  ): FLongHoldFrameState {
+    if (!IsHoldInputActive) {
+      Tracker.StartedAtMs = null;
+      Tracker.HasTriggered = false;
+      return {
+        IsHeld: false,
+        IsTriggered: false,
+        ProgressNormalized: 0
+      };
+    }
+
+    if (Tracker.StartedAtMs === null) {
+      Tracker.StartedAtMs = TimestampMs;
+      Tracker.HasTriggered = false;
+    }
+    const SafeDurationMs = Math.max(HoldDurationMs, 1);
+    const ElapsedMs = Math.max(TimestampMs - Tracker.StartedAtMs, 0);
+    const ProgressNormalized = this.Clamp(ElapsedMs / SafeDurationMs, 0, 1);
+    const IsTriggered = !Tracker.HasTriggered && ElapsedMs >= SafeDurationMs;
+    if (IsTriggered) {
+      Tracker.HasTriggered = true;
+    }
+
+    return {
+      IsHeld: true,
+      IsTriggered,
+      ProgressNormalized
+    };
+  }
+
+  private ResolveHoldSourceDevice(
+    IsKeyboardHold: boolean,
+    IsGamepadHold: boolean
+  ): EInputDeviceKind {
+    if (IsKeyboardHold && !IsGamepadHold) {
+      return EInputDeviceKinds.KeyboardMouse;
+    }
+    if (IsGamepadHold && !IsKeyboardHold) {
+      return EInputDeviceKinds.Gamepad;
+    }
+    return this.LastInputDeviceTracker.GetActiveDevice();
+  }
+
+  private BuildActionFrame(Input: {
+    ToggleAimEdge: boolean;
+    CancelEdge: boolean;
+    FireEdge: boolean;
+    SwitchCharacterEdge: boolean;
+    SwitchCharacterHold: boolean;
+    SwitchCharacterHoldProgress: number;
+    SwitchCharacterSourceDevice: EInputDeviceKind;
+    BattleFleeEdge: boolean;
+    BattleFleeHold: boolean;
+    BattleFleeHoldProgress: number;
+    BattleFleeSourceDevice: EInputDeviceKind;
+    ConfirmEdge: boolean;
+    RestartEdge: boolean;
+    ToggleDebugEdge: boolean;
+    ForceSettlementEdge: boolean;
+    CycleTargetAxis: number;
+    CycleMenuAxis: number;
+  }): FInputActionFrame {
+    const Frame = CreateEmptyInputActionFrame();
+
+    const AddAction = (
+      Action: FInputAction,
+      IsTriggered: boolean,
+      SourceDevice: EInputDeviceKind,
+      Axis = 1,
+      IsHeld = IsTriggered
+    ) => {
+      if (!IsTriggered && !IsHeld) {
+        return;
+      }
+      Frame.Actions[Action] = {
+        IsTriggered,
+        IsHeld,
+        Axis,
+        SourceDevice
+      };
+      if (IsTriggered) {
+        Frame.TriggeredActions.push(Action);
+      }
+      if (IsHeld) {
+        Frame.HeldActions.push(Action);
+      }
+    };
+
+    AddAction(
+      EInputAction.BattleToggleAim,
+      Input.ToggleAimEdge,
+      this.LastInputDeviceTracker.GetActiveDevice()
+    );
+    AddAction(
+      EInputAction.UICancel,
+      Input.CancelEdge,
+      this.LastInputDeviceTracker.GetActiveDevice()
+    );
+    AddAction(
+      EInputAction.BattleFire,
+      Input.FireEdge,
+      this.LastInputDeviceTracker.GetActiveDevice()
+    );
+    AddAction(
+      EInputAction.BattleSwitchCharacter,
+      Input.SwitchCharacterEdge,
+      Input.SwitchCharacterSourceDevice,
+      Input.SwitchCharacterHoldProgress,
+      Input.SwitchCharacterHold
+    );
+    AddAction(
+      EInputAction.BattleFlee,
+      Input.BattleFleeEdge,
+      Input.BattleFleeSourceDevice,
+      Input.BattleFleeHoldProgress,
+      Input.BattleFleeHold
+    );
+    AddAction(
+      EInputAction.UIConfirm,
+      Input.ConfirmEdge,
+      this.LastInputDeviceTracker.GetActiveDevice()
+    );
+    AddAction(
+      EInputAction.SystemRestart,
+      Input.RestartEdge,
+      this.LastInputDeviceTracker.GetActiveDevice()
+    );
+    AddAction(
+      EInputAction.SystemToggleDebug,
+      Input.ToggleDebugEdge,
+      this.LastInputDeviceTracker.GetActiveDevice()
+    );
+    AddAction(
+      EInputAction.SystemForceSettlement,
+      Input.ForceSettlementEdge,
+      this.LastInputDeviceTracker.GetActiveDevice()
+    );
+
+    if (Input.CycleTargetAxis < 0) {
+      AddAction(EInputAction.UINavLeft, true, this.LastInputDeviceTracker.GetActiveDevice(), -1);
+    } else if (Input.CycleTargetAxis > 0) {
+      AddAction(EInputAction.UINavRight, true, this.LastInputDeviceTracker.GetActiveDevice(), 1);
+    }
+    if (Input.CycleMenuAxis < 0) {
+      AddAction(EInputAction.UINavUp, true, this.LastInputDeviceTracker.GetActiveDevice(), -1);
+    } else if (Input.CycleMenuAxis > 0) {
+      AddAction(EInputAction.UINavDown, true, this.LastInputDeviceTracker.GetActiveDevice(), 1);
+    }
+
+    return Frame;
+  }
+
   private ShouldIgnoreMouseFire(Target: EventTarget | null): boolean {
-    if (!(Target instanceof Element)) {
+    if (typeof Element === "undefined" || !(Target instanceof Element)) {
       return false;
     }
 
@@ -721,8 +1066,7 @@ export class UInputController {
     this.PendingCancelAimEdge = false;
     this.PendingFireEdge = false;
     this.PendingSwitchCharacterEdge = false;
-    this.PendingToggleSkillTargetModeEdge = false;
-    this.PendingToggleItemMenuEdge = false;
+    this.PendingBattleFleeEdge = false;
     this.PendingCycleTargetAxis = 0;
     this.PendingCycleMenuAxis = 0;
     this.PendingForceSettlementEdge = false;
@@ -731,12 +1075,17 @@ export class UInputController {
     this.PendingToggleDebugEdge = false;
   }
 
+  private ResetLongHoldTrackers(): void {
+    this.BattleFleeHoldTracker.StartedAtMs = null;
+    this.BattleFleeHoldTracker.HasTriggered = false;
+    this.BattleSwitchHoldTracker.StartedAtMs = null;
+    this.BattleSwitchHoldTracker.HasTriggered = false;
+  }
+
   private ResetGamepadEdges(): void {
     this.PreviousGamepadA = false;
     this.PreviousGamepadB = false;
-    this.PreviousGamepadY = false;
     this.PreviousGamepadLB = false;
-    this.PreviousGamepadRB = false;
     this.PreviousGamepadLT = false;
     this.PreviousGamepadRT = false;
     this.PreviousGamepadDpadUp = false;
@@ -745,6 +1094,9 @@ export class UInputController {
     this.PreviousGamepadDpadRight = false;
     this.PreviousGamepadStart = false;
     this.PreviousGamepadBack = false;
-    this.PreviousGamepadStickCycleDirection = 0;
+    this.PreviousGamepadLeftStick = false;
+    this.PreviousGamepadRightStick = false;
+    this.PreviousGamepadStickTargetDirection = 0;
+    this.PreviousGamepadStickMenuDirection = 0;
   }
 }

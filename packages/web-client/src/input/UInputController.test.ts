@@ -6,7 +6,7 @@ interface FInputControllerProbe {
   MouseDeltaX: number;
   MouseDeltaY: number;
   PendingCancelAimEdge: boolean;
-  PendingToggleItemMenuEdge: boolean;
+  PendingBattleFleeEdge: boolean;
   PendingCycleMenuAxis: number;
   WasPointerLockedToBattleViewport: boolean;
   ResolvePointerLockElement: () => HTMLElement | null;
@@ -62,7 +62,7 @@ describe("UInputController", () => {
     }
   });
 
-  it("战斗中按 Q 进入瞄准时应请求指针锁定，避免鼠标边界导致横向旋转假限位", () => {
+  it("战斗中按鼠标右键切瞄准时应请求指针锁定，避免鼠标边界导致横向旋转假限位", () => {
     const RequestPointerLock = vi.fn();
     const Controller = new UInputController(() => undefined, {
       ResolvePointerLockElement: () =>
@@ -72,15 +72,14 @@ describe("UInputController", () => {
       ShouldRequestPointerLockOnToggleAim: () => true
     });
     const MutableController = Controller as unknown as {
-      HandleKeyDown: (Event: KeyboardEvent) => void;
+      HandleMouseDown: (Event: MouseEvent) => void;
     };
 
-    MutableController.HandleKeyDown({
-      code: "KeyQ",
-      altKey: false,
-      repeat: false,
+    MutableController.HandleMouseDown({
+      button: 2,
+      target: null,
       preventDefault: () => undefined
-    } as KeyboardEvent);
+    } as MouseEvent);
 
     expect(RequestPointerLock).toHaveBeenCalledTimes(1);
   });
@@ -104,22 +103,163 @@ describe("UInputController", () => {
     expect(AimDelta.Y).toBeCloseTo(95, 4);
   });
 
-  it("战斗阶段按 W 应触发物品菜单边沿输入", () => {
+  it("战斗阶段按 C 应进入逃跑长按状态，且旧键位 F 不再触发逃跑边沿", () => {
     const Controller = new UInputController(() => undefined);
     const MutableController = Controller as unknown as {
       HandleKeyDown: (Event: KeyboardEvent) => void;
-      PendingToggleItemMenuEdge: boolean;
+      PendingBattleFleeEdge: boolean;
+      PressedKeys: Set<string>;
     };
 
-    MutableController.PendingToggleItemMenuEdge = false;
+    MutableController.PendingBattleFleeEdge = false;
     MutableController.HandleKeyDown({
-      code: "KeyW",
+      code: "KeyC",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    MutableController.HandleKeyDown({
+      code: "KeyF",
       altKey: false,
       repeat: false,
       preventDefault: () => undefined
     } as KeyboardEvent);
 
-    expect(MutableController.PendingToggleItemMenuEdge).toBe(true);
+    expect(MutableController.PressedKeys.has("KeyC")).toBe(true);
+    expect(MutableController.PendingBattleFleeEdge).toBe(false);
+  });
+
+  it("键盘 Enter/Escape 应分别映射 Confirm/Cancel 语义边沿", () => {
+    const Controller = new UInputController(() => undefined);
+    const MutableController = Controller as unknown as {
+      HandleKeyDown: (Event: KeyboardEvent) => void;
+      PendingConfirmSettlementEdge: boolean;
+      PendingCancelAimEdge: boolean;
+    };
+
+    MutableController.PendingConfirmSettlementEdge = false;
+    MutableController.PendingCancelAimEdge = false;
+    MutableController.HandleKeyDown({
+      code: "Enter",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    MutableController.HandleKeyDown({
+      code: "Escape",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+
+    expect(MutableController.PendingConfirmSettlementEdge).toBe(true);
+    expect(MutableController.PendingCancelAimEdge).toBe(true);
+  });
+
+  it("鼠标右键应映射 Battle.ToggleAim，左键应映射 Battle.Fire", () => {
+    const Controller = new UInputController(() => undefined, {
+      ShouldRequestPointerLockOnToggleAim: () => false,
+      ResolveAimViewportRect: () =>
+        ({
+          left: 0,
+          top: 0,
+          width: 1000,
+          height: 1000
+        }) as DOMRect
+    });
+    const MutableController = Controller as unknown as {
+      HandleMouseDown: (Event: MouseEvent) => void;
+      PendingToggleAimEdge: boolean;
+      PendingFireEdge: boolean;
+      ShouldIgnoreMouseFire: (Target: EventTarget | null) => boolean;
+    };
+
+    MutableController.PendingToggleAimEdge = false;
+    MutableController.PendingFireEdge = false;
+    MutableController.ShouldIgnoreMouseFire = () => false;
+    MutableController.HandleMouseDown({
+      button: 2,
+      target: null,
+      preventDefault: () => undefined
+    } as MouseEvent);
+    MutableController.HandleMouseDown({
+      button: 0,
+      target: null,
+      preventDefault: () => undefined,
+      clientX: 300,
+      clientY: 200
+    } as MouseEvent);
+
+    expect(MutableController.PendingToggleAimEdge).toBe(true);
+    expect(MutableController.PendingFireEdge).toBe(true);
+  });
+
+  it("右键即使落在忽略开火区域也应触发瞄准切换，避免提示存在但实际不生效", () => {
+    const Controller = new UInputController(() => undefined, {
+      ShouldRequestPointerLockOnToggleAim: () => true
+    });
+    const MutableController = Controller as unknown as {
+      HandleMouseDown: (Event: MouseEvent) => void;
+      PendingToggleAimEdge: boolean;
+      ShouldIgnoreMouseFire: (Target: EventTarget | null) => boolean;
+    };
+    const PreventDefault = vi.fn();
+
+    MutableController.PendingToggleAimEdge = false;
+    MutableController.ShouldIgnoreMouseFire = () => true;
+    MutableController.HandleMouseDown({
+      button: 2,
+      target: null,
+      preventDefault: PreventDefault
+    } as unknown as MouseEvent);
+
+    expect(MutableController.PendingToggleAimEdge).toBe(true);
+    expect(PreventDefault).toHaveBeenCalledTimes(1);
+  });
+
+  it("战斗输入上下文应拦截 contextmenu，避免右键触发浏览器菜单导致输入边沿丢失", () => {
+    const Controller = new UInputController(() => undefined, {
+      ShouldLockPointer: () => true
+    });
+    const MutableController = Controller as unknown as {
+      HandleContextMenu: (Event: MouseEvent) => void;
+    };
+    const PreventDefault = vi.fn();
+
+    MutableController.HandleContextMenu({
+      preventDefault: PreventDefault
+    } as unknown as MouseEvent);
+
+    expect(PreventDefault).toHaveBeenCalledTimes(1);
+  });
+
+  it("Tab 进入跳过回合长按状态，但不应再触发旧菜单导航或即时切角色边沿", () => {
+    const Controller = new UInputController(() => undefined);
+    const MutableController = Controller as unknown as {
+      HandleKeyDown: (Event: KeyboardEvent) => void;
+      PendingCycleMenuAxis: number;
+      PendingConfirmSettlementEdge: boolean;
+      PendingCancelAimEdge: boolean;
+      PendingSwitchCharacterEdge: boolean;
+      PressedKeys: Set<string>;
+    };
+
+    MutableController.PendingCycleMenuAxis = 0;
+    MutableController.PendingConfirmSettlementEdge = false;
+    MutableController.PendingCancelAimEdge = false;
+    MutableController.PendingSwitchCharacterEdge = false;
+    MutableController.HandleKeyDown({
+      code: "Tab",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+
+    expect(MutableController.PressedKeys.has("Tab")).toBe(true);
+    expect(MutableController.PendingCycleMenuAxis).toBe(0);
+    expect(MutableController.PendingConfirmSettlementEdge).toBe(false);
+    expect(MutableController.PendingCancelAimEdge).toBe(false);
+    expect(MutableController.PendingSwitchCharacterEdge).toBe(false);
   });
 
   it("方向键上下应输出菜单切换轴", () => {
@@ -148,19 +288,19 @@ describe("UInputController", () => {
     expect(MutableController.PendingCycleMenuAxis).toBe(1);
   });
 
-  it("手柄 Y 应触发物品菜单边沿，D-Pad 上下应触发菜单切换轴", () => {
+  it("手柄 L3/R3 应输出逃跑/跳过回合长按状态，D-Pad 上下应触发菜单切换轴", () => {
     const Controller = new UInputController(() => undefined);
     const MutableController = Controller as unknown as {
       GetActiveGamepad: () => Gamepad | null;
       ReadGamepadSnapshot: () => {
-        ToggleItemMenuEdge: boolean;
+        BattleFleeHold: boolean;
+        SwitchCharacterHold: boolean;
         CycleMenuAxis: number;
       };
       PreviousGamepadA: boolean;
       PreviousGamepadB: boolean;
-      PreviousGamepadY: boolean;
+      PreviousGamepadLeftStick: boolean;
       PreviousGamepadLB: boolean;
-      PreviousGamepadRB: boolean;
       PreviousGamepadLT: boolean;
       PreviousGamepadRT: boolean;
       PreviousGamepadDpadUp: boolean;
@@ -169,7 +309,9 @@ describe("UInputController", () => {
       PreviousGamepadDpadRight: boolean;
       PreviousGamepadStart: boolean;
       PreviousGamepadBack: boolean;
-      PreviousGamepadStickCycleDirection: number;
+      PreviousGamepadRightStick: boolean;
+      PreviousGamepadStickTargetDirection: number;
+      PreviousGamepadStickMenuDirection: number;
     };
 
     const CreateGamepad = (Buttons: Partial<Record<number, { pressed: boolean; value: number }>>) =>
@@ -184,9 +326,8 @@ describe("UInputController", () => {
 
     MutableController.PreviousGamepadA = false;
     MutableController.PreviousGamepadB = false;
-    MutableController.PreviousGamepadY = false;
+    MutableController.PreviousGamepadLeftStick = false;
     MutableController.PreviousGamepadLB = false;
-    MutableController.PreviousGamepadRB = false;
     MutableController.PreviousGamepadLT = false;
     MutableController.PreviousGamepadRT = false;
     MutableController.PreviousGamepadDpadUp = false;
@@ -195,23 +336,251 @@ describe("UInputController", () => {
     MutableController.PreviousGamepadDpadRight = false;
     MutableController.PreviousGamepadStart = false;
     MutableController.PreviousGamepadBack = false;
-    MutableController.PreviousGamepadStickCycleDirection = 0;
+    MutableController.PreviousGamepadRightStick = false;
+    MutableController.PreviousGamepadStickTargetDirection = 0;
+    MutableController.PreviousGamepadStickMenuDirection = 0;
 
     MutableController.GetActiveGamepad = () =>
       CreateGamepad({
-        3: { pressed: true, value: 1 },
+        10: { pressed: true, value: 1 },
+        11: { pressed: true, value: 1 },
         12: { pressed: true, value: 1 }
       });
     const SnapshotUp = MutableController.ReadGamepadSnapshot();
-    expect(SnapshotUp.ToggleItemMenuEdge).toBe(true);
+    expect(SnapshotUp.BattleFleeHold).toBe(true);
+    expect(SnapshotUp.SwitchCharacterHold).toBe(true);
     expect(SnapshotUp.CycleMenuAxis).toBe(-1);
 
     MutableController.GetActiveGamepad = () =>
       CreateGamepad({
-        3: { pressed: false, value: 0 },
+        10: { pressed: false, value: 0 },
+        11: { pressed: false, value: 0 },
         13: { pressed: true, value: 1 }
       });
     const SnapshotDown = MutableController.ReadGamepadSnapshot();
+    expect(SnapshotDown.BattleFleeHold).toBe(false);
+    expect(SnapshotDown.SwitchCharacterHold).toBe(false);
     expect(SnapshotDown.CycleMenuAxis).toBe(1);
+  });
+
+  it("长按状态机应在达到阈值时只触发一次，并持续输出 0-1 进度", () => {
+    const Probe = CreateControllerProbe() as FInputControllerProbe & {
+      UpdateLongHoldTracker: (
+        Tracker: { StartedAtMs: number | null; HasTriggered: boolean },
+        IsHoldInputActive: boolean,
+        TimestampMs: number,
+        HoldDurationMs: number
+      ) => { IsHeld: boolean; IsTriggered: boolean; ProgressNormalized: number };
+    };
+    const Tracker = {
+      StartedAtMs: null as number | null,
+      HasTriggered: false
+    };
+
+    const Started = Probe.UpdateLongHoldTracker(Tracker, true, 1000, 620);
+    expect(Started.IsHeld).toBe(true);
+    expect(Started.IsTriggered).toBe(false);
+    expect(Started.ProgressNormalized).toBe(0);
+
+    const Mid = Probe.UpdateLongHoldTracker(Tracker, true, 1310, 620);
+    expect(Mid.IsTriggered).toBe(false);
+    expect(Mid.ProgressNormalized).toBeGreaterThan(0);
+    expect(Mid.ProgressNormalized).toBeLessThan(1);
+
+    const Reached = Probe.UpdateLongHoldTracker(Tracker, true, 1620, 620);
+    expect(Reached.IsTriggered).toBe(true);
+    expect(Reached.ProgressNormalized).toBe(1);
+
+    const Holding = Probe.UpdateLongHoldTracker(Tracker, true, 1740, 620);
+    expect(Holding.IsTriggered).toBe(false);
+    expect(Holding.ProgressNormalized).toBe(1);
+
+    const Released = Probe.UpdateLongHoldTracker(Tracker, false, 1741, 620);
+    expect(Released.IsHeld).toBe(false);
+    expect(Released.ProgressNormalized).toBe(0);
+  });
+
+  it("手柄左摇杆上下应触发菜单切换轴（无需 D-Pad）", () => {
+    const Controller = new UInputController(() => undefined);
+    const MutableController = Controller as unknown as {
+      GetActiveGamepad: () => Gamepad | null;
+      ReadGamepadSnapshot: () => {
+        CycleMenuAxis: number;
+      };
+      PreviousGamepadA: boolean;
+      PreviousGamepadB: boolean;
+      PreviousGamepadLB: boolean;
+      PreviousGamepadLT: boolean;
+      PreviousGamepadRT: boolean;
+      PreviousGamepadDpadUp: boolean;
+      PreviousGamepadDpadDown: boolean;
+      PreviousGamepadDpadLeft: boolean;
+      PreviousGamepadDpadRight: boolean;
+      PreviousGamepadStart: boolean;
+      PreviousGamepadBack: boolean;
+      PreviousGamepadRightStick: boolean;
+      PreviousGamepadStickTargetDirection: number;
+      PreviousGamepadStickMenuDirection: number;
+    };
+
+    const CreateGamepad = (Axes: number[]) =>
+      ({
+        connected: true,
+        axes: Axes,
+        buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 }))
+      }) as unknown as Gamepad;
+
+    MutableController.PreviousGamepadA = false;
+    MutableController.PreviousGamepadB = false;
+    MutableController.PreviousGamepadLB = false;
+    MutableController.PreviousGamepadLT = false;
+    MutableController.PreviousGamepadRT = false;
+    MutableController.PreviousGamepadDpadUp = false;
+    MutableController.PreviousGamepadDpadDown = false;
+    MutableController.PreviousGamepadDpadLeft = false;
+    MutableController.PreviousGamepadDpadRight = false;
+    MutableController.PreviousGamepadStart = false;
+    MutableController.PreviousGamepadBack = false;
+    MutableController.PreviousGamepadRightStick = false;
+    MutableController.PreviousGamepadStickTargetDirection = 0;
+    MutableController.PreviousGamepadStickMenuDirection = 0;
+
+    MutableController.GetActiveGamepad = () => CreateGamepad([0, -1, 0, 0]);
+    const SnapshotUp = MutableController.ReadGamepadSnapshot();
+    expect(SnapshotUp.CycleMenuAxis).toBe(-1);
+
+    MutableController.GetActiveGamepad = () => CreateGamepad([0, 1, 0, 0]);
+    const SnapshotDown = MutableController.ReadGamepadSnapshot();
+    expect(SnapshotDown.CycleMenuAxis).toBe(1);
+  });
+
+  it("手柄 LT/B/A 应分别映射 ToggleAim/Cancel/Confirm 边沿", () => {
+    const Controller = new UInputController(() => undefined);
+    const MutableController = Controller as unknown as {
+      GetActiveGamepad: () => Gamepad | null;
+      ReadGamepadSnapshot: () => {
+        ToggleAimEdge: boolean;
+        CancelAimEdge: boolean;
+        ConfirmSettlementEdge: boolean;
+      };
+      PreviousGamepadA: boolean;
+      PreviousGamepadB: boolean;
+      PreviousGamepadLB: boolean;
+      PreviousGamepadLT: boolean;
+      PreviousGamepadRT: boolean;
+      PreviousGamepadDpadUp: boolean;
+      PreviousGamepadDpadDown: boolean;
+      PreviousGamepadDpadLeft: boolean;
+      PreviousGamepadDpadRight: boolean;
+      PreviousGamepadStart: boolean;
+      PreviousGamepadBack: boolean;
+      PreviousGamepadRightStick: boolean;
+      PreviousGamepadStickTargetDirection: number;
+      PreviousGamepadStickMenuDirection: number;
+    };
+    const CreateGamepad = (Buttons: Partial<Record<number, { pressed: boolean; value: number }>>) =>
+      ({
+        connected: true,
+        axes: [0, 0, 0, 0],
+        buttons: Array.from(
+          { length: 16 },
+          (_, Index) => Buttons[Index] ?? { pressed: false, value: 0 }
+        )
+      }) as unknown as Gamepad;
+
+    MutableController.PreviousGamepadA = false;
+    MutableController.PreviousGamepadB = false;
+    MutableController.PreviousGamepadLB = false;
+    MutableController.PreviousGamepadLT = false;
+    MutableController.PreviousGamepadRT = false;
+    MutableController.PreviousGamepadDpadUp = false;
+    MutableController.PreviousGamepadDpadDown = false;
+    MutableController.PreviousGamepadDpadLeft = false;
+    MutableController.PreviousGamepadDpadRight = false;
+    MutableController.PreviousGamepadStart = false;
+    MutableController.PreviousGamepadBack = false;
+    MutableController.PreviousGamepadRightStick = false;
+    MutableController.PreviousGamepadStickTargetDirection = 0;
+    MutableController.PreviousGamepadStickMenuDirection = 0;
+
+    MutableController.GetActiveGamepad = () =>
+      CreateGamepad({
+        0: { pressed: true, value: 1 },
+        1: { pressed: true, value: 1 },
+        6: { pressed: true, value: 1 }
+      });
+
+    const Snapshot = MutableController.ReadGamepadSnapshot();
+    expect(Snapshot.ToggleAimEdge).toBe(true);
+    expect(Snapshot.CancelAimEdge).toBe(true);
+    expect(Snapshot.ConfirmSettlementEdge).toBe(true);
+  });
+
+  it("openworld 冲刺应映射 RT 按住，L3 不应触发 SprintHold", () => {
+    const Controller = new UInputController(() => undefined);
+    const MutableController = Controller as unknown as {
+      GetActiveGamepad: () => Gamepad | null;
+      ReadGamepadSnapshot: () => {
+        SprintHold: boolean;
+      };
+      PreviousGamepadA: boolean;
+      PreviousGamepadB: boolean;
+      PreviousGamepadLB: boolean;
+      PreviousGamepadLT: boolean;
+      PreviousGamepadRT: boolean;
+      PreviousGamepadDpadUp: boolean;
+      PreviousGamepadDpadDown: boolean;
+      PreviousGamepadDpadLeft: boolean;
+      PreviousGamepadDpadRight: boolean;
+      PreviousGamepadStart: boolean;
+      PreviousGamepadBack: boolean;
+      PreviousGamepadRightStick: boolean;
+      PreviousGamepadStickTargetDirection: number;
+      PreviousGamepadStickMenuDirection: number;
+    };
+    const CreateGamepad = (Buttons: Partial<Record<number, { pressed: boolean; value: number }>>) =>
+      ({
+        connected: true,
+        axes: [0, 0, 0, 0],
+        buttons: Array.from(
+          { length: 16 },
+          (_, Index) => Buttons[Index] ?? { pressed: false, value: 0 }
+        )
+      }) as unknown as Gamepad;
+
+    MutableController.PreviousGamepadA = false;
+    MutableController.PreviousGamepadB = false;
+    MutableController.PreviousGamepadLB = false;
+    MutableController.PreviousGamepadLT = false;
+    MutableController.PreviousGamepadRT = false;
+    MutableController.PreviousGamepadDpadUp = false;
+    MutableController.PreviousGamepadDpadDown = false;
+    MutableController.PreviousGamepadDpadLeft = false;
+    MutableController.PreviousGamepadDpadRight = false;
+    MutableController.PreviousGamepadStart = false;
+    MutableController.PreviousGamepadBack = false;
+    MutableController.PreviousGamepadRightStick = false;
+    MutableController.PreviousGamepadStickTargetDirection = 0;
+    MutableController.PreviousGamepadStickMenuDirection = 0;
+
+    const ReadSprintHold = (
+      Buttons: Partial<Record<number, { pressed: boolean; value: number }>>
+    ): boolean => {
+      MutableController.GetActiveGamepad = () => CreateGamepad(Buttons);
+      return MutableController.ReadGamepadSnapshot().SprintHold;
+    };
+
+    expect(
+      ReadSprintHold({
+        10: { pressed: true, value: 1 },
+        7: { pressed: false, value: 0 }
+      })
+    ).toBe(false);
+    expect(
+      ReadSprintHold({
+        10: { pressed: false, value: 0 },
+        7: { pressed: true, value: 1 }
+      })
+    ).toBe(true);
   });
 });
