@@ -5,6 +5,7 @@ export type EInputPromptColorRole = "Neutral" | "GamepadA" | "GamepadB" | "Gamep
 export interface FInputPromptToken {
   Label: string;
   IconPath: string | null;
+  IconAssetPath: string | null;
   ColorRole: EInputPromptColorRole;
   UseMonospace: boolean;
 }

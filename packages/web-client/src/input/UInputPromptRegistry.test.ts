@@ -10,6 +10,7 @@ describe("UInputPromptRegistry", () => {
     expect(Prompt).not.toBeNull();
     expect(Prompt?.Label).toBe("A");
     expect(Prompt?.ColorRole).toBe("GamepadA");
+    expect(Prompt?.IconAssetPath).toContain("xbox_button_color_a.svg");
   });
 
   it("应为键鼠取消键返回 ESC 图标提示", () => {
@@ -18,6 +19,7 @@ describe("UInputPromptRegistry", () => {
     expect(Prompt).not.toBeNull();
     expect(Prompt?.Label.toLowerCase()).toContain("esc");
     expect(Prompt?.IconPath).not.toBeNull();
+    expect(Prompt?.IconAssetPath).toBeNull();
   });
 
   it("应为手柄取消键返回 B 红色提示", () => {
@@ -26,6 +28,7 @@ describe("UInputPromptRegistry", () => {
     expect(Prompt).not.toBeNull();
     expect(Prompt?.Label).toBe("B");
     expect(Prompt?.ColorRole).toBe("GamepadB");
+    expect(Prompt?.IconAssetPath).toContain("xbox_button_color_b.svg");
   });
 
   it("应为无图标键位返回文本键帽 fallback", () => {
@@ -36,6 +39,7 @@ describe("UInputPromptRegistry", () => {
     );
     expect(Prompt).not.toBeNull();
     expect(Prompt?.IconPath).toBeNull();
+    expect(Prompt?.IconAssetPath).toBeNull();
     expect(Prompt?.UseMonospace).toBe(true);
   });
 
@@ -59,6 +63,8 @@ describe("UInputPromptRegistry", () => {
     expect(FleeKeyboard?.Label).toBe("C");
     expect(SwitchGamepad?.Label).toBe("RS");
     expect(FleeGamepad?.Label).toBe("LS");
+    expect(SwitchGamepad?.IconAssetPath).toContain("xbox_rs.svg");
+    expect(FleeGamepad?.IconAssetPath).toContain("xbox_ls.svg");
   });
 
   it("无对应映射时应返回 null", () => {

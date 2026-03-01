@@ -23,16 +23,26 @@ function ResolvePromptColorClass(ColorRole: FInputPromptToken["ColorRole"]): str
 
 export function UInputPromptBadge({ Token }: FInputPromptBadgeProps) {
   const ColorClass = ResolvePromptColorClass(Token.ColorRole);
+  const ClassName = `InputPromptBadge ${ColorClass}${Token.UseMonospace ? " InputPromptBadge--Mono" : ""}`;
+  const RenderPromptVisual = () => {
+    if (Token.IconAssetPath !== null) {
+      return (
+        <img
+          className="InputPromptBadge__Image"
+          src={Token.IconAssetPath}
+          alt=""
+          aria-hidden="true"
+        />
+      );
+    }
+    if (Token.IconPath !== null) {
+      return <Icon className="InputPromptBadge__Icon" path={Token.IconPath} size={0.86} />;
+    }
+    return <span className="InputPromptBadge__Label">{Token.Label}</span>;
+  };
   return (
-    <span
-      className={`InputPromptBadge ${ColorClass}${Token.UseMonospace ? " InputPromptBadge--Mono" : ""}`}
-      title={Token.Label}
-    >
-      {Token.IconPath !== null ? (
-        <Icon className="InputPromptBadge__Icon" path={Token.IconPath} size={0.86} />
-      ) : (
-        <span className="InputPromptBadge__Label">{Token.Label}</span>
-      )}
+    <span className={ClassName} title={Token.Label}>
+      {RenderPromptVisual()}
     </span>
   );
 }

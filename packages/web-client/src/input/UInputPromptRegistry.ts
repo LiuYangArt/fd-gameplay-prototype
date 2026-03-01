@@ -9,16 +9,30 @@ import {
 
 import type { FContextualActionSlot, FInputPromptToken, FResolvedActionSlot } from "./FInputPrompt";
 
-function CreatePromptToken(
-  Label: string,
-  Options: Partial<Pick<FInputPromptToken, "IconPath" | "ColorRole" | "UseMonospace">> = {}
-): FInputPromptToken {
+const KenneyXboxSeriesAssetBasePath = "/assets/input/kenney/xbox-series";
+type FPromptTokenOptions = Partial<
+  Pick<FInputPromptToken, "IconPath" | "IconAssetPath" | "ColorRole" | "UseMonospace">
+>;
+
+function CreatePromptToken(Label: string, Options: FPromptTokenOptions = {}): FInputPromptToken {
   return {
     Label,
     IconPath: Options.IconPath ?? null,
+    IconAssetPath: Options.IconAssetPath ?? null,
     ColorRole: Options.ColorRole ?? "Neutral",
     UseMonospace: Options.UseMonospace ?? true
   };
+}
+
+function CreateKenneyXboxPromptToken(
+  Label: string,
+  FileName: string,
+  ColorRole: FInputPromptToken["ColorRole"] = "Neutral"
+): FInputPromptToken {
+  return CreatePromptToken(Label, {
+    IconAssetPath: `${KenneyXboxSeriesAssetBasePath}/${FileName}`,
+    ColorRole
+  });
 }
 
 const KeyboardMousePromptMap: Partial<Record<FInputAction, FInputPromptToken>> = {
@@ -38,18 +52,18 @@ const KeyboardMousePromptMap: Partial<Record<FInputAction, FInputPromptToken>> =
 };
 
 const GamepadPromptMap: Partial<Record<FInputAction, FInputPromptToken>> = {
-  [EInputAction.UIConfirm]: CreatePromptToken("A", { ColorRole: "GamepadA" }),
-  [EInputAction.UICancel]: CreatePromptToken("B", { ColorRole: "GamepadB" }),
-  [EInputAction.BattleToggleAim]: CreatePromptToken("LT"),
-  [EInputAction.BattleFire]: CreatePromptToken("RT"),
-  [EInputAction.BattleSwitchCharacter]: CreatePromptToken("RS"),
-  [EInputAction.BattleFlee]: CreatePromptToken("LS"),
-  [EInputAction.SystemRestart]: CreatePromptToken("Menu"),
-  [EInputAction.SystemToggleDebug]: CreatePromptToken("View"),
-  [EInputAction.UINavUp]: CreatePromptToken("D↑"),
-  [EInputAction.UINavDown]: CreatePromptToken("D↓"),
-  [EInputAction.UINavLeft]: CreatePromptToken("D←"),
-  [EInputAction.UINavRight]: CreatePromptToken("D→")
+  [EInputAction.UIConfirm]: CreateKenneyXboxPromptToken("A", "xbox_button_color_a.svg", "GamepadA"),
+  [EInputAction.UICancel]: CreateKenneyXboxPromptToken("B", "xbox_button_color_b.svg", "GamepadB"),
+  [EInputAction.BattleToggleAim]: CreateKenneyXboxPromptToken("LT", "xbox_lt.svg"),
+  [EInputAction.BattleFire]: CreateKenneyXboxPromptToken("RT", "xbox_rt.svg"),
+  [EInputAction.BattleSwitchCharacter]: CreateKenneyXboxPromptToken("RS", "xbox_rs.svg"),
+  [EInputAction.BattleFlee]: CreateKenneyXboxPromptToken("LS", "xbox_ls.svg"),
+  [EInputAction.SystemRestart]: CreateKenneyXboxPromptToken("Menu", "xbox_button_menu.svg"),
+  [EInputAction.SystemToggleDebug]: CreateKenneyXboxPromptToken("View", "xbox_button_view.svg"),
+  [EInputAction.UINavUp]: CreateKenneyXboxPromptToken("D↑", "xbox_dpad_up.svg"),
+  [EInputAction.UINavDown]: CreateKenneyXboxPromptToken("D↓", "xbox_dpad_down.svg"),
+  [EInputAction.UINavLeft]: CreateKenneyXboxPromptToken("D←", "xbox_dpad_left.svg"),
+  [EInputAction.UINavRight]: CreateKenneyXboxPromptToken("D→", "xbox_dpad_right.svg")
 };
 
 export class UInputPromptRegistry {

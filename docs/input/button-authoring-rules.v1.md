@@ -34,8 +34,13 @@
 规则：
 
 1. 有图标时仅渲染图标，不再重复显示文字（`UInputPromptBadge` 已实现）。
-2. ABXY 颜色固定：A 绿、B 红、X 蓝、Y 黄。
-3. 非 ABXY 使用中性配色。
+2. 手柄提示默认使用 Kenney Input Prompts（Xbox Series）本地 SVG 资源：
+   - 资源目录：`packages/web-client/public/assets/input/kenney/xbox-series/`
+   - 许可文件：`packages/web-client/public/assets/input/kenney/LICENSE.txt`
+3. ABXY 颜色固定：A 绿、B 红、X 蓝、Y 黄（由 glyph 视觉规范保证）。
+4. 键鼠提示优先 MDI（如 `Esc/Enter/LMB/RMB`），无图标再退化为等宽文本键帽。
+5. Prompt 渲染优先级固定：`IconAssetPath -> IconPath -> Label`。
+6. 新增手柄提示时，资源命名必须与动作标签一一对应（如 `xbox_lt.svg`、`xbox_rs.svg`），并在 PR 中补 `UInputPromptRegistry.test.ts` 断言。
 
 ### 2.3 按钮渲染必须走统一组件
 
