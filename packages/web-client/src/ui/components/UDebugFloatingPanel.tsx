@@ -1,8 +1,10 @@
+import { useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+
 import type { FDebugConfig } from "../../debug/UDebugConfigStore";
 import type { FHudViewModel } from "../FHudViewModel";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 
 export type FDebugTabKey = "Overworld" | "Battle";
+type FBattleDebugSubTabKey = "BattleFlow" | "BattleAim" | "BattlePreview" | "BattleFeedback";
 
 type FDebugNumberKey = {
   [K in keyof FDebugConfig]: FDebugConfig[K] extends number ? K : never;
@@ -28,6 +30,12 @@ interface FRangeSpec {
 interface FRangeGroup {
   Title: string;
   Specs: FRangeSpec[];
+}
+
+interface FBattleSubTabDefinition {
+  Key: FBattleDebugSubTabKey;
+  Label: string;
+  Groups: FRangeGroup[];
 }
 
 const OverworldRangeGroups: FRangeGroup[] = [
@@ -377,6 +385,29 @@ const BattleRangeGroups: FRangeGroup[] = [
   }
 ];
 
+const BattleRangeSubTabs: FBattleSubTabDefinition[] = [
+  {
+    Key: "BattleFlow",
+    Label: "待机/入场",
+    Groups: [BattleRangeGroups[0], BattleRangeGroups[1]]
+  },
+  {
+    Key: "BattleAim",
+    Label: "瞄准机位",
+    Groups: [BattleRangeGroups[2]]
+  },
+  {
+    Key: "BattlePreview",
+    Label: "预览/特写",
+    Groups: [BattleRangeGroups[3], BattleRangeGroups[4], BattleRangeGroups[5]]
+  },
+  {
+    Key: "BattleFeedback",
+    Label: "反馈/结算",
+    Groups: [BattleRangeGroups[6], BattleRangeGroups[7]]
+  }
+];
+
 function RangeField({ Label, Value, Min, Max, Step, OnChange }: FRangeFieldProps) {
   const SliderValue = Math.min(Math.max(Value, Min), Max);
 
@@ -440,11 +471,17 @@ export function UDebugFloatingPanel({
   OnHeaderPointerDown,
   OnResizePointerDown
 }: FDebugFloatingPanelProps) {
+  const [ActiveBattleSubTab, SetActiveBattleSubTab] = useState<FBattleDebugSubTabKey>("BattleFlow");
+  const ActiveGroups =
+    ActiveTab === "Overworld"
+      ? OverworldRangeGroups
+      : (BattleRangeSubTabs.find((SubTab) => SubTab.Key === ActiveBattleSubTab)?.Groups ??
+        BattleRangeSubTabs[0].Groups);
+
   if (!IsVisible) {
     return null;
   }
 
-  const ActiveGroups = ActiveTab === "Overworld" ? OverworldRangeGroups : BattleRangeGroups;
   return (
     <section className="FloatingDebugPanel" style={Style}>
       <div className="FloatingDebugHeader" onPointerDown={OnHeaderPointerDown}>
@@ -470,6 +507,25 @@ export function UDebugFloatingPanel({
               Battle 参数
             </button>
           </div>
+
+          {ActiveTab === "Battle" ? (
+            <div className="DebugSubTabBar">
+              {BattleRangeSubTabs.map((SubTab) => (
+                <button
+                  key={SubTab.Key}
+                  type="button"
+                  className={
+                    ActiveBattleSubTab === SubTab.Key
+                      ? "DebugSubTabButton IsActive"
+                      : "DebugSubTabButton"
+                  }
+                  onClick={() => SetActiveBattleSubTab(SubTab.Key)}
+                >
+                  {SubTab.Label}
+                </button>
+              ))}
+            </div>
+          ) : null}
 
           {ActiveGroups.map((Group) => (
             <div key={Group.Title} className="DebugRangeGroup">

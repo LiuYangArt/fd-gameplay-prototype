@@ -32,9 +32,13 @@ body {
 .AppRoot {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 2.1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 16px;
   padding: 16px;
+}
+
+.AppRoot.AppRoot--InfoVisible {
+  grid-template-columns: 2.1fr 1fr;
 }
 
 .BattleSection {
@@ -247,6 +251,26 @@ ul {
   background: #18456c;
 }
 
+.DebugSubTabBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.DebugSubTabButton {
+  width: auto;
+  min-width: 110px;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+
+.DebugSubTabButton.IsActive {
+  border-color: #73a9d7;
+  background: #1b4262;
+}
+
 .FloatingDebugResizeHandle {
   position: absolute;
   right: 0;
@@ -283,6 +307,46 @@ ul {
   background: rgba(25, 29, 36, 0.84);
   color: #ffd784;
   letter-spacing: 0.04em;
+}
+
+.ViewportHotkeyHints {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 27;
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(175, 198, 226, 0.36);
+  background: rgba(10, 18, 30, 0.8);
+  backdrop-filter: blur(1.5px);
+  pointer-events: none;
+}
+
+.ViewportHotkeyHints p {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #c0d2e8;
+  white-space: nowrap;
+}
+
+.ViewportHotkeyHints kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid rgba(188, 211, 236, 0.45);
+  background: rgba(28, 44, 63, 0.88);
+  color: #e7f1fb;
+  font-family: "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .SettlementOverlay {

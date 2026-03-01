@@ -35,6 +35,8 @@ interface FAimHoverTargetAnchor {
   };
 }
 
+const IssueFeedbackUrl = "https://github.com/LiuYangArt/fd-gameplay-prototype/issues";
+
 // eslint-disable-next-line complexity
 export function App() {
   const CanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -46,6 +48,7 @@ export function App() {
   const [DebugBuffer, SetDebugBuffer] = useState("");
   const [DebugMessage, SetDebugMessage] = useState<string | null>(null);
   const [ActiveDebugTab, SetActiveDebugTab] = useState<FDebugTabKey>("Overworld");
+  const [IsHudPanelVisible, SetIsHudPanelVisible] = useState(false);
   const [IsBattlePointerLocked, SetIsBattlePointerLocked] = useState(false);
   const [ControlledUnitAnchor, SetControlledUnitAnchor] = useState<FControlledUnitAnchor | null>(
     null
@@ -209,6 +212,44 @@ export function App() {
       window.removeEventListener("resize", HandleWindowResize);
     };
   }, [DebugMenuLayoutStore]);
+
+  useEffect(() => {
+    const IsEditableTarget = (Target: EventTarget | null) => {
+      if (!(Target instanceof HTMLElement)) {
+        return false;
+      }
+      const TagName = Target.tagName;
+      return (
+        TagName === "INPUT" ||
+        TagName === "TEXTAREA" ||
+        TagName === "SELECT" ||
+        Target.isContentEditable
+      );
+    };
+
+    const HandleGlobalHotkey = (Event: KeyboardEvent) => {
+      if (Event.altKey && Event.shiftKey && Event.code === "KeyI") {
+        Event.preventDefault();
+        if (Event.repeat) {
+          return;
+        }
+        SetIsHudPanelVisible((Previous) => !Previous);
+        return;
+      }
+
+      if (Event.code !== "F2" || Event.repeat || IsEditableTarget(Event.target)) {
+        return;
+      }
+      Event.preventDefault();
+      const OpenedWindow = window.open(IssueFeedbackUrl, "_blank", "noopener,noreferrer");
+      OpenedWindow?.focus();
+    };
+
+    window.addEventListener("keydown", HandleGlobalHotkey);
+    return () => {
+      window.removeEventListener("keydown", HandleGlobalHotkey);
+    };
+  }, []);
 
   useEffect(() => {
     const HandlePointerMove = (Event: PointerEvent) => {
@@ -480,7 +521,7 @@ export function App() {
   );
 
   return (
-    <main className="AppRoot">
+    <main className={`AppRoot${IsHudPanelVisible ? " AppRoot--InfoVisible" : ""}`}>
       <section className="BattleSection">
         <div
           ref={BattleViewportRef}
@@ -492,6 +533,21 @@ export function App() {
           {Hud.EncounterState.PromptText ? (
             <div className="PhaseBanner">{Hud.EncounterState.PromptText}</div>
           ) : null}
+
+          <div className="ViewportHotkeyHints" data-ignore-fire-input="true">
+            <p>
+              <kbd>F3</kbd>
+              <span>显示 Debug</span>
+            </p>
+            <p>
+              <kbd>Alt + Shift + I</kbd>
+              <span>{IsHudPanelVisible ? "隐藏信息栏" : "显示信息栏"}</span>
+            </p>
+            <p>
+              <kbd>F2</kbd>
+              <span>提反馈 / Issue</span>
+            </p>
+          </div>
 
           {IsSettlementPhase ? (
             <div className="SettlementOverlay">
@@ -675,225 +731,227 @@ export function App() {
         </div>
       </section>
 
-      <aside className="HudPanel">
-        <h1>FD Gameplay Prototype</h1>
-        <p>
-          Runtime Phase: <strong>{Hud.RuntimePhase}</strong>
-        </p>
-
-        <section className="PanelBlock">
-          <h2>全局控制</h2>
-          <div className="ControlsGrid">
-            <button type="button" onClick={() => Runtime.StartGame()}>
-              重开探索（R / Start）
-            </button>
-            <button type="button" onClick={() => Runtime.RequestSettlementPreview("面板触发")}>
-              进入结算（Alt + S）
-            </button>
-            <button type="button" onClick={() => Runtime.ConfirmSettlementPreview()}>
-              确认回图（Enter / A）
-            </button>
-          </div>
-          <p className="HintText">
-            战斗输入：RMB/LT 切瞄准，F/Enter/A 确认，Esc/B 返回，↑/↓ 与 D-Pad 上下做菜单导航，A/D 或
-            ←/→ 与 D-Pad 左右做目标导航；瞄准开火使用 LMB/RT。左下 HUD：长按 C/LS 逃跑，长按 Tab/RS
-            跳过回合。
-          </p>
-        </section>
-
-        <section className="PanelBlock">
-          <h2>Overworld</h2>
+      {IsHudPanelVisible ? (
+        <aside className="HudPanel">
+          <h1>FD Gameplay Prototype</h1>
           <p>
-            Phase: <strong>{Hud.OverworldState.Phase}</strong>
-          </p>
-          <p>
-            Controlled Team: <strong>{Hud.OverworldState.ControlledTeamId ?? "None"}</strong>
-          </p>
-          <p>
-            Active Units:{" "}
-            <strong>
-              {Hud.OverworldState.ControlledTeamActiveUnitIds.length > 0
-                ? Hud.OverworldState.ControlledTeamActiveUnitIds.join(", ")
-                : "None"}
-            </strong>
-          </p>
-          <p>
-            Display Unit:{" "}
-            <strong>{Hud.OverworldState.ControlledTeamOverworldDisplayUnitId ?? "None"}</strong>
-          </p>
-          <p>
-            Player (cm): X {Hud.OverworldState.PlayerPosition.X.toFixed(1)} / Z{" "}
-            {Hud.OverworldState.PlayerPosition.Z.toFixed(1)}
-          </p>
-          <p>
-            Enemy Count: <strong>{Hud.OverworldState.Enemies.length}</strong>
-          </p>
-          <p>
-            Pending Encounter:{" "}
-            <strong>{Hud.OverworldState.PendingEncounterEnemyId ?? "None"}</strong>
-          </p>
-          <p>
-            Last Encounter: <strong>{Hud.OverworldState.LastEncounterEnemyId ?? "None"}</strong>
-          </p>
-        </section>
-
-        <section className="PanelBlock">
-          <h2>Encounter Transition</h2>
-          <p>
-            Encounter Enemy: <strong>{Hud.EncounterState.EncounterEnemyId ?? "None"}</strong>
-          </p>
-          <p>
-            Remaining: <strong>{Hud.EncounterState.RemainingTransitionMs.toFixed(0)} ms</strong>
-          </p>
-        </section>
-
-        <section className="PanelBlock">
-          <h2>Battle 3C</h2>
-          <p>
-            Team: <strong>{Hud.Battle3CState.PlayerTeamId ?? "None"}</strong> vs{" "}
-            <strong>{Hud.Battle3CState.EnemyTeamId ?? "None"}</strong>
-          </p>
-          <p>
-            Controlled: <strong>{Hud.Battle3CState.ControlledCharacterId ?? "None"}</strong>
-          </p>
-          <p>
-            Camera Mode: <strong>{Hud.Battle3CState.CameraMode}</strong>
-          </p>
-          <p>
-            Aim/Command:{" "}
-            <strong>
-              {Hud.Battle3CState.IsAimMode ? "Aim" : "Follow"} / {Hud.Battle3CState.CommandStage}
-            </strong>
-          </p>
-          <p>
-            Pointer Lock: <strong>{IsBattlePointerLocked ? "Locked" : "Unlocked"}</strong>
-          </p>
-          <p>
-            Selected Target: <strong>{Hud.Battle3CState.SelectedTargetId ?? "None"}</strong>
-          </p>
-          <p>
-            Crosshair:{" "}
-            <strong>
-              X {Hud.Battle3CState.CrosshairScreenPosition.X.toFixed(3)} / Y{" "}
-              {Hud.Battle3CState.CrosshairScreenPosition.Y.toFixed(3)}
-            </strong>
-          </p>
-          <p>
-            Enemy Script Step: <strong>{Hud.Battle3CState.ScriptStepIndex}</strong>
+            Runtime Phase: <strong>{Hud.RuntimePhase}</strong>
           </p>
 
-          <div className="ControlsGrid">
-            <button
-              type="button"
-              disabled={!IsBattle3CPhase}
-              onClick={HandleToggleBattleAimWithPointerLock}
-            >
-              切换瞄准（RMB / LT）
-            </button>
-            <button
-              type="button"
-              disabled={!IsBattle3CPhase}
-              onClick={() => Runtime.FireBattleAction()}
-            >
-              确认/执行（Enter / A，瞄准中 LMB / RT）
-            </button>
-            <button
-              type="button"
-              disabled={!IsBattle3CPhase}
-              onClick={() => Runtime.SwitchControlledCharacter()}
-            >
-              跳过回合（长按 Tab / RS）
-            </button>
-            <button
-              type="button"
-              disabled={!IsBattle3CPhase}
-              onClick={() => Runtime.ToggleBattleSkillTargetMode()}
-            >
-              技能菜单（根命令选中“技能”后 Enter / A）
-            </button>
-            <button
-              type="button"
-              disabled={!IsBattle3CPhase}
-              onClick={() => Runtime.ToggleBattleItemMenu()}
-            >
-              物品菜单（根命令选中“物品”后 Enter / A）
-            </button>
-            <button
-              type="button"
-              disabled={!IsBattle3CPhase}
-              onClick={() => Runtime.CycleBattleTarget(-1)}
-            >
-              上一个目标（A / Left / D-Pad 左）
-            </button>
-            <button
-              type="button"
-              disabled={!IsBattle3CPhase}
-              onClick={() => Runtime.CycleBattleTarget(1)}
-            >
-              下一个目标（D / Right / D-Pad 右）
-            </button>
-            <button
-              type="button"
-              disabled={!IsBattle3CPhase}
-              onClick={() => Runtime.CycleBattleMenuSelection(-1)}
-            >
-              菜单上移（↑ / D-Pad 上）
-            </button>
-            <button
-              type="button"
-              disabled={!IsBattle3CPhase}
-              onClick={() => Runtime.CycleBattleMenuSelection(1)}
-            >
-              菜单下移（↓ / D-Pad 下）
-            </button>
-          </div>
+          <section className="PanelBlock">
+            <h2>全局控制</h2>
+            <div className="ControlsGrid">
+              <button type="button" onClick={() => Runtime.StartGame()}>
+                重开探索（R / Start）
+              </button>
+              <button type="button" onClick={() => Runtime.RequestSettlementPreview("面板触发")}>
+                进入结算（Alt + S）
+              </button>
+              <button type="button" onClick={() => Runtime.ConfirmSettlementPreview()}>
+                确认回图（Enter / A）
+              </button>
+            </div>
+            <p className="HintText">
+              战斗输入：RMB/LT 切瞄准，F/Enter/A 确认，Esc/B 返回，↑/↓ 与 D-Pad 上下做菜单导航，A/D
+              或 ←/→ 与 D-Pad 左右做目标导航；瞄准开火使用 LMB/RT。左下 HUD：长按 C/LS 逃跑，长按
+              Tab/RS 跳过回合。
+            </p>
+          </section>
 
-          <ul>
-            {Hud.Battle3CState.Units.map((Unit) => (
-              <li key={Unit.UnitId}>
-                {Unit.UnitId} | {Unit.TeamId} | Pos ({Unit.PositionCm.X.toFixed(0)},{" "}
-                {Unit.PositionCm.Y.toFixed(0)}, {Unit.PositionCm.Z.toFixed(0)}) | HP{" "}
-                {Unit.CurrentHp}/{Unit.MaxHp} | MP {Unit.CurrentMp}/{Unit.MaxMp} |{" "}
-                {Unit.IsControlled ? "Controlled" : Unit.IsSelectedTarget ? "Targeted" : "Idle"} |{" "}
-                {Unit.ModelAssetPath ?? "NoModel"}
-              </li>
-            ))}
-          </ul>
-        </section>
+          <section className="PanelBlock">
+            <h2>Overworld</h2>
+            <p>
+              Phase: <strong>{Hud.OverworldState.Phase}</strong>
+            </p>
+            <p>
+              Controlled Team: <strong>{Hud.OverworldState.ControlledTeamId ?? "None"}</strong>
+            </p>
+            <p>
+              Active Units:{" "}
+              <strong>
+                {Hud.OverworldState.ControlledTeamActiveUnitIds.length > 0
+                  ? Hud.OverworldState.ControlledTeamActiveUnitIds.join(", ")
+                  : "None"}
+              </strong>
+            </p>
+            <p>
+              Display Unit:{" "}
+              <strong>{Hud.OverworldState.ControlledTeamOverworldDisplayUnitId ?? "None"}</strong>
+            </p>
+            <p>
+              Player (cm): X {Hud.OverworldState.PlayerPosition.X.toFixed(1)} / Z{" "}
+              {Hud.OverworldState.PlayerPosition.Z.toFixed(1)}
+            </p>
+            <p>
+              Enemy Count: <strong>{Hud.OverworldState.Enemies.length}</strong>
+            </p>
+            <p>
+              Pending Encounter:{" "}
+              <strong>{Hud.OverworldState.PendingEncounterEnemyId ?? "None"}</strong>
+            </p>
+            <p>
+              Last Encounter: <strong>{Hud.OverworldState.LastEncounterEnemyId ?? "None"}</strong>
+            </p>
+          </section>
 
-        <section className="PanelBlock">
-          <h2>Settlement Preview</h2>
-          <p>{Hud.SettlementState.SummaryText}</p>
-          <p>{Hud.SettlementState.ConfirmHintText}</p>
-          <button
-            type="button"
-            disabled={!IsSettlementPhase}
-            onClick={() => Runtime.ConfirmSettlementPreview()}
-          >
-            确认返回探索
-          </button>
-        </section>
+          <section className="PanelBlock">
+            <h2>Encounter Transition</h2>
+            <p>
+              Encounter Enemy: <strong>{Hud.EncounterState.EncounterEnemyId ?? "None"}</strong>
+            </p>
+            <p>
+              Remaining: <strong>{Hud.EncounterState.RemainingTransitionMs.toFixed(0)} ms</strong>
+            </p>
+          </section>
 
-        <section className="PanelBlock">
-          <h2>Debug (F3)</h2>
-          <p>
-            Menu: <strong>{Hud.DebugState.IsMenuOpen ? "Open" : "Closed"}</strong>
-          </p>
-          <p>
-            Last Saved: <strong>{Hud.DebugState.LastUpdatedAtIso ?? "Never"}</strong>
-          </p>
-          <p className="HintText">调试参数已改为右侧悬浮菜单，可拖拽与缩放。</p>
-        </section>
+          <section className="PanelBlock">
+            <h2>Battle 3C</h2>
+            <p>
+              Team: <strong>{Hud.Battle3CState.PlayerTeamId ?? "None"}</strong> vs{" "}
+              <strong>{Hud.Battle3CState.EnemyTeamId ?? "None"}</strong>
+            </p>
+            <p>
+              Controlled: <strong>{Hud.Battle3CState.ControlledCharacterId ?? "None"}</strong>
+            </p>
+            <p>
+              Camera Mode: <strong>{Hud.Battle3CState.CameraMode}</strong>
+            </p>
+            <p>
+              Aim/Command:{" "}
+              <strong>
+                {Hud.Battle3CState.IsAimMode ? "Aim" : "Follow"} / {Hud.Battle3CState.CommandStage}
+              </strong>
+            </p>
+            <p>
+              Pointer Lock: <strong>{IsBattlePointerLocked ? "Locked" : "Unlocked"}</strong>
+            </p>
+            <p>
+              Selected Target: <strong>{Hud.Battle3CState.SelectedTargetId ?? "None"}</strong>
+            </p>
+            <p>
+              Crosshair:{" "}
+              <strong>
+                X {Hud.Battle3CState.CrosshairScreenPosition.X.toFixed(3)} / Y{" "}
+                {Hud.Battle3CState.CrosshairScreenPosition.Y.toFixed(3)}
+              </strong>
+            </p>
+            <p>
+              Enemy Script Step: <strong>{Hud.Battle3CState.ScriptStepIndex}</strong>
+            </p>
 
-        <section className="PanelBlock">
-          <h2>Event Log</h2>
-          <ul className="EventLogList">
-            {Hud.EventLogs.map((Log, Index) => (
-              <li key={`EventLog-${Index}-${Log}`}>{Log}</li>
-            ))}
-          </ul>
-        </section>
-      </aside>
+            <div className="ControlsGrid">
+              <button
+                type="button"
+                disabled={!IsBattle3CPhase}
+                onClick={HandleToggleBattleAimWithPointerLock}
+              >
+                切换瞄准（RMB / LT）
+              </button>
+              <button
+                type="button"
+                disabled={!IsBattle3CPhase}
+                onClick={() => Runtime.FireBattleAction()}
+              >
+                确认/执行（Enter / A，瞄准中 LMB / RT）
+              </button>
+              <button
+                type="button"
+                disabled={!IsBattle3CPhase}
+                onClick={() => Runtime.SwitchControlledCharacter()}
+              >
+                跳过回合（长按 Tab / RS）
+              </button>
+              <button
+                type="button"
+                disabled={!IsBattle3CPhase}
+                onClick={() => Runtime.ToggleBattleSkillTargetMode()}
+              >
+                技能菜单（根命令选中“技能”后 Enter / A）
+              </button>
+              <button
+                type="button"
+                disabled={!IsBattle3CPhase}
+                onClick={() => Runtime.ToggleBattleItemMenu()}
+              >
+                物品菜单（根命令选中“物品”后 Enter / A）
+              </button>
+              <button
+                type="button"
+                disabled={!IsBattle3CPhase}
+                onClick={() => Runtime.CycleBattleTarget(-1)}
+              >
+                上一个目标（A / Left / D-Pad 左）
+              </button>
+              <button
+                type="button"
+                disabled={!IsBattle3CPhase}
+                onClick={() => Runtime.CycleBattleTarget(1)}
+              >
+                下一个目标（D / Right / D-Pad 右）
+              </button>
+              <button
+                type="button"
+                disabled={!IsBattle3CPhase}
+                onClick={() => Runtime.CycleBattleMenuSelection(-1)}
+              >
+                菜单上移（↑ / D-Pad 上）
+              </button>
+              <button
+                type="button"
+                disabled={!IsBattle3CPhase}
+                onClick={() => Runtime.CycleBattleMenuSelection(1)}
+              >
+                菜单下移（↓ / D-Pad 下）
+              </button>
+            </div>
+
+            <ul>
+              {Hud.Battle3CState.Units.map((Unit) => (
+                <li key={Unit.UnitId}>
+                  {Unit.UnitId} | {Unit.TeamId} | Pos ({Unit.PositionCm.X.toFixed(0)},{" "}
+                  {Unit.PositionCm.Y.toFixed(0)}, {Unit.PositionCm.Z.toFixed(0)}) | HP{" "}
+                  {Unit.CurrentHp}/{Unit.MaxHp} | MP {Unit.CurrentMp}/{Unit.MaxMp} |{" "}
+                  {Unit.IsControlled ? "Controlled" : Unit.IsSelectedTarget ? "Targeted" : "Idle"} |{" "}
+                  {Unit.ModelAssetPath ?? "NoModel"}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="PanelBlock">
+            <h2>Settlement Preview</h2>
+            <p>{Hud.SettlementState.SummaryText}</p>
+            <p>{Hud.SettlementState.ConfirmHintText}</p>
+            <button
+              type="button"
+              disabled={!IsSettlementPhase}
+              onClick={() => Runtime.ConfirmSettlementPreview()}
+            >
+              确认返回探索
+            </button>
+          </section>
+
+          <section className="PanelBlock">
+            <h2>Debug (F3)</h2>
+            <p>
+              Menu: <strong>{Hud.DebugState.IsMenuOpen ? "Open" : "Closed"}</strong>
+            </p>
+            <p>
+              Last Saved: <strong>{Hud.DebugState.LastUpdatedAtIso ?? "Never"}</strong>
+            </p>
+            <p className="HintText">调试参数已改为右侧悬浮菜单，可拖拽与缩放。</p>
+          </section>
+
+          <section className="PanelBlock">
+            <h2>Event Log</h2>
+            <ul className="EventLogList">
+              {Hud.EventLogs.map((Log, Index) => (
+                <li key={`EventLog-${Index}-${Log}`}>{Log}</li>
+              ))}
+            </ul>
+          </section>
+        </aside>
+      ) : null}
 
       <UDebugFloatingPanel
         IsVisible={Hud.DebugState.IsMenuOpen}
