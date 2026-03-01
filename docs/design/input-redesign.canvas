@@ -1,0 +1,37 @@
+{
+	"nodes":[
+		{"id":"fdc79b1331564f5c","type":"text","text":"按键显示style\n\n按键提示\n- 如果是直接对应手柄 ABXY四个键的按钮， 需要有对应的颜色\n- A-绿 B-红 X-蓝 Y-黄\n- 其它按键提示灰白色\n- 按键使用 按键图标 @mdi/react + @mdi/js\n- 单字按键如果没有对应的图标icon，使用等宽字体\n\n按钮分两种： \n1. 直接按键盘/手柄上对应按键就能触发的，前面直接显示按键提示。（例如通用的 手柄B/键盘ESC 返回上一级操作）\n2. 需要先选中后才能触发的（例如：一个列表， 手柄在里面上下左右选择对应的按钮/选项），使用手柄设备时，选中的按钮前面显示 A 按键提示，表面按手柄A触发。使用键鼠时如果是键盘方向键选中了此按钮，前面显示 enter 图标。 并且按钮可以鼠标左键点击触发。 \n\n\n图标包： @mdi/react + @mdi/js\n","x":116,"y":-258,"width":447,"height":612},
+		{"id":"cc4ebe57d33bde96","type":"text","text":"按键图标 @mdi/react + @mdi/js","x":-247,"y":461,"width":325,"height":56},
+		{"id":"ac8eaa342f04aaa3","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301150414.png","x":-284,"y":558,"width":400,"height":194},
+		{"id":"9d8013de056d9db5","type":"text","text":"通用按键统一显示在viewport 左下角\n使用键鼠时可点击，同时也可作为按键提示","x":1292,"y":-736,"width":408,"height":150},
+		{"id":"effb336d07dd00cf","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301145601.png","x":1296,"y":-539,"width":400,"height":232},
+		{"id":"e44941d1773019a0","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301150437.png","x":1296,"y":-287,"width":151,"height":57},
+		{"id":"fa72675c90bc0434","type":"text","text":"统一按键规则\n\n- 手柄 A确认 B取消\n- 键鼠 左键点击确认/esc取消","x":934,"y":-736,"width":292,"height":150},
+		{"id":"1badc3537406779c","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301165752.png","x":831,"y":208,"width":216,"height":190},
+		{"id":"427dffc038e86b27","type":"text","text":"标准按钮样式2","x":1122,"y":28,"width":250,"height":56},
+		{"id":"e6d5c15b916f0b19","type":"text","text":"标准按钮样式1","x":814,"y":28,"width":250,"height":56},
+		{"id":"17e2471810a4966f","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301112918.png","x":831,"y":486,"width":399,"height":183},
+		{"id":"3806ea283702f194","x":1116,"y":126,"width":228,"height":272,"type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301170822.png"},
+		{"id":"781e518fbfc58310","x":1474,"y":28,"width":308,"height":60,"type":"text","text":"按钮style： 圆角矩形/单色/无渐变/无半透明/按钮投影"},
+		{"id":"bdaf05249fab9d0b","type":"text","text":"为以后移植UE方便，需要能适配ue common ui的规范，可以导出按键的JSON  https://dev.epicgames.com/documentation/en-us/unreal-engine/common-ui-quickstart-guide-for-unreal-engine\n\n支持键鼠/手柄输入\n- 检测 latest input device， 并切换UI上按钮对应的按键提示","x":96,"y":-678,"width":498,"height":279},
+		{"id":"49145412ccbfdac1","type":"text","text":"DEMO 操作规范化","x":220,"y":-796,"width":250,"height":60},
+		{"id":"e80d6c95df51e4e9","type":"file","file":"fd_prototype_docs/design/_assets/Pasted image 20260301112040.png","x":194,"y":486,"width":400,"height":278}
+	],
+	"edges":[
+		{"id":"6b2dbb44f4782f85","fromNode":"fdc79b1331564f5c","fromSide":"bottom","toNode":"e80d6c95df51e4e9","toSide":"top"},
+		{"id":"86d59a43c73f682e","fromNode":"fdc79b1331564f5c","fromSide":"right","toNode":"e6d5c15b916f0b19","toSide":"left"},
+		{"id":"da26618372ffa7b2","fromNode":"bdaf05249fab9d0b","fromSide":"bottom","toNode":"fdc79b1331564f5c","toSide":"top"},
+		{"id":"899482f045d32b72","fromNode":"fa72675c90bc0434","fromSide":"right","toNode":"9d8013de056d9db5","toSide":"left"},
+		{"id":"9f1e60ba1b86c3f7","fromNode":"effb336d07dd00cf","fromSide":"bottom","toNode":"e44941d1773019a0","toSide":"right"},
+		{"id":"8f52813ca66010eb","fromNode":"9d8013de056d9db5","fromSide":"bottom","toNode":"effb336d07dd00cf","toSide":"top"},
+		{"id":"52e5628740e1c4ae","fromNode":"e6d5c15b916f0b19","fromSide":"right","toNode":"427dffc038e86b27","toSide":"left"},
+		{"id":"3f41750bd204217e","fromNode":"e6d5c15b916f0b19","fromSide":"bottom","toNode":"1badc3537406779c","toSide":"top"},
+		{"id":"f9ca7701e8519e4e","fromNode":"1badc3537406779c","fromSide":"bottom","toNode":"17e2471810a4966f","toSide":"top"},
+		{"id":"3c71b6b4eb08338d","fromNode":"fdc79b1331564f5c","fromSide":"bottom","toNode":"cc4ebe57d33bde96","toSide":"top"},
+		{"id":"132804260b8f7967","fromNode":"cc4ebe57d33bde96","fromSide":"bottom","toNode":"ac8eaa342f04aaa3","toSide":"top"},
+		{"id":"140afc9aa580a388","fromNode":"427dffc038e86b27","fromSide":"bottom","toNode":"3806ea283702f194","toSide":"top"},
+		{"id":"d5bf74c485665802","fromNode":"fdc79b1331564f5c","fromSide":"right","toNode":"fa72675c90bc0434","toSide":"left"},
+		{"id":"135352df920472a2","fromNode":"49145412ccbfdac1","fromSide":"bottom","toNode":"bdaf05249fab9d0b","toSide":"top"},
+		{"id":"9ab05daf7c26df6d","fromNode":"427dffc038e86b27","fromSide":"right","toNode":"781e518fbfc58310","toSide":"left"}
+	]
+}
