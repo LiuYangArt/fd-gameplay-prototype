@@ -11,13 +11,17 @@ body:
   - type: dropdown
     id: target_layer
     attributes:
-      label: 目标层
-      description: 该需求主要落在哪一层。
+      label: 需求分类
+      description: 按需求要解决的问题类型选择，不需要判断技术实现落点。
       options:
-        - gameplay-core（纯逻辑/回合/结算）
-        - web-client（渲染/UI/输入）
-        - ue-bridge（UE 适配）
-        - 跨层改动（请在下方说明边界）
+        - 系统流程（例如：进入战斗、结算返回、状态切换）
+        - 玩法机制（例如：回合规则、目标选择、技能/道具逻辑）
+        - 数值平衡（例如：伤害、消耗、冷却、敌我强度）
+        - 表现反馈（例如：镜头、动画、特效、音效、HUD 可读性）
+        - 输入交互（例如：键鼠/手柄映射、操作手感、交互路径）
+        - 稳定性与性能（例如：卡顿、掉帧、卡死、异常中断）
+        - 工具与流程（例如：调试面板、配置导入导出、测试/文档流程）
+        - 暂不确定（先描述现象与目标，研发协助归类）
     validations:
       required: true
   - type: textarea
