@@ -18,6 +18,7 @@ describe("UInputPromptRegistry", () => {
     expect(Prompt?.Label).toBe("A");
     expect(Prompt?.ColorRole).toBe("GamepadA");
     expect(Prompt?.IconAssetPath).toContain("xbox_button_color_a.svg");
+    expect(Prompt?.IconAssetPath?.startsWith("/")).toBe(false);
   });
 
   it("应为键鼠取消键返回 ESC 图标提示", () => {

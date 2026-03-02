@@ -85,4 +85,20 @@ describe("UDebugConfigStore", () => {
     expect(NextConfig.TargetSelectLateralOffsetCm).toBe(460);
     expect(NextConfig.TargetSelectYawDeg).toBe(-125);
   });
+
+  it("角色模型路径应兼容子路径部署，默认与导入配置都应使用相对 assets 路径", () => {
+    const Store = new UDebugConfigStore();
+    const DefaultConfig = Store.GetDefaultConfig();
+    expect(DefaultConfig.UnitModelChar01Path.startsWith("/")).toBe(false);
+    expect(DefaultConfig.UnitModelChar01Path).toContain("assets/models/characters/");
+
+    const Imported = Store.ImportJson(
+      JSON.stringify({
+        UnitModelChar01Path: "/assets/models/characters/SM_Char01.glb"
+      }),
+      DefaultConfig
+    );
+
+    expect(Imported.UnitModelChar01Path).toBe("assets/models/characters/SM_Char01.glb");
+  });
 });

@@ -9,7 +9,7 @@ import {
 
 import type { FContextualActionSlot, FInputPromptToken, FResolvedActionSlot } from "./FInputPrompt";
 
-const KenneyXboxSeriesAssetBasePath = "/assets/input/kenney/xbox-series";
+const KenneyXboxSeriesAssetBasePath = "assets/input/kenney/xbox-series";
 type FPromptTokenOptions = Partial<
   Pick<FInputPromptToken, "IconPath" | "IconAssetPath" | "ColorRole" | "UseMonospace">
 >;

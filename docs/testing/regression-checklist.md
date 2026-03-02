@@ -1,6 +1,6 @@
 # 回归检查清单（Gameplay Prototype）
 
-更新时间：2026-03-01
+更新时间：2026-03-02
 
 > 用法
 >
@@ -29,6 +29,7 @@
 ## C. 输入与交互（web-client）
 
 - [x] 浏览器可测试条目已使用 `playwright-cli` 执行并保留命令记录（本次执行 `pnpm smoke:web`，含键盘/鼠标交互步骤，产物：`output/playwright/2026-03-01T11-58-04-154Z/`）。
+- [x] GitHub Pages 子路径部署下（`/<repo>/`）角色模型与手柄提示图标资源路径可正确解析，不应请求根路径 `/assets/...`（`UDebugConfigStore.test.ts` + `UInputPromptRegistry.test.ts` + 线上 URL 探针）。
 - [ ] 键鼠映射：确认/切目标/重开战斗均可触发。
 - [ ] 手柄映射：A / D-Pad Right / Start 均可触发。
 - [ ] 输入边沿触发无连发问题（按住不会重复触发一次性动作）。
@@ -140,6 +141,17 @@
 - [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
 
 ## F. 本次修复记录
+
+- 问题描述：修复 GitHub Pages 部署后角色模型未加载（回退 capsule）与手柄提示图标路径失效；根因是资源路径使用了根路径绝对地址 `/assets/...`，在 `/<repo>/` 子路径站点下会 404。
+- 对应测试文件：
+  - `packages/web-client/src/debug/UDebugConfigStore.test.ts`（新增“子路径部署下模型路径应为相对 assets 路径”回归，先失败后修复）
+  - `packages/web-client/src/input/UInputPromptRegistry.test.ts`（新增“手柄图标路径不应以 / 开头”断言，先失败后修复）
+- 新增/修改条目：C 节新增“GitHub Pages 子路径部署资源路径可解析”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/debug/UDebugConfigStore.test.ts`：先失败后通过。
+  - `pnpm --filter @fd/web-client test -- src/input/UInputPromptRegistry.test.ts`：先失败后通过。
+  - `https://liuyangart.github.io/assets/models/characters/SM_Char01.glb` => `404`；`https://liuyangart.github.io/fd-gameplay-prototype/assets/models/characters/SM_Char01.glb` => `200`（根因探针）。
+- 是否新增 postmortem：`是`（`docs/postmortems/2026-03-02-github-pages-assets-base-path-regression.md`）。
 
 - 问题描述：按体验反馈补充目标选择阶段的左下角操作提示，要求同时覆盖“攻击/技能选敌”和“道具选己方目标”，并新增键盘 `F` 确认目标（手柄保持 `A`）。
 - 对应测试文件：

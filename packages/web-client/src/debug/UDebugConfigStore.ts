@@ -149,9 +149,9 @@ const DefaultDebugConfig: FDebugConfig = {
   EnemyAttackCamHeightCm: 130,
   SettlementCamDistanceCm: 760,
   SettlementCamHeightCm: 280,
-  UnitModelChar01Path: "/assets/models/characters/SM_Char01.glb",
-  UnitModelChar02Path: "/assets/models/characters/SM_Char02.glb",
-  UnitModelChar03Path: "/assets/models/characters/SM_Char03.glb",
+  UnitModelChar01Path: "assets/models/characters/SM_Char01.glb",
+  UnitModelChar02Path: "assets/models/characters/SM_Char02.glb",
+  UnitModelChar03Path: "assets/models/characters/SM_Char03.glb",
   ModelAxisFixPreset: "None",
   FallbackToPlaceholderOnLoadFail: true,
   MuzzleSocketPrefix: "SOCKET_Muzzle",
@@ -628,20 +628,14 @@ export class UDebugConfigStore {
         DebugWideCmMin,
         DebugWideCmMax
       ),
-      UnitModelChar01Path: this.ResolveString(
-        Source,
-        "UnitModelChar01Path",
-        Base.UnitModelChar01Path
+      UnitModelChar01Path: this.NormalizePublicAssetPath(
+        this.ResolveString(Source, "UnitModelChar01Path", Base.UnitModelChar01Path)
       ),
-      UnitModelChar02Path: this.ResolveString(
-        Source,
-        "UnitModelChar02Path",
-        Base.UnitModelChar02Path
+      UnitModelChar02Path: this.NormalizePublicAssetPath(
+        this.ResolveString(Source, "UnitModelChar02Path", Base.UnitModelChar02Path)
       ),
-      UnitModelChar03Path: this.ResolveString(
-        Source,
-        "UnitModelChar03Path",
-        Base.UnitModelChar03Path
+      UnitModelChar03Path: this.NormalizePublicAssetPath(
+        this.ResolveString(Source, "UnitModelChar03Path", Base.UnitModelChar03Path)
       ),
       ModelAxisFixPreset: this.ResolveModelAxisFixPreset(
         Source.ModelAxisFixPreset,
@@ -731,6 +725,14 @@ export class UDebugConfigStore {
 
   private Clamp(Value: number, Min: number, Max: number): number {
     return Math.min(Math.max(Value, Min), Max);
+  }
+
+  // GitHub Pages 使用子路径部署时，/assets/... 会跳回域名根目录导致 404。
+  private NormalizePublicAssetPath(Path: string): string {
+    if (Path.startsWith("/assets/")) {
+      return Path.slice(1);
+    }
+    return Path;
   }
 
   private CanUseStorage(): boolean {
