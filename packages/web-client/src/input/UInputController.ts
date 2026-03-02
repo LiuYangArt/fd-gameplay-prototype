@@ -73,6 +73,32 @@ const IgnoreFireInputSelector = '[data-ignore-fire-input="true"]';
 const InteractiveInputSelector =
   "button, input, textarea, select, option, label, a, [role='button']";
 const MouseInputCaptureOptions: AddEventListenerOptions = { capture: true };
+const KeyboardMovePositiveXCodes = ["KeyD", "ArrowRight"] as const;
+const KeyboardMoveNegativeXCodes = ["KeyA", "ArrowLeft"] as const;
+const KeyboardMovePositiveYCodes = ["KeyW", "ArrowUp"] as const;
+const KeyboardMoveNegativeYCodes = ["KeyS", "ArrowDown"] as const;
+const KeyboardPreventDefaultCodes = new Set([
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "F3",
+  "Tab"
+]);
+const KeyboardStateCodes = new Set([
+  "KeyW",
+  "KeyA",
+  "KeyS",
+  "KeyD",
+  "ArrowUp",
+  "ArrowDown",
+  "ArrowLeft",
+  "ArrowRight",
+  "KeyC",
+  "Tab",
+  "ShiftLeft",
+  "ShiftRight"
+]);
 
 interface FInputControllerOptions {
   ResolveAimViewportRect?: () => DOMRect | null;
@@ -344,14 +370,7 @@ export class UInputController {
   }
 
   private HandleKeyDown(Event: KeyboardEvent): void {
-    if (
-      Event.code === "ArrowUp" ||
-      Event.code === "ArrowDown" ||
-      Event.code === "ArrowLeft" ||
-      Event.code === "ArrowRight" ||
-      Event.code === "F3" ||
-      Event.code === "Tab"
-    ) {
+    if (KeyboardPreventDefaultCodes.has(Event.code)) {
       Event.preventDefault();
     }
 
@@ -473,8 +492,12 @@ export class UInputController {
   }
 
   private ReadKeyboardMoveAxis(): FInputVector2 {
-    const X = (this.PressedKeys.has("KeyD") ? 1 : 0) - (this.PressedKeys.has("KeyA") ? 1 : 0);
-    const Y = (this.PressedKeys.has("KeyW") ? 1 : 0) - (this.PressedKeys.has("KeyS") ? 1 : 0);
+    const X =
+      (this.IsAnyKeyPressed(KeyboardMovePositiveXCodes) ? 1 : 0) -
+      (this.IsAnyKeyPressed(KeyboardMoveNegativeXCodes) ? 1 : 0);
+    const Y =
+      (this.IsAnyKeyPressed(KeyboardMovePositiveYCodes) ? 1 : 0) -
+      (this.IsAnyKeyPressed(KeyboardMoveNegativeYCodes) ? 1 : 0);
     return { X, Y };
   }
 
@@ -719,6 +742,9 @@ export class UInputController {
       ArrowUp: () => {
         this.PendingCycleMenuAxis = -1;
       },
+      KeyW: () => {
+        this.PendingCycleMenuAxis = -1;
+      },
       ArrowRight: () => {
         this.PendingCycleTargetAxis = 1;
       },
@@ -726,6 +752,9 @@ export class UInputController {
         this.PendingCycleTargetAxis = 1;
       },
       ArrowDown: () => {
+        this.PendingCycleMenuAxis = 1;
+      },
+      KeyS: () => {
         this.PendingCycleMenuAxis = 1;
       }
     };
@@ -829,16 +858,11 @@ export class UInputController {
   }
 
   private IsStateKey(Code: string): boolean {
-    return (
-      Code === "KeyW" ||
-      Code === "KeyA" ||
-      Code === "KeyS" ||
-      Code === "KeyD" ||
-      Code === "KeyC" ||
-      Code === "Tab" ||
-      Code === "ShiftLeft" ||
-      Code === "ShiftRight"
-    );
+    return KeyboardStateCodes.has(Code);
+  }
+
+  private IsAnyKeyPressed(Codes: readonly string[]): boolean {
+    return Codes.some((Code) => this.PressedKeys.has(Code));
   }
 
   private ResolveCycleTargetAxis(GamepadAxis: number): number {

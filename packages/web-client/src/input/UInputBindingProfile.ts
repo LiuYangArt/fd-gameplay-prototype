@@ -51,11 +51,11 @@ export const UDefaultInputBindingProfile: FInputBindingProfile = {
       GamepadButtons: [1]
     }),
     [EInputAction.UINavUp]: CreateActionBinding({
-      KeyboardKeys: [{ Code: "ArrowUp" }],
+      KeyboardKeys: [{ Code: "ArrowUp" }, { Code: "KeyW" }],
       GamepadButtons: [12]
     }),
     [EInputAction.UINavDown]: CreateActionBinding({
-      KeyboardKeys: [{ Code: "ArrowDown" }],
+      KeyboardKeys: [{ Code: "ArrowDown" }, { Code: "KeyS" }],
       GamepadButtons: [13]
     }),
     [EInputAction.UINavLeft]: CreateActionBinding({

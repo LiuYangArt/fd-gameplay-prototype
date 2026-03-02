@@ -461,7 +461,7 @@ describe("UInputController", () => {
     expect(MutableController.PendingSwitchCharacterEdge).toBe(false);
   });
 
-  it("方向键上下应输出菜单切换轴", () => {
+  it("方向键与 W/S 应输出同一菜单切换轴", () => {
     const Controller = new UInputController(() => undefined);
     const MutableController = Controller as unknown as {
       HandleKeyDown: (Event: KeyboardEvent) => void;
@@ -480,6 +480,24 @@ describe("UInputController", () => {
     MutableController.PendingCycleMenuAxis = 0;
     MutableController.HandleKeyDown({
       code: "ArrowDown",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.PendingCycleMenuAxis).toBe(1);
+
+    MutableController.PendingCycleMenuAxis = 0;
+    MutableController.HandleKeyDown({
+      code: "KeyW",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.PendingCycleMenuAxis).toBe(-1);
+
+    MutableController.PendingCycleMenuAxis = 0;
+    MutableController.HandleKeyDown({
+      code: "KeyS",
       altKey: false,
       repeat: false,
       preventDefault: () => undefined
@@ -529,6 +547,51 @@ describe("UInputController", () => {
       preventDefault: () => undefined
     } as KeyboardEvent);
     expect(MutableController.PendingCycleTargetAxis).toBe(1);
+  });
+
+  it("WASD 与方向键应输出等价移动轴", () => {
+    const Controller = new UInputController(() => undefined);
+    const MutableController = Controller as unknown as {
+      HandleKeyDown: (Event: KeyboardEvent) => void;
+      ReadKeyboardMoveAxis: () => { X: number; Y: number };
+      PressedKeys: Set<string>;
+    };
+
+    MutableController.PressedKeys.clear();
+    MutableController.HandleKeyDown({
+      code: "KeyW",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.ReadKeyboardMoveAxis()).toEqual({ X: 0, Y: 1 });
+
+    MutableController.PressedKeys.clear();
+    MutableController.HandleKeyDown({
+      code: "ArrowUp",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.ReadKeyboardMoveAxis()).toEqual({ X: 0, Y: 1 });
+
+    MutableController.PressedKeys.clear();
+    MutableController.HandleKeyDown({
+      code: "KeyA",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.ReadKeyboardMoveAxis()).toEqual({ X: -1, Y: 0 });
+
+    MutableController.PressedKeys.clear();
+    MutableController.HandleKeyDown({
+      code: "ArrowLeft",
+      altKey: false,
+      repeat: false,
+      preventDefault: () => undefined
+    } as KeyboardEvent);
+    expect(MutableController.ReadKeyboardMoveAxis()).toEqual({ X: -1, Y: 0 });
   });
 
   it("手柄 L3/R3 应输出逃跑/跳过回合长按状态，D-Pad 上下应触发菜单切换轴", () => {
