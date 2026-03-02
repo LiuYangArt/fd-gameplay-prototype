@@ -41,6 +41,11 @@ interface FDamagePopupState {
   DamageAmount: number;
 }
 
+interface FOverworldPlayerPositionSnapshot {
+  X: number;
+  Z: number;
+}
+
 interface FFilePickerAcceptType {
   description?: string;
   accept: Record<string, string[]>;
@@ -88,6 +93,7 @@ const DebugJsonOpenPickerOptions: FFilePickerOpenOptions = {
   types: DebugJsonFilePickerTypes
 };
 const DebugJsonInputAccept = ".json,application/json";
+const OverworldMoveDistanceEpsilonCm = 0.01;
 
 function BuildDebugJsonFileName(): string {
   const Timestamp = new Date()
@@ -142,6 +148,20 @@ function IsInfoPanelToggleHotkey(Event: KeyboardEvent): boolean {
   return Event.altKey && Event.shiftKey && Event.code === "KeyI";
 }
 
+function HasOverworldPlayerMoved(
+  CurrentSnapshot: FOverworldPlayerPositionSnapshot,
+  LastSnapshot: FOverworldPlayerPositionSnapshot | null
+): boolean {
+  if (!LastSnapshot) {
+    return false;
+  }
+
+  return (
+    Math.abs(CurrentSnapshot.X - LastSnapshot.X) > OverworldMoveDistanceEpsilonCm ||
+    Math.abs(CurrentSnapshot.Z - LastSnapshot.Z) > OverworldMoveDistanceEpsilonCm
+  );
+}
+
 // eslint-disable-next-line complexity
 export function App() {
   const CanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -154,6 +174,8 @@ export function App() {
   const [ActiveDebugTab, SetActiveDebugTab] = useState<FDebugTabKey>("Overworld");
   const [IsHudPanelVisible, SetIsHudPanelVisible] = useState(false);
   const [IsBattlePointerLocked, SetIsBattlePointerLocked] = useState(false);
+  const [IsOverworldMoveCursorHidden, SetIsOverworldMoveCursorHidden] = useState(false);
+  const [IsCursorForceVisible, SetIsCursorForceVisible] = useState(false);
   const [ControlledUnitAnchor, SetControlledUnitAnchor] = useState<FControlledUnitAnchor | null>(
     null
   );
@@ -165,6 +187,7 @@ export function App() {
     DebugMenuLayoutStore.Load()
   );
   const HudRef = useRef(Hud);
+  const LastOverworldPlayerPositionRef = useRef<FOverworldPlayerPositionSnapshot | null>(null);
   const LastDamagePopupShotIdRef = useRef(0);
   const DamagePopupDelayTimerRef = useRef<number | null>(null);
   const LastShotId = Hud.Battle3CState.LastShot?.ShotId ?? 0;
@@ -208,6 +231,16 @@ export function App() {
       const ErrorMessage =
         Err instanceof globalThis.Error ? `${Err.name}: ${Err.message}` : String(Err);
       console.warn(`[App] Pointer lock request threw: ${ErrorMessage}`);
+    }
+  }, [AttachPointerLockAsyncErrorLog]);
+  const TryReleasePointerLock = useCallback(() => {
+    try {
+      const ExitResult = document.exitPointerLock();
+      AttachPointerLockAsyncErrorLog(ExitResult, "Pointer lock exit rejected");
+    } catch (Err) {
+      const ErrorMessage =
+        Err instanceof globalThis.Error ? `${Err.name}: ${Err.message}` : String(Err);
+      console.warn(`[App] Pointer lock exit threw: ${ErrorMessage}`);
     }
   }, [AttachPointerLockAsyncErrorLog]);
 
@@ -277,6 +310,22 @@ export function App() {
       window.clearTimeout(TimerHandle);
     };
   }, [DamagePopup]);
+
+  useEffect(() => {
+    if (Hud.RuntimePhase !== "Overworld") {
+      LastOverworldPlayerPositionRef.current = null;
+      SetIsOverworldMoveCursorHidden(false);
+      return;
+    }
+
+    const CurrentSnapshot: FOverworldPlayerPositionSnapshot = {
+      X: Hud.OverworldState.PlayerPosition.X,
+      Z: Hud.OverworldState.PlayerPosition.Z
+    };
+    const LastSnapshot = LastOverworldPlayerPositionRef.current;
+    LastOverworldPlayerPositionRef.current = CurrentSnapshot;
+    SetIsOverworldMoveCursorHidden(HasOverworldPlayerMoved(CurrentSnapshot, LastSnapshot));
+  }, [Hud.OverworldState.PlayerPosition.X, Hud.OverworldState.PlayerPosition.Z, Hud.RuntimePhase]);
 
   useEffect(() => {
     const Canvas = CanvasRef.current;
@@ -355,6 +404,9 @@ export function App() {
       const Target = CanvasRef.current ?? BattleViewportRef.current;
       const IsLocked = Target !== null && document.pointerLockElement === Target;
       SetIsBattlePointerLocked(IsLocked);
+      if (IsLocked) {
+        SetIsCursorForceVisible(false);
+      }
       console.info(`[App] pointerlockchange: ${IsLocked ? "locked" : "unlocked"}`);
     };
     const HandlePointerLockError = () => {
@@ -389,6 +441,16 @@ export function App() {
 
   useEffect(() => {
     const HandleGlobalHotkey = (Event: KeyboardEvent) => {
+      if (Event.shiftKey && Event.code === "F1") {
+        Event.preventDefault();
+        if (Event.repeat) {
+          return;
+        }
+        SetIsCursorForceVisible(true);
+        TryReleasePointerLock();
+        return;
+      }
+
       if (IsInfoPanelToggleHotkey(Event)) {
         Event.preventDefault();
         if (Event.repeat) {
@@ -410,7 +472,7 @@ export function App() {
     return () => {
       window.removeEventListener("keydown", HandleGlobalHotkey);
     };
-  }, []);
+  }, [TryReleasePointerLock]);
 
   useEffect(() => {
     const HandlePointerMove = (Event: PointerEvent) => {
@@ -570,6 +632,7 @@ export function App() {
   };
 
   const HandleBattleViewportPointerDown = (Event: React.PointerEvent<HTMLDivElement>) => {
+    SetIsCursorForceVisible(false);
     if (Event.button !== 0 || !IsBattle3CPhase) {
       return;
     }
@@ -596,6 +659,8 @@ export function App() {
   const IsItemTargetSelectStage =
     IsBattleTargetSelectStage && Hud.Battle3CState.PendingActionKind === "Item";
   const IsAimCursorHidden = IsBattle3CPhase && Hud.Battle3CState.CameraMode === "PlayerAim";
+  const IsViewportCursorHidden =
+    !IsCursorForceVisible && (IsAimCursorHidden || IsOverworldMoveCursorHidden);
   const IsBattleCornerActionsVisible = ShouldShowBattleCornerActions(Hud);
   const ControlledUnit =
     Hud.Battle3CState.Units.find(
@@ -769,7 +834,7 @@ export function App() {
       <section className="BattleSection">
         <div
           ref={BattleViewportRef}
-          className={`BattleViewport${IsAimCursorHidden ? " BattleViewport--HideCursor" : ""}`}
+          className={`BattleViewport${IsViewportCursorHidden ? " BattleViewport--HideCursor" : ""}`}
           onPointerDown={HandleBattleViewportPointerDown}
         >
           <canvas ref={CanvasRef} className="BattleCanvas" />
@@ -790,6 +855,10 @@ export function App() {
             <p>
               <kbd>F2</kbd>
               <span>提反馈 / Issue</span>
+            </p>
+            <p>
+              <kbd>Shift + F1</kbd>
+              <span>放出鼠标 Cursor</span>
             </p>
           </div>
 
