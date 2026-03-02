@@ -35,7 +35,88 @@ interface FAimHoverTargetAnchor {
   };
 }
 
+interface FFilePickerAcceptType {
+  description?: string;
+  accept: Record<string, string[]>;
+}
+
+interface FFilePickerSaveOptions {
+  suggestedName?: string;
+  excludeAcceptAllOption?: boolean;
+  types?: FFilePickerAcceptType[];
+}
+
+interface FFilePickerOpenOptions {
+  multiple?: boolean;
+  excludeAcceptAllOption?: boolean;
+  types?: FFilePickerAcceptType[];
+}
+
+interface FFileSystemWritableFileStreamCompat {
+  write(Data: string): Promise<void>;
+  close(): Promise<void>;
+}
+
+interface FFileSystemFileHandleCompat {
+  createWritable(): Promise<FFileSystemWritableFileStreamCompat>;
+  getFile(): Promise<File>;
+}
+
+interface FFilePickerWindow extends Window {
+  showSaveFilePicker?: (Options?: FFilePickerSaveOptions) => Promise<FFileSystemFileHandleCompat>;
+  showOpenFilePicker?: (Options?: FFilePickerOpenOptions) => Promise<FFileSystemFileHandleCompat[]>;
+}
+
 const IssueFeedbackUrl = "https://github.com/LiuYangArt/fd-gameplay-prototype/issues";
+const DebugJsonFilePickerTypes: FFilePickerAcceptType[] = [
+  {
+    description: "JSON 配置文件",
+    accept: {
+      "application/json": [".json"]
+    }
+  }
+];
+const DebugJsonOpenPickerOptions: FFilePickerOpenOptions = {
+  multiple: false,
+  excludeAcceptAllOption: false,
+  types: DebugJsonFilePickerTypes
+};
+const DebugJsonInputAccept = ".json,application/json";
+
+function BuildDebugJsonFileName(): string {
+  const Timestamp = new Date()
+    .toISOString()
+    .replace(/:/g, "-")
+    .replace(/\.\d{3}Z$/, "Z");
+  return `fd-debug-config-${Timestamp}.json`;
+}
+
+function CreateDebugJsonSavePickerOptions(): FFilePickerSaveOptions {
+  return {
+    suggestedName: BuildDebugJsonFileName(),
+    excludeAcceptAllOption: false,
+    types: DebugJsonFilePickerTypes
+  };
+}
+
+function IsPickerCanceledError(Err: unknown): boolean {
+  return Err instanceof DOMException && Err.name === "AbortError";
+}
+
+function ResolveErrorMessage(Err: unknown): string {
+  return Err instanceof Error ? Err.message : String(Err);
+}
+
+function PickJsonFileByInputElement(): Promise<File | null> {
+  return new Promise<File | null>((Resolve) => {
+    const FileInput = document.createElement("input");
+    FileInput.type = "file";
+    FileInput.accept = DebugJsonInputAccept;
+    FileInput.onchange = () => Resolve(FileInput.files?.[0] ?? null);
+    FileInput.addEventListener("cancel", () => Resolve(null), { once: true });
+    FileInput.click();
+  });
+}
 
 function IsEditableTarget(Target: EventTarget | null): boolean {
   if (!(Target instanceof HTMLElement)) {
@@ -63,7 +144,6 @@ export function App() {
   const Runtime = useMemo(() => new UWebGameRuntime(), []);
   const DebugMenuLayoutStore = useMemo(() => new UDebugMenuLayoutStore(), []);
   const [Hud, SetHud] = useState<FHudViewModel>(Runtime.GetViewModel());
-  const [DebugBuffer, SetDebugBuffer] = useState("");
   const [DebugMessage, SetDebugMessage] = useState<string | null>(null);
   const [ActiveDebugTab, SetActiveDebugTab] = useState<FDebugTabKey>("Overworld");
   const [IsHudPanelVisible, SetIsHudPanelVisible] = useState(false);
@@ -305,16 +385,90 @@ export function App() {
     },
     [Runtime]
   );
+  const WarnAndSetDebugMessage = useCallback((Prefix: string, Err: unknown, Message: string) => {
+    console.warn(`[App] ${Prefix}: ${ResolveErrorMessage(Err)}`);
+    SetDebugMessage(Message);
+  }, []);
 
-  const HandleExportDebugJson = () => {
-    SetDebugBuffer(Runtime.ExportDebugConfigJson());
-    SetDebugMessage("已导出当前配置到文本框。");
-  };
+  const HandleExportDebugJson = useCallback(() => {
+    void (async () => {
+      const JsonText = Runtime.ExportDebugConfigJson();
+      const PickerWindow = window as FFilePickerWindow;
+      if (typeof PickerWindow.showSaveFilePicker === "function") {
+        try {
+          const FileHandle = await PickerWindow.showSaveFilePicker(
+            CreateDebugJsonSavePickerOptions()
+          );
+          const Writable = await FileHandle.createWritable();
+          await Writable.write(JsonText);
+          await Writable.close();
+          SetDebugMessage("配置已导出到文件。");
+          return;
+        } catch (Err) {
+          if (IsPickerCanceledError(Err)) {
+            SetDebugMessage("已取消导出。");
+            return;
+          }
+          WarnAndSetDebugMessage("导出配置到文件失败", Err, "导出失败，请查看控制台日志。");
+          return;
+        }
+      }
 
-  const HandleImportDebugJson = () => {
-    const Result = Runtime.ImportDebugConfigJson(DebugBuffer);
-    SetDebugMessage(Result.IsSuccess ? "配置导入成功。" : Result.ErrorMessage);
-  };
+      try {
+        const JsonBlob = new Blob([JsonText], { type: "application/json;charset=utf-8" });
+        const DownloadUrl = URL.createObjectURL(JsonBlob);
+        try {
+          const DownloadAnchor = document.createElement("a");
+          DownloadAnchor.href = DownloadUrl;
+          DownloadAnchor.download = BuildDebugJsonFileName();
+          DownloadAnchor.click();
+        } finally {
+          URL.revokeObjectURL(DownloadUrl);
+        }
+        SetDebugMessage("当前浏览器不支持保存对话框，已改为下载 JSON 文件。");
+      } catch (Err) {
+        WarnAndSetDebugMessage("降级下载配置失败", Err, "导出失败，请查看控制台日志。");
+      }
+    })();
+  }, [Runtime, WarnAndSetDebugMessage]);
+
+  const HandleImportDebugJson = useCallback(() => {
+    void (async () => {
+      const PickerWindow = window as FFilePickerWindow;
+      let SelectedFile: File | null = null;
+
+      if (typeof PickerWindow.showOpenFilePicker === "function") {
+        try {
+          const Handles = await PickerWindow.showOpenFilePicker(DebugJsonOpenPickerOptions);
+          SelectedFile = Handles[0] ? await Handles[0].getFile() : null;
+        } catch (Err) {
+          if (IsPickerCanceledError(Err)) {
+            SetDebugMessage("已取消导入。");
+            return;
+          }
+          WarnAndSetDebugMessage("打开配置文件失败", Err, "导入失败，请查看控制台日志。");
+          return;
+        }
+      } else {
+        SelectedFile = await PickJsonFileByInputElement();
+      }
+
+      if (!SelectedFile) {
+        SetDebugMessage("已取消导入。");
+        return;
+      }
+
+      try {
+        const JsonText = await SelectedFile.text();
+        const Result = Runtime.ImportDebugConfigJson(JsonText);
+        SetDebugMessage(
+          Result.IsSuccess ? `配置导入成功：${SelectedFile.name}` : Result.ErrorMessage
+        );
+      } catch (Err) {
+        WarnAndSetDebugMessage("读取配置文件失败", Err, "读取文件失败，请检查文件内容。");
+      }
+    })();
+  }, [Runtime, WarnAndSetDebugMessage]);
 
   const StartDebugMenuPointerAction = (
     Mode: FDebugMenuPointerAction["Mode"],
@@ -963,13 +1117,11 @@ export function App() {
         Style={DebugMenuStyle}
         ActiveTab={ActiveDebugTab}
         Hud={Hud}
-        DebugBuffer={DebugBuffer}
         DebugMessage={DebugMessage}
         OnActiveTabChanged={SetActiveDebugTab}
         OnApplyDebugPatch={HandleApplyDebugPatch}
         OnExportDebugJson={HandleExportDebugJson}
         OnImportDebugJson={HandleImportDebugJson}
-        OnDebugBufferChanged={SetDebugBuffer}
         OnHeaderPointerDown={HandleDebugMenuMovePointerDown}
         OnResizePointerDown={HandleDebugMenuResizePointerDown}
       />

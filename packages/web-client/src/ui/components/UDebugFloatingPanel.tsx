@@ -450,13 +450,11 @@ interface FDebugFloatingPanelProps {
   Style: CSSProperties;
   ActiveTab: FDebugTabKey;
   Hud: FHudViewModel;
-  DebugBuffer: string;
   DebugMessage: string | null;
   OnActiveTabChanged: (Tab: FDebugTabKey) => void;
   OnApplyDebugPatch: (Patch: Partial<FDebugConfig>) => void;
   OnExportDebugJson: () => void;
   OnImportDebugJson: () => void;
-  OnDebugBufferChanged: (Value: string) => void;
   OnHeaderPointerDown: (Event: ReactPointerEvent<HTMLDivElement>) => void;
   OnResizePointerDown: (Event: ReactPointerEvent<HTMLDivElement>) => void;
 }
@@ -466,13 +464,11 @@ export function UDebugFloatingPanel({
   Style,
   ActiveTab,
   Hud,
-  DebugBuffer,
   DebugMessage,
   OnActiveTabChanged,
   OnApplyDebugPatch,
   OnExportDebugJson,
   OnImportDebugJson,
-  OnDebugBufferChanged,
   OnHeaderPointerDown,
   OnResizePointerDown
 }: FDebugFloatingPanelProps) {
@@ -690,12 +686,6 @@ export function UDebugFloatingPanel({
               导入 JSON
             </button>
           </div>
-          <textarea
-            className="DebugTextarea"
-            value={DebugBuffer}
-            onChange={(Event) => OnDebugBufferChanged(Event.target.value)}
-            placeholder="在此粘贴配置 JSON"
-          />
           {DebugMessage ? <p className="DebugMessage">{DebugMessage}</p> : null}
         </div>
       </div>

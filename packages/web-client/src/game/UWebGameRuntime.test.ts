@@ -417,6 +417,7 @@ describe("UWebGameRuntime", () => {
   it("Overworld 与瞄准俯仰方向应可独立反转开关控制", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    const DefaultPitch = Runtime.GetViewModel().DebugState.Config.CameraPitch;
 
     Runtime.ApplyDebugConfig({
       OverworldInvertLookPitch: true,
@@ -426,7 +427,7 @@ describe("UWebGameRuntime", () => {
       ...CreateSnapshot(),
       LookPitchDeltaDegrees: 10
     });
-    expect(Runtime.GetViewModel().DebugState.Config.CameraPitch).toBe(12);
+    expect(Runtime.GetViewModel().DebugState.Config.CameraPitch).toBe(DefaultPitch - 10);
 
     MutableRuntime.RuntimePhase = "Battle3C";
     MutableRuntime.ActiveBattleSession = {
@@ -889,6 +890,7 @@ describe("UWebGameRuntime", () => {
   it("瞄准时应允许上下抬枪，仅相机俯仰变化且角色 yaw 不变", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    const AimPitchMin = Runtime.GetViewModel().DebugState.Config.LookPitchMin;
     Runtime.ApplyDebugConfig({ AimInvertLookPitch: false });
     MutableRuntime.RuntimePhase = "Battle3C";
     MutableRuntime.ActiveBattleSession = {
@@ -939,7 +941,7 @@ describe("UWebGameRuntime", () => {
       ...CreateSnapshot(),
       LookPitchDeltaDegrees: -120
     });
-    expect(Runtime.GetViewModel().Battle3CState.AimCameraPitchDeg).toBe(-20);
+    expect(Runtime.GetViewModel().Battle3CState.AimCameraPitchDeg).toBe(AimPitchMin);
     expect(
       Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "char01")?.YawDeg
     ).toBe(90);
