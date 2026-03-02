@@ -842,20 +842,16 @@ export function App() {
 
           <div className="ViewportHotkeyHints" data-ignore-fire-input="true">
             <p>
+              <kbd>F2</kbd>
+              <span>提需求/提反馈</span>
+            </p>
+            <p>
               <kbd>F3</kbd>
-              <span>显示 Debug</span>
+              <span>显示 Debug 菜单</span>
             </p>
             <p>
               <kbd>Alt + Shift + I</kbd>
               <span>{IsHudPanelVisible ? "隐藏信息栏" : "显示信息栏"}</span>
-            </p>
-            <p>
-              <kbd>F2</kbd>
-              <span>提反馈 / Issue</span>
-            </p>
-            <p>
-              <kbd>Shift + F1</kbd>
-              <span>放出鼠标 Cursor</span>
             </p>
           </div>
 
