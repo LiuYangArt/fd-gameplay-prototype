@@ -2,6 +2,9 @@
 
 一个用于快速验证回合制玩法的 TypeScript 网页原型工程。
 
+- 快速试玩：  [https://liuyangart.github.io/fd-gameplay-prototype/](https://liuyangart.github.io/fd-gameplay-prototype/)
+- 提bug/功能需求： [https://github.com/LiuYangArt/fd-gameplay-prototype/issues](https://github.com/LiuYangArt/fd-gameplay-prototype/issues)
+  
 ## 目标
 
 - 快速开发、快速迭代、快速发链接测试
