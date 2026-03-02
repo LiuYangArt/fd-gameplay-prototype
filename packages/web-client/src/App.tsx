@@ -37,6 +37,24 @@ interface FAimHoverTargetAnchor {
 
 const IssueFeedbackUrl = "https://github.com/LiuYangArt/fd-gameplay-prototype/issues";
 
+function IsEditableTarget(Target: EventTarget | null): boolean {
+  if (!(Target instanceof HTMLElement)) {
+    return false;
+  }
+
+  const TagName = Target.tagName;
+  return (
+    TagName === "INPUT" ||
+    TagName === "TEXTAREA" ||
+    TagName === "SELECT" ||
+    Target.isContentEditable
+  );
+}
+
+function IsInfoPanelToggleHotkey(Event: KeyboardEvent): boolean {
+  return Event.altKey && Event.shiftKey && Event.code === "KeyI";
+}
+
 // eslint-disable-next-line complexity
 export function App() {
   const CanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -214,21 +232,8 @@ export function App() {
   }, [DebugMenuLayoutStore]);
 
   useEffect(() => {
-    const IsEditableTarget = (Target: EventTarget | null) => {
-      if (!(Target instanceof HTMLElement)) {
-        return false;
-      }
-      const TagName = Target.tagName;
-      return (
-        TagName === "INPUT" ||
-        TagName === "TEXTAREA" ||
-        TagName === "SELECT" ||
-        Target.isContentEditable
-      );
-    };
-
     const HandleGlobalHotkey = (Event: KeyboardEvent) => {
-      if (Event.altKey && Event.shiftKey && Event.code === "KeyI") {
+      if (IsInfoPanelToggleHotkey(Event)) {
         Event.preventDefault();
         if (Event.repeat) {
           return;

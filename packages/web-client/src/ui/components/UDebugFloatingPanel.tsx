@@ -385,26 +385,31 @@ const BattleRangeGroups: FRangeGroup[] = [
   }
 ];
 
+const BattleFlowRangeGroups = BattleRangeGroups.slice(0, 2);
+const BattleAimRangeGroups = BattleRangeGroups.slice(2, 3);
+const BattlePreviewRangeGroups = BattleRangeGroups.slice(3, 6);
+const BattleFeedbackRangeGroups = BattleRangeGroups.slice(6, 8);
+
 const BattleRangeSubTabs: FBattleSubTabDefinition[] = [
   {
     Key: "BattleFlow",
     Label: "待机/入场",
-    Groups: [BattleRangeGroups[0], BattleRangeGroups[1]]
+    Groups: BattleFlowRangeGroups
   },
   {
     Key: "BattleAim",
     Label: "瞄准机位",
-    Groups: [BattleRangeGroups[2]]
+    Groups: BattleAimRangeGroups
   },
   {
     Key: "BattlePreview",
     Label: "预览/特写",
-    Groups: [BattleRangeGroups[3], BattleRangeGroups[4], BattleRangeGroups[5]]
+    Groups: BattlePreviewRangeGroups
   },
   {
     Key: "BattleFeedback",
     Label: "反馈/结算",
-    Groups: [BattleRangeGroups[6], BattleRangeGroups[7]]
+    Groups: BattleFeedbackRangeGroups
   }
 ];
 
