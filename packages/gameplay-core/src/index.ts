@@ -25,6 +25,18 @@ export type {
   FTeamValidationIssue,
   FTeamValidationResult
 } from "./team/validator/UTeamPackageValidator";
+export { EMeleeCommandType } from "./melee/commands/EMeleeCommandType";
+export type { FMeleeCommand, FResolveStrikeCommand } from "./melee/commands/FMeleeCommand";
+export { EMeleeEventType } from "./melee/events/EMeleeEventType";
+export type {
+  FMeleeDamageAppliedPayload,
+  FMeleeEvent,
+  FMeleeEventPayloadMap,
+  FMeleeMissReason,
+  FMeleeResolvedPayload,
+  FTypedMeleeEvent
+} from "./melee/events/FMeleeEvent";
+export { UMeleeSimulation } from "./melee/facade/UMeleeSimulation";
 export { EOverworldPhase } from "./overworld/enums/EOverworldPhase";
 export { EOverworldCommandType } from "./overworld/commands/EOverworldCommandType";
 export type {

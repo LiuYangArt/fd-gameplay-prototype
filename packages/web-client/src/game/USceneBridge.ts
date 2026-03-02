@@ -21,6 +21,8 @@ import { SceneLoader } from "@babylonjs/core/Loading/sceneLoader";
 import "@babylonjs/loaders/glTF";
 
 import type {
+  FBattleMeleeActionHudState,
+  FBattleDamageCueHudState,
   FBattleCameraMode,
   FBattleUnitHudState,
   FHudViewModel,
@@ -146,6 +148,83 @@ export function ResolveTargetSelectBasisForwardFromPositions(
   return new Vector3(-1, 0, 0);
 }
 
+function Clamp01(Value: number): number {
+  return Math.min(Math.max(Value, 0), 1);
+}
+
+function LerpNumber(Start: number, End: number, Alpha: number): number {
+  return Start + (End - Start) * Clamp01(Alpha);
+}
+
+export function ResolveMeleeActionAttackerPositionCm(
+  Action: FBattleMeleeActionHudState | null | undefined,
+  UnitId: string,
+  NowMs: number
+): FVector3Cm | null {
+  if (!Action || Action.AttackerUnitId !== UnitId) {
+    return null;
+  }
+
+  const Start = Action.StartPositionCm;
+  const Contact = Action.ContactPositionCm;
+  if (NowMs <= Action.DashStartAtMs) {
+    return { ...Start };
+  }
+  if (NowMs <= Action.DashEndAtMs) {
+    const DashDurationMs = Math.max(Action.DashEndAtMs - Action.DashStartAtMs, 1);
+    const Alpha = (NowMs - Action.DashStartAtMs) / DashDurationMs;
+    return {
+      X: LerpNumber(Start.X, Contact.X, Alpha),
+      Y: LerpNumber(Start.Y, Contact.Y, Alpha),
+      Z: LerpNumber(Start.Z, Contact.Z, Alpha)
+    };
+  }
+  if (NowMs <= Action.ReturnStartAtMs) {
+    return { ...Contact };
+  }
+  return { ...Start };
+}
+
+export function ResolveBattleUnitDisplayPositionCm(
+  Unit: Pick<FBattleUnitHudState, "UnitId" | "PositionCm">,
+  ActiveMeleeAction: FBattleMeleeActionHudState | null | undefined,
+  NowMs: number
+): FVector3Cm {
+  const MeleePositionCm = ResolveMeleeActionAttackerPositionCm(
+    ActiveMeleeAction,
+    Unit.UnitId,
+    NowMs
+  );
+  if (MeleePositionCm) {
+    return MeleePositionCm;
+  }
+  return { ...Unit.PositionCm };
+}
+
+export function ResolveMeleeDamageCueImpactPositionCm(
+  Cue:
+    | Pick<FBattleDamageCueHudState, "CueId" | "SourceKind" | "TargetUnitId" | "PopAtMs">
+    | null
+    | undefined,
+  Units: Array<Pick<FBattleUnitHudState, "UnitId" | "PositionCm">>,
+  ActiveMeleeAction: FBattleMeleeActionHudState | null | undefined,
+  NowMs: number,
+  LastConsumedCueId: number
+): FVector3Cm | null {
+  if (!Cue || Cue.SourceKind !== "Melee") {
+    return null;
+  }
+  if (Cue.CueId <= LastConsumedCueId || Cue.PopAtMs > NowMs) {
+    return null;
+  }
+
+  const Target = Units.find((Unit) => Unit.UnitId === Cue.TargetUnitId);
+  if (!Target) {
+    return null;
+  }
+  return ResolveBattleUnitDisplayPositionCm(Target, ActiveMeleeAction, NowMs);
+}
+
 interface FShotRay {
   Origin: Vector3;
   Direction: Vector3;
@@ -227,6 +306,7 @@ export class USceneBridge {
   private LastControlledUnitAnchor: FScreenAnchor | null;
   private LastAimHoverTargetState: FAimHoverTargetScreenState | null;
   private LastConsumedShotId: number;
+  private LastConsumedMeleeDamageCueId: number;
   private readonly ShotProjectileVisuals: FShotProjectileVisual[];
   private readonly HitImpactVisuals: FHitImpactVisual[];
   private readonly HitSparkVisuals: FHitSparkVisual[];
@@ -234,6 +314,7 @@ export class USceneBridge {
   private LastBattleControlledUnitId: string | null;
   private LastBattleSelectedTargetId: string | null;
   private BattleCameraBlendState: FBattleCameraBlendState | null;
+  private WasBattleMeleeLagActive: boolean;
 
   public constructor(Canvas: HTMLCanvasElement, Options?: FSceneBridgeOptions) {
     this.Engine = new Engine(Canvas, true);
@@ -250,6 +331,7 @@ export class USceneBridge {
     this.LastControlledUnitAnchor = null;
     this.LastAimHoverTargetState = null;
     this.LastConsumedShotId = 0;
+    this.LastConsumedMeleeDamageCueId = 0;
     this.ShotProjectileVisuals = [];
     this.HitImpactVisuals = [];
     this.HitSparkVisuals = [];
@@ -257,6 +339,7 @@ export class USceneBridge {
     this.LastBattleControlledUnitId = null;
     this.LastBattleSelectedTargetId = null;
     this.BattleCameraBlendState = null;
+    this.WasBattleMeleeLagActive = false;
 
     this.Camera = this.CreateCamera();
     this.OverworldGround = this.CreateOverworldGround();
@@ -331,6 +414,7 @@ export class USceneBridge {
     } else {
       this.ApplyBattlePocketView(ViewModel);
     }
+    this.ConsumeMeleeDamageCueImpact(ViewModel);
     this.ConsumeBattleShotEvent(ViewModel);
     this.ApplyCamera(ViewModel);
     this.SyncControlledUnitAnchor(ViewModel);
@@ -549,6 +633,12 @@ export class USceneBridge {
       ViewModel.RuntimePhase === "SettlementPreview"
         ? "SettlementCam"
         : ViewModel.Battle3CState.CameraMode;
+    const IsBattleMeleeLagActive =
+      CameraMode === "PlayerFollow" && ViewModel.Battle3CState.ActiveMeleeAction != null;
+    if (!IsBattleMeleeLagActive && this.WasBattleMeleeLagActive) {
+      this.ResetSpringArmLagState();
+    }
+    this.WasBattleMeleeLagActive = IsBattleMeleeLagActive;
     const Handlers: Record<FBattleCameraMode, () => FBattleCameraPose> = {
       IntroPullOut: () => this.ApplyIntroPullOutCamera(Context),
       IntroDropIn: () => this.ApplyIntroDropInCamera(Context),
@@ -576,9 +666,14 @@ export class USceneBridge {
       ControlledUnit,
       SelectedUnit
     );
-    const ControlledPos = this.ResolveBattleUnitPositionOrZero(CameraAnchorUnit, DropOffsetCm);
+    const ControlledPos = this.ResolveBattleUnitPositionOrZero(
+      ViewModel,
+      CameraAnchorUnit,
+      DropOffsetCm
+    );
     const BattleCenter = this.ResolveBattleCenterMeters(ViewModel, DropOffsetCm);
     const SelectedPos = this.ResolveBattleUnitPositionOrFallback(
+      ViewModel,
       SelectedUnit,
       DropOffsetCm,
       BattleCenter
@@ -619,16 +714,18 @@ export class USceneBridge {
   }
 
   private ResolveBattleUnitPositionOrZero(
+    ViewModel: FHudViewModel,
     Unit: FBattleUnitHudState | null,
     DropOffsetCm: number
   ): Vector3 {
     if (Unit === null) {
       return Vector3.Zero();
     }
-    return this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+    return this.ResolveBattleUnitDisplayPositionMeters(ViewModel, Unit, DropOffsetCm);
   }
 
   private ResolveBattleUnitPositionOrFallback(
+    ViewModel: FHudViewModel,
     Unit: FBattleUnitHudState | null,
     DropOffsetCm: number,
     Fallback: Vector3
@@ -636,7 +733,7 @@ export class USceneBridge {
     if (Unit === null) {
       return Fallback;
     }
-    return this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+    return this.ResolveBattleUnitDisplayPositionMeters(ViewModel, Unit, DropOffsetCm);
   }
 
   private ResolveBattleCameraAnchorYawPitch(
@@ -848,9 +945,13 @@ export class USceneBridge {
   }
 
   private ResolvePlayerFollowCameraPose(Context: FBattleCameraContext): FBattleFollowCameraPose {
-    const Focus = Context.ControlledPos.add(new Vector3(0, 0.8, 0))
+    const DesiredFocus = Context.ControlledPos.add(new Vector3(0, 0.8, 0))
       .add(Context.Right.scale(this.ToMeters(Context.DebugConfig.BattleFollowFocusOffsetRightCm)))
       .add(new Vector3(0, this.ToMeters(Context.DebugConfig.BattleFollowFocusOffsetUpCm), 0));
+    const Focus =
+      Context.ViewModel.Battle3CState.ActiveMeleeAction != null
+        ? this.ResolveLaggedBattleFollowFocus(DesiredFocus, Context)
+        : DesiredFocus;
     const Position = Focus.add(
       Context.Forward.scale(-this.ToMeters(Context.DebugConfig.BattleIntroCameraEndDistanceCm))
     )
@@ -860,6 +961,27 @@ export class USceneBridge {
       Focus,
       Position
     };
+  }
+
+  private ResolveLaggedBattleFollowFocus(
+    DesiredFocus: Vector3,
+    Context: FBattleCameraContext
+  ): Vector3 {
+    const DesiredFocusCm: FVector3Cm = {
+      X: this.ToCentimeters(DesiredFocus.x),
+      Y: this.ToCentimeters(DesiredFocus.y),
+      Z: this.ToCentimeters(DesiredFocus.z)
+    };
+    const LaggedFocusCm = this.ResolveSpringArmTargetCm(
+      DesiredFocusCm,
+      Context.DebugConfig.CameraLagSpeed,
+      Context.DebugConfig.CameraLagMaxDistance
+    );
+    return new Vector3(
+      this.ToMeters(LaggedFocusCm.X),
+      this.ToMeters(LaggedFocusCm.Y),
+      this.ToMeters(LaggedFocusCm.Z)
+    );
   }
 
   private ResolveBattleCameraPoseWithBlend(
@@ -1022,6 +1144,7 @@ export class USceneBridge {
     this.LastBattleControlledUnitId = null;
     this.LastBattleSelectedTargetId = null;
     this.BattleCameraBlendState = null;
+    this.WasBattleMeleeLagActive = false;
   }
 
   private ResetSpringArmLagState(): void {
@@ -1196,7 +1319,7 @@ export class USceneBridge {
       const Mesh = ExistingMesh ?? this.CreateBattleUnitMesh(Unit);
       const HasExistingMesh = ExistingMesh !== undefined;
       const ShouldHideInAimMode = this.ShouldHideBattleUnitInAimMode(ViewModel, Unit);
-      Mesh.position = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+      Mesh.position = this.ResolveBattleUnitDisplayPositionMeters(ViewModel, Unit, DropOffsetCm);
       const TargetYawRadians = (Unit.YawDeg * Math.PI) / 180;
       const NextYawRadians = HasExistingMesh
         ? this.ResolveSmoothedYawRadians(Mesh.rotation.y, TargetYawRadians)
@@ -1302,7 +1425,7 @@ export class USceneBridge {
 
     this.ApplyCharacterVisualPose(
       Visual,
-      this.ResolveBattlePlayerModelPositionMeters(Unit, DropOffsetCm),
+      this.ResolveBattlePlayerModelPositionMeters(Unit, ViewModel, DropOffsetCm),
       Unit.YawDeg,
       ViewModel.DebugState.Config.ModelAxisFixPreset
     );
@@ -1481,12 +1604,18 @@ export class USceneBridge {
 
   private ResolveBattlePlayerModelPositionMeters(
     Unit: FBattleUnitHudState,
+    ViewModel: FHudViewModel,
     DropOffsetCm: number
   ): Vector3 {
+    const DisplayPositionCm = ResolveBattleUnitDisplayPositionCm(
+      Unit,
+      ViewModel.Battle3CState.ActiveMeleeAction,
+      Date.now()
+    );
     return new Vector3(
-      this.ToMeters(Unit.PositionCm.X),
-      this.ToMeters(Unit.PositionCm.Y + DropOffsetCm),
-      this.ToMeters(Unit.PositionCm.Z)
+      this.ToMeters(DisplayPositionCm.X),
+      this.ToMeters(DisplayPositionCm.Y + DropOffsetCm),
+      this.ToMeters(DisplayPositionCm.Z)
     );
   }
 
@@ -1674,6 +1803,39 @@ export class USceneBridge {
       ShouldSpawnImpact,
       ElapsedSec: 0,
       DurationSec
+    });
+  }
+
+  private ConsumeMeleeDamageCueImpact(ViewModel: FHudViewModel): void {
+    if (ViewModel.RuntimePhase !== "Battle3C") {
+      this.LastConsumedMeleeDamageCueId = 0;
+      return;
+    }
+
+    const Cue = ViewModel.Battle3CState.LastDamageCue;
+    const NowMs = Date.now();
+    const ImpactPositionCm = ResolveMeleeDamageCueImpactPositionCm(
+      Cue,
+      ViewModel.Battle3CState.Units,
+      ViewModel.Battle3CState.ActiveMeleeAction,
+      NowMs,
+      this.LastConsumedMeleeDamageCueId
+    );
+    if (!Cue || !ImpactPositionCm) {
+      return;
+    }
+
+    this.LastConsumedMeleeDamageCueId = Cue.CueId;
+    const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
+    const ImpactPosition = new Vector3(
+      this.ToMeters(ImpactPositionCm.X),
+      this.ToMeters(ImpactPositionCm.Y + DropOffsetCm) + 0.95,
+      this.ToMeters(ImpactPositionCm.Z)
+    );
+    this.CreateHitImpactVisual(ImpactPosition, {
+      ScaleMultiplier: 1.25,
+      SparkCount: 40,
+      DurationSec: 0.38
     });
   }
 
@@ -1960,10 +2122,20 @@ export class USceneBridge {
     }
   }
 
-  private CreateHitImpactVisual(Position: Vector3): void {
+  private CreateHitImpactVisual(
+    Position: Vector3,
+    Options?: {
+      ScaleMultiplier?: number;
+      SparkCount?: number;
+      DurationSec?: number;
+    }
+  ): void {
+    const ScaleMultiplier = Math.max(Options?.ScaleMultiplier ?? 1, 0.2);
+    const SparkCount = Math.max(Math.round(Options?.SparkCount ?? USceneBridge.HitSparkCount), 1);
+    const DurationSec = Math.max(Options?.DurationSec ?? 0.3, 0.08);
     const CoreMesh = MeshBuilder.CreateSphere(
       `HitImpact_${Date.now()}_${this.HitImpactVisuals.length}`,
-      { diameter: 0.44 },
+      { diameter: 0.44 * ScaleMultiplier },
       this.Scene
     );
     const CoreMaterial = new StandardMaterial(
@@ -1977,11 +2149,15 @@ export class USceneBridge {
     CoreMesh.material = CoreMaterial;
     CoreMesh.isPickable = false;
     CoreMesh.position.copyFrom(Position);
-    CoreMesh.scaling = new Vector3(0.75, 0.75, 0.75);
+    CoreMesh.scaling = new Vector3(
+      0.75 * ScaleMultiplier,
+      0.75 * ScaleMultiplier,
+      0.75 * ScaleMultiplier
+    );
 
     const RingMesh = MeshBuilder.CreateTorus(
       `HitImpactRing_${Date.now()}_${this.HitImpactVisuals.length}`,
-      { diameter: 0.46, thickness: 0.08, tessellation: 28 },
+      { diameter: 0.46 * ScaleMultiplier, thickness: 0.08 * ScaleMultiplier, tessellation: 28 },
       this.Scene
     );
     const RingMaterial = new StandardMaterial(
@@ -1996,16 +2172,20 @@ export class USceneBridge {
     RingMesh.isPickable = false;
     RingMesh.position.copyFrom(Position);
     RingMesh.rotation.x = Math.PI / 2;
-    RingMesh.scaling = new Vector3(0.55, 0.55, 0.55);
+    RingMesh.scaling = new Vector3(
+      0.55 * ScaleMultiplier,
+      0.55 * ScaleMultiplier,
+      0.55 * ScaleMultiplier
+    );
 
-    this.SpawnHitSparkVisuals(Position);
+    this.SpawnHitSparkVisuals(Position, SparkCount);
     this.HitImpactVisuals.push({
       CoreMesh,
       CoreMaterial,
       RingMesh,
       RingMaterial,
       ElapsedSec: 0,
-      DurationSec: 0.3
+      DurationSec
     });
   }
 
@@ -2033,8 +2213,11 @@ export class USceneBridge {
     }
   }
 
-  private SpawnHitSparkVisuals(Position: Vector3): void {
-    for (let Index = 0; Index < USceneBridge.HitSparkCount; Index += 1) {
+  private SpawnHitSparkVisuals(
+    Position: Vector3,
+    SparkCount: number = USceneBridge.HitSparkCount
+  ): void {
+    for (let Index = 0; Index < SparkCount; Index += 1) {
       const SparkMesh = MeshBuilder.CreateSphere(
         `HitSpark_${Date.now()}_${this.HitSparkVisuals.length}_${Index}`,
         { diameter: 0.08 },
@@ -2140,6 +2323,25 @@ export class USceneBridge {
     );
   }
 
+  private ResolveBattleUnitDisplayPositionMeters(
+    ViewModel: FHudViewModel,
+    Unit: FBattleUnitHudState,
+    DropOffsetCm: number
+  ): Vector3 {
+    const DisplayPositionCm = ResolveBattleUnitDisplayPositionCm(
+      Unit,
+      ViewModel.Battle3CState.ActiveMeleeAction,
+      Date.now()
+    );
+
+    const BaseHeightMeters = Unit.TeamId === "Player" ? 0.85 : 0.9;
+    return new Vector3(
+      this.ToMeters(DisplayPositionCm.X),
+      BaseHeightMeters + this.ToMeters(DisplayPositionCm.Y + DropOffsetCm),
+      this.ToMeters(DisplayPositionCm.Z)
+    );
+  }
+
   private FindBattleUnit(
     ViewModel: FHudViewModel,
     UnitId: string | null
@@ -2158,7 +2360,7 @@ export class USceneBridge {
     let SumY = 0;
     let SumZ = 0;
     ViewModel.Battle3CState.Units.forEach((Unit) => {
-      const Position = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+      const Position = this.ResolveBattleUnitDisplayPositionMeters(ViewModel, Unit, DropOffsetCm);
       SumX += Position.x;
       SumY += Position.y;
       SumZ += Position.z;
@@ -2183,7 +2385,7 @@ export class USceneBridge {
     let SumY = 0;
     let SumZ = 0;
     Targets.forEach((Unit) => {
-      const Position = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+      const Position = this.ResolveBattleUnitDisplayPositionMeters(ViewModel, Unit, DropOffsetCm);
       SumX += Position.x;
       SumY += Position.y;
       SumZ += Position.z;
@@ -2568,6 +2770,10 @@ export class USceneBridge {
 
   private ToMeters(Centimeters: number): number {
     return Centimeters * USceneBridge.CentimetersToMeters;
+  }
+
+  private ToCentimeters(Meters: number): number {
+    return Meters / USceneBridge.CentimetersToMeters;
   }
 
   private Clamp(Value: number, Min: number, Max: number): number {

@@ -1,8 +1,13 @@
 import {
+  EMeleeCommandType,
+  EMeleeEventType,
   EOverworldCommandType,
   EOverworldEventType,
+  UMeleeSimulation,
   UOverworldSimulation,
   type FTeamPackageSnapshot,
+  type FTypedMeleeEvent,
+  type FUnitSnapshot,
   type FUnitCombatRuntimeSnapshot,
   type FUnitStaticConfig,
   type FOverworldEnemyState,
@@ -17,10 +22,12 @@ import { UInputPromptRegistry } from "../input/UInputPromptRegistry";
 import type { FContextualActionSlot } from "../input/FInputPrompt";
 import type { FInputSnapshot } from "../input/FInputSnapshot";
 import type {
+  FBattleDamageCueHudState,
   FBattle3CHudState,
   FBattleCameraMode,
   FBattleCommandOption,
   FBattleCommandStage,
+  FBattleMeleeActionHudState,
   FBattlePendingActionKind,
   FBattleShotHudState,
   FBattleScriptFocusHudState,
@@ -106,7 +113,10 @@ interface FBattle3CSession {
   ActionToastEndsAtMs?: number | null;
   ScriptStepIndex: number;
   ShotSequence: number;
+  DamageCueSequence: number;
   LastShot: FBattleShotHudState | null;
+  ActiveMeleeAction?: FBattleMeleeActionHudState | null;
+  LastDamageCue?: FBattleDamageCueHudState | null;
   AimFacingSnapshotByUnitId?: Record<string, number>;
   Units: FBattleUnitRuntimeState[];
   ScriptFocus: FBattleScriptFocusHudState | null;
@@ -140,6 +150,13 @@ const BattleHitReactionDelaySafetyMs = 18;
 const BattleShotTravelSpeedCmPerSec = 3000;
 const BattleShotTravelMinMs = 80;
 const BattleShotTravelMaxMs = 220;
+const BattleDefaultMeleeDamage = 26;
+const BattleMeleeRangeCm = 120;
+const MeleeRetreatSettleMs = 180;
+const MeleeContactDistanceCm = 95;
+const MeleeDashSpeedMinCmPerSec = 450;
+const MeleeDashMinDurationMs = 220;
+const MeleeImpactHoldMs = 800;
 const BattleSkillPlaceholderOptions: FBattleCommandOption[] = [
   { OptionId: "skill01", DisplayName: "技能1" },
   { OptionId: "skill02", DisplayName: "技能2" }
@@ -164,6 +181,7 @@ const BattleLaneTableByTeam: Record<"Player" | "Enemy", Record<number, number[]>
 
 export class UWebGameRuntime {
   private readonly RuntimeListeners: Set<TRuntimeListener>;
+  private readonly MeleeSimulation: UMeleeSimulation;
   private readonly OverworldSimulation: UOverworldSimulation;
   private readonly DebugConfigStore: UDebugConfigStore;
   private readonly InputPromptRegistry: UInputPromptRegistry;
@@ -186,6 +204,7 @@ export class UWebGameRuntime {
   private ActionToastTimerHandle: number | null;
   private readonly HitReturnTimerHandleByUnitId: Map<string, number>;
   private readonly ShotImpactTimerHandleByShotId: Map<number, number>;
+  private readonly MeleeTimelineTimerHandles: Set<number>;
   private SettlementSummaryText: string;
   private ActiveInputDevice: EInputDeviceKind = EInputDeviceKinds.KeyboardMouse;
   private LastInputActionFrame: FInputActionFrame;
@@ -193,6 +212,7 @@ export class UWebGameRuntime {
 
   public constructor() {
     this.RuntimeListeners = new Set();
+    this.MeleeSimulation = new UMeleeSimulation();
     this.OverworldSimulation = new UOverworldSimulation();
     this.DebugConfigStore = new UDebugConfigStore();
     this.InputPromptRegistry = new UInputPromptRegistry();
@@ -216,6 +236,7 @@ export class UWebGameRuntime {
     this.ActionToastTimerHandle = null;
     this.HitReturnTimerHandleByUnitId = new Map();
     this.ShotImpactTimerHandleByShotId = new Map();
+    this.MeleeTimelineTimerHandles = new Set();
     this.SettlementSummaryText = "按 Enter 或手柄 A 返回大地图探索";
     this.LastInputActionFrame = CreateEmptyInputActionFrame();
     this.HasKeyboardDirectionalFocus = false;
@@ -482,24 +503,13 @@ export class UWebGameRuntime {
     if (AlivePlayerUnitIds.length <= 1) {
       return false;
     }
-
-    const CurrentIndex = AlivePlayerUnitIds.indexOf(this.ActiveBattleSession.ControlledCharacterId);
-    const NextIndex = CurrentIndex < 0 ? 0 : (CurrentIndex + 1) % AlivePlayerUnitIds.length;
-    this.ActiveBattleSession.ControlledCharacterId = AlivePlayerUnitIds[NextIndex];
-    this.ActiveBattleSession.AimHoverTargetId = null;
-    this.AlignSelectedTargetForControlledCharacter();
-    if (this.ActiveBattleSession.IsAimMode) {
-      const ControlledUnit = this.FindBattleUnit(this.ActiveBattleSession.ControlledCharacterId);
-      this.ActiveBattleSession.AimCameraYawDeg = ControlledUnit?.YawDeg ?? 0;
-      this.ActiveBattleSession.AimCameraPitchDeg = 0;
-      this.CaptureAimFacingSnapshot(this.ActiveBattleSession.ControlledCharacterId);
-      this.AlignAimFacingToEnemyCenterAxis();
-      this.SyncAimCameraYawToControlledFacing();
-    }
-    this.ActiveBattleSession.CameraMode = this.ResolveBattleControlCameraMode(
-      this.ActiveBattleSession
+    const DidSwitch = this.SwitchToNextAliveControlledCharacter(
+      this.ActiveBattleSession,
+      "SwitchCharacter"
     );
-    this.EmitRuntimeEvent("EBattle3CActionRequested", "SwitchCharacter");
+    if (!DidSwitch) {
+      return false;
+    }
     this.NotifyRuntimeUpdated();
     return true;
   }
@@ -735,6 +745,9 @@ export class UWebGameRuntime {
     Session.ActionResolveEndsAtMs = Session.ActionResolveEndsAtMs ?? null;
     Session.ActionToastText = Session.ActionToastText ?? null;
     Session.ActionToastEndsAtMs = Session.ActionToastEndsAtMs ?? null;
+    Session.ActiveMeleeAction = Session.ActiveMeleeAction ?? null;
+    Session.DamageCueSequence = Session.DamageCueSequence ?? 0;
+    Session.LastDamageCue = Session.LastDamageCue ?? null;
   }
 
   private ResolveBattleCommandOptions(
@@ -807,6 +820,8 @@ export class UWebGameRuntime {
     Session.TargetSelectOrderedEnemyUnitIds = [];
     Session.ActionResolveEndsAtMs = null;
     Session.AimHoverTargetId = null;
+    Session.ActiveMeleeAction = null;
+    this.ClearAllMeleeTimelineTimers();
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
   }
 
@@ -819,6 +834,8 @@ export class UWebGameRuntime {
     Session.PendingActionKind = null;
     Session.TargetSelectOrderedEnemyUnitIds = [];
     Session.ActionResolveEndsAtMs = null;
+    Session.ActiveMeleeAction = null;
+    this.ClearAllMeleeTimelineTimers();
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
   }
 
@@ -831,6 +848,8 @@ export class UWebGameRuntime {
     Session.PendingActionKind = null;
     Session.TargetSelectOrderedEnemyUnitIds = [];
     Session.ActionResolveEndsAtMs = null;
+    Session.ActiveMeleeAction = null;
+    this.ClearAllMeleeTimelineTimers();
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
   }
 
@@ -890,9 +909,11 @@ export class UWebGameRuntime {
     PendingActionKind: Exclude<FBattlePendingActionKind, null>
   ): void {
     this.SetCommandStage(Session, "TargetSelect");
+    this.ClearAllMeleeTimelineTimers();
     Session.PendingActionKind = PendingActionKind;
     Session.PendingActionResolvedDetail = null;
     Session.ActionResolveEndsAtMs = null;
+    Session.ActiveMeleeAction = null;
     Session.AimHoverTargetId = null;
     this.RebuildTargetSelectOrder(Session);
     this.AlignSelectedTargetForControlledCharacter();
@@ -942,7 +963,7 @@ export class UWebGameRuntime {
     }
 
     const TargetId = this.ResolveCurrentBattleTargetForCommandSelection(Session) ?? "MISS";
-    if (PendingAction !== "Item") {
+    if (PendingAction === "Skill") {
       this.EmitBattleShotEvent();
     }
     this.EmitRuntimeEvent("EBattle3CActionRequested", `ConfirmTarget:${PendingAction}:${TargetId}`);
@@ -960,6 +981,13 @@ export class UWebGameRuntime {
         `UseItemPlaceholder:${this.ResolveSelectedItemOptionId(Session) ?? "UNKNOWN"}:${TargetId}`
       );
     }
+
+    if (PendingAction === "Attack") {
+      this.StartMeleeResolveSequence(Session, TargetId, ActionDisplayName, TargetDisplayName);
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
     this.ShowBattleActionToast(Session, `已执行 ${ActionDisplayName} -> ${TargetDisplayName}`);
     this.EnterActionResolveStage(Session);
     this.NotifyRuntimeUpdated();
@@ -979,6 +1007,8 @@ export class UWebGameRuntime {
       Session.PendingActionResolvedDetail = null;
       Session.TargetSelectOrderedEnemyUnitIds = [];
       Session.ActionResolveEndsAtMs = null;
+      Session.ActiveMeleeAction = null;
+      this.ClearAllMeleeTimelineTimers();
       Session.AimHoverTargetId = null;
       Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
       this.EmitRuntimeEvent("EBattle3CActionRequested", "CancelTargetSelect");
@@ -996,13 +1026,21 @@ export class UWebGameRuntime {
     return false;
   }
 
-  private EnterActionResolveStage(Session: FBattle3CSession): void {
-    const DurationMs = Math.max(Math.round(this.DebugConfig.ActionResolveDurationSec * 1000), 1);
+  private EnterActionResolveStage(Session: FBattle3CSession, DurationMsOverride?: number): void {
+    const DurationMs =
+      DurationMsOverride !== undefined
+        ? Math.max(Math.round(DurationMsOverride), 1)
+        : Math.max(Math.round(this.DebugConfig.ActionResolveDurationSec * 1000), 1);
     const SessionId = Session.SessionId;
     Session.IsAimMode = false;
     Session.ScriptFocus = null;
     this.SetCommandStage(Session, "ActionResolve");
     Session.PendingActionKind = null;
+    const IsAttackResolve = (Session.PendingActionResolvedDetail ?? "").startsWith("Attack:");
+    if (!IsAttackResolve) {
+      Session.ActiveMeleeAction = null;
+      this.ClearAllMeleeTimelineTimers();
+    }
     Session.AimHoverTargetId = null;
     Session.ActionResolveEndsAtMs = Date.now() + DurationMs;
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
@@ -1027,6 +1065,9 @@ export class UWebGameRuntime {
     }
     const EventDetail = Session.PendingActionResolvedDetail ?? "Unknown";
     this.ReturnToRootCommandStage(Session);
+    if (EventDetail.startsWith("Attack:")) {
+      this.SwitchToNextAliveControlledCharacter(Session, "AutoSwitchCharacterAfterAttack");
+    }
     this.EmitRuntimeEvent("EPlayerActionResolved", EventDetail);
     this.NotifyRuntimeUpdated();
   }
@@ -1061,6 +1102,307 @@ export class UWebGameRuntime {
       this.ActiveBattleSession.ActionToastEndsAtMs = null;
       this.NotifyRuntimeUpdated();
     }, DurationMs);
+  }
+
+  private StartMeleeResolveSequence(
+    Session: FBattle3CSession,
+    TargetId: string,
+    ActionDisplayName: string,
+    TargetDisplayName: string
+  ): void {
+    const Attacker = this.FindBattleUnit(Session.ControlledCharacterId);
+    const Target = this.FindBattleUnit(TargetId);
+    if (!Attacker || !Target) {
+      Session.PendingActionResolvedDetail = `Attack:${TargetId}`;
+      this.ShowBattleActionToast(Session, `已执行 ${ActionDisplayName} -> ${TargetDisplayName}`);
+      this.EnterActionResolveStage(Session);
+      return;
+    }
+
+    const AttackerHome = Attacker.HomePositionCm ?? Attacker.PositionCm;
+    const StartPositionCm = { ...AttackerHome };
+    const ContactPositionCm = this.ResolveMeleeContactPositionCm(Attacker, Target);
+    const DashDistanceCm = Math.hypot(
+      ContactPositionCm.X - StartPositionCm.X,
+      ContactPositionCm.Z - StartPositionCm.Z
+    );
+    const DashSpeedCmPerSec = Math.max(this.DebugConfig.RunSpeed, MeleeDashSpeedMinCmPerSec);
+    const DashDurationMs = this.ResolveMeleeDashDurationMs(DashDistanceCm, DashSpeedCmPerSec);
+    const NowMs = Date.now();
+    const RetreatStartAtMs = NowMs;
+    const RetreatEndAtMs = RetreatStartAtMs + MeleeRetreatSettleMs;
+    const DashStartAtMs = RetreatEndAtMs;
+    const DashEndAtMs = DashStartAtMs + DashDurationMs;
+    const ReturnStartAtMs = DashEndAtMs + MeleeImpactHoldMs;
+    const ReturnEndAtMs = ReturnStartAtMs;
+
+    Session.PendingActionResolvedDetail = `Attack:${TargetId}`;
+    Session.ActiveMeleeAction = {
+      ActionId: Session.ShotSequence + 1,
+      AttackerUnitId: Attacker.UnitId,
+      TargetUnitId: Target.UnitId,
+      Phase: "Retreat",
+      RetreatStartAtMs,
+      RetreatEndAtMs,
+      DashStartAtMs,
+      DashEndAtMs,
+      ReturnStartAtMs,
+      ReturnEndAtMs,
+      StartPositionCm,
+      ContactPositionCm
+    };
+    Attacker.PositionCm = { ...StartPositionCm };
+    Session.ShotSequence += 1;
+
+    const TotalDurationMs = Math.max(ReturnStartAtMs - NowMs + 16, 1);
+    this.ShowBattleActionToast(Session, `已执行 ${ActionDisplayName} -> ${TargetDisplayName}`);
+    this.EnterActionResolveStage(Session, TotalDurationMs);
+
+    this.ClearAllMeleeTimelineTimers();
+    const SessionId = Session.SessionId;
+    const ActionId = Session.ActiveMeleeAction.ActionId;
+    this.RegisterMeleeTimelineTimer(
+      () => {
+        if (!this.IsMeleeActionStillValid(SessionId, ActionId)) {
+          return;
+        }
+        if (!this.ActiveBattleSession?.ActiveMeleeAction) {
+          return;
+        }
+        this.ActiveBattleSession.ActiveMeleeAction.Phase = "Advance";
+        this.NotifyRuntimeUpdated();
+      },
+      Math.max(RetreatEndAtMs - Date.now(), 0)
+    );
+
+    this.RegisterMeleeTimelineTimer(
+      () => {
+        this.ResolveMeleeImpact(SessionId, ActionId, Attacker.UnitId, Target.UnitId, DashEndAtMs);
+      },
+      Math.max(DashEndAtMs - Date.now(), 0)
+    );
+
+    this.RegisterMeleeTimelineTimer(
+      () => {
+        if (!this.IsMeleeActionStillValid(SessionId, ActionId)) {
+          return;
+        }
+        if (!this.ActiveBattleSession || !this.ActiveBattleSession.ActiveMeleeAction) {
+          return;
+        }
+        const CurrentAttacker = this.FindBattleUnit(Attacker.UnitId);
+        if (CurrentAttacker) {
+          CurrentAttacker.PositionCm = { ...StartPositionCm };
+        }
+        this.ActiveBattleSession.ActiveMeleeAction = null;
+        this.NotifyRuntimeUpdated();
+      },
+      Math.max(ReturnStartAtMs - Date.now(), 0)
+    );
+  }
+
+  private ResolveMeleeContactPositionCm(
+    Attacker: FBattleUnitRuntimeState,
+    Target: FBattleUnitRuntimeState
+  ): FVector3Cm {
+    const AttackerHome = Attacker.HomePositionCm ?? Attacker.PositionCm;
+    const TargetHome = Target.HomePositionCm ?? Target.PositionCm;
+    const DeltaX = TargetHome.X - AttackerHome.X;
+    const DeltaZ = TargetHome.Z - AttackerHome.Z;
+    const Distance = Math.hypot(DeltaX, DeltaZ);
+    if (Distance <= 1e-4) {
+      return { ...AttackerHome };
+    }
+    const InvDistance = 1 / Distance;
+    return {
+      X: TargetHome.X - DeltaX * InvDistance * MeleeContactDistanceCm,
+      Y: AttackerHome.Y,
+      Z: TargetHome.Z - DeltaZ * InvDistance * MeleeContactDistanceCm
+    };
+  }
+
+  private ResolveMeleeDashDurationMs(DistanceCm: number, SpeedCmPerSec: number): number {
+    const SafeSpeed = Math.max(SpeedCmPerSec, 1);
+    const EstimatedMs = (Math.max(DistanceCm, 0) / SafeSpeed) * 1000;
+    return Math.max(Math.round(EstimatedMs), MeleeDashMinDurationMs);
+  }
+
+  private ResolveMeleeImpact(
+    SessionId: string,
+    ActionId: number,
+    AttackerUnitId: string,
+    TargetUnitId: string,
+    ImpactAtMs: number
+  ): void {
+    if (!this.IsMeleeActionStillValid(SessionId, ActionId)) {
+      return;
+    }
+    if (!this.ActiveBattleSession) {
+      return;
+    }
+
+    const MeleeAction = this.ActiveBattleSession.ActiveMeleeAction;
+    if (!MeleeAction) {
+      return;
+    }
+    MeleeAction.Phase = "Impact";
+
+    const Attacker = this.FindBattleUnit(AttackerUnitId);
+    const Target = this.FindBattleUnit(TargetUnitId);
+    if (!Attacker || !Target) {
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    Attacker.PositionCm = { ...MeleeAction.ContactPositionCm };
+    const TargetHome = Target.HomePositionCm ?? Target.PositionCm;
+    const DistanceCm = Math.hypot(
+      TargetHome.X - Attacker.PositionCm.X,
+      TargetHome.Z - Attacker.PositionCm.Z
+    );
+    const HistoryStartIndex = this.MeleeSimulation.GetEventHistory().length;
+    const IsAccepted = this.MeleeSimulation.SubmitCommand({
+      Type: EMeleeCommandType.ResolveStrike,
+      SourceUnit: this.CloneBattleUnitAsSnapshot(Attacker),
+      TargetUnit: this.CloneBattleUnitAsSnapshot(Target),
+      DistanceCm,
+      RangeCm: BattleMeleeRangeCm,
+      BaseDamage: BattleDefaultMeleeDamage
+    });
+    if (!IsAccepted) {
+      this.EmitRuntimeEvent("EBattle3CActionRequested", `MeleeResolved:Rejected:${TargetUnitId}`);
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    const NewEvents = this.MeleeSimulation.GetEventHistory().slice(HistoryStartIndex);
+    const ResolvedEvent = NewEvents.find(
+      (Event): Event is FTypedMeleeEvent<EMeleeEventType.MeleeResolved> =>
+        Event.Type === EMeleeEventType.MeleeResolved
+    );
+    if (!ResolvedEvent) {
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+    if (!ResolvedEvent.Payload.IsHit) {
+      this.EmitRuntimeEvent(
+        "EBattle3CActionRequested",
+        `MeleeResolved:Miss:${ResolvedEvent.Payload.MissReason}:${TargetUnitId}`
+      );
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    const DamageEvent = NewEvents.find(
+      (Event): Event is FTypedMeleeEvent<EMeleeEventType.DamageApplied> =>
+        Event.Type === EMeleeEventType.DamageApplied
+    );
+    if (!DamageEvent) {
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    Target.CurrentHp = this.Clamp(DamageEvent.Payload.RemainingHp, 1, Target.MaxHp);
+    Target.IsAlive = true;
+    if (DamageEvent.Payload.AppliedDamage > 0) {
+      this.QueueDamageCue(
+        this.ActiveBattleSession,
+        "Melee",
+        Target.UnitId,
+        DamageEvent.Payload.AppliedDamage,
+        ImpactAtMs
+      );
+      this.ScheduleUnitKnockbackAndReturn(Attacker, Target, 0);
+    }
+    this.EmitRuntimeEvent(
+      "EBattle3CActionRequested",
+      `MeleeResolved:Hit:${Target.UnitId}:${DamageEvent.Payload.AppliedDamage}`
+    );
+    this.NotifyRuntimeUpdated();
+  }
+
+  private CloneBattleUnitAsSnapshot(Unit: FBattleUnitRuntimeState): FUnitSnapshot {
+    return {
+      UnitId: Unit.UnitId,
+      DisplayName: Unit.DisplayName,
+      TeamId: Unit.TeamId,
+      MaxHp: Unit.MaxHp,
+      CurrentHp: Unit.CurrentHp,
+      Speed: 10,
+      IsAlive: Unit.IsAlive
+    };
+  }
+
+  private QueueDamageCue(
+    Session: FBattle3CSession,
+    SourceKind: FBattleDamageCueHudState["SourceKind"],
+    TargetUnitId: string,
+    DamageAmount: number,
+    PopAtMs: number
+  ): void {
+    if (DamageAmount <= 0) {
+      return;
+    }
+
+    Session.DamageCueSequence += 1;
+    Session.LastDamageCue = {
+      CueId: Session.DamageCueSequence,
+      SourceKind,
+      TargetUnitId,
+      DamageAmount,
+      PopAtMs
+    };
+  }
+
+  private RegisterMeleeTimelineTimer(Handler: () => void, DelayMs: number): void {
+    let Handle = 0;
+    Handle = this.SetRuntimeTimeout(
+      () => {
+        this.MeleeTimelineTimerHandles.delete(Handle);
+        Handler();
+      },
+      Math.max(DelayMs, 0)
+    );
+    this.MeleeTimelineTimerHandles.add(Handle);
+  }
+
+  private IsMeleeActionStillValid(SessionId: string, ActionId: number): boolean {
+    return (
+      this.RuntimePhase === "Battle3C" &&
+      !!this.ActiveBattleSession &&
+      this.ActiveBattleSession.SessionId === SessionId &&
+      this.ActiveBattleSession.ActiveMeleeAction?.ActionId === ActionId
+    );
+  }
+
+  private SwitchToNextAliveControlledCharacter(
+    Session: FBattle3CSession,
+    EventDetail: string
+  ): boolean {
+    const AlivePlayerUnitIds = Session.PlayerActiveUnitIds.filter((UnitId) => {
+      const Unit = this.FindBattleUnit(UnitId);
+      return Unit?.IsAlive ?? false;
+    });
+    if (AlivePlayerUnitIds.length <= 1) {
+      return false;
+    }
+
+    const CurrentIndex = AlivePlayerUnitIds.indexOf(Session.ControlledCharacterId);
+    const NextIndex = CurrentIndex < 0 ? 0 : (CurrentIndex + 1) % AlivePlayerUnitIds.length;
+    Session.ControlledCharacterId = AlivePlayerUnitIds[NextIndex];
+    Session.AimHoverTargetId = null;
+    this.AlignSelectedTargetForControlledCharacter();
+    if (Session.IsAimMode) {
+      const ControlledUnit = this.FindBattleUnit(Session.ControlledCharacterId);
+      Session.AimCameraYawDeg = ControlledUnit?.YawDeg ?? 0;
+      Session.AimCameraPitchDeg = 0;
+      this.CaptureAimFacingSnapshot(Session.ControlledCharacterId);
+      this.AlignAimFacingToEnemyCenterAxis();
+      this.SyncAimCameraYawToControlledFacing();
+    }
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+    this.EmitRuntimeEvent("EBattle3CActionRequested", EventDetail);
+    return true;
   }
 
   private ResolveSelectedSkillDisplayName(Session: FBattle3CSession): string {
@@ -1573,6 +1915,7 @@ export class UWebGameRuntime {
     return this.BuildBattle3CHudStateFromSession(BattleSession);
   }
 
+  // eslint-disable-next-line complexity
   private BuildBattle3CHudStateFromSession(BattleSession: FBattle3CSession): FBattle3CHudState {
     const SelectedTargetId = this.ResolveBattleSessionSelectedTargetId(BattleSession);
     const NowMs = Date.now();
@@ -1613,6 +1956,14 @@ export class UWebGameRuntime {
       Units: this.BuildBattleHudUnits(BattleSession, SelectedTargetId),
       ScriptFocus: this.CloneBattleScriptFocus(BattleSession.ScriptFocus),
       LastShot: BattleSession.LastShot ? { ...BattleSession.LastShot } : null,
+      ActiveMeleeAction: BattleSession.ActiveMeleeAction
+        ? {
+            ...BattleSession.ActiveMeleeAction,
+            StartPositionCm: { ...BattleSession.ActiveMeleeAction.StartPositionCm },
+            ContactPositionCm: { ...BattleSession.ActiveMeleeAction.ContactPositionCm }
+          }
+        : null,
+      LastDamageCue: BattleSession.LastDamageCue ? { ...BattleSession.LastDamageCue } : null,
       ActionResolveRemainingMs,
       ActionToastText,
       ActionToastRemainingMs
@@ -1646,6 +1997,8 @@ export class UWebGameRuntime {
       Units: [],
       ScriptFocus: null,
       LastShot: null,
+      ActiveMeleeAction: null,
+      LastDamageCue: null,
       ActionResolveRemainingMs: 0,
       ActionToastText: null,
       ActionToastRemainingMs: 0
@@ -2183,7 +2536,10 @@ export class UWebGameRuntime {
       ActionToastEndsAtMs: null,
       ScriptStepIndex: 0,
       ShotSequence: 0,
+      DamageCueSequence: 0,
       LastShot: null,
+      ActiveMeleeAction: null,
+      LastDamageCue: null,
       AimFacingSnapshotByUnitId: {},
       Units: [...PlayerUnits, ...EnemyUnits],
       ScriptFocus: null
@@ -2665,6 +3021,13 @@ export class UWebGameRuntime {
       }
 
       const Attacker = this.FindBattleUnit(Params.AttackerUnitId) ?? Target;
+      this.QueueDamageCue(
+        this.ActiveBattleSession,
+        "Shot",
+        Params.TargetUnitId,
+        AppliedDamageAmount,
+        Params.ImpactAtMs
+      );
       this.ScheduleUnitKnockbackAndReturn(Attacker, Target, 0);
       this.NotifyRuntimeUpdated();
     }, DelayMs);
@@ -2980,6 +3343,7 @@ export class UWebGameRuntime {
     return Number(this.Clamp(Value, CrosshairMin, CrosshairMax).toFixed(4));
   }
 
+  // eslint-disable-next-line complexity
   private ResolveBattleControlCameraMode(Session: FBattle3CSession): FBattleCameraMode {
     this.EnsureBattleCommandState(Session);
     if (Session.ScriptFocus) {
@@ -3000,6 +3364,9 @@ export class UWebGameRuntime {
     if (Session.CommandStage === "ActionResolve") {
       if ((Session.PendingActionResolvedDetail ?? "").startsWith("Item:")) {
         return "PlayerItemPreview";
+      }
+      if ((Session.PendingActionResolvedDetail ?? "").startsWith("Attack:")) {
+        return "PlayerFollow";
       }
       return "SkillTargetZoom";
     }
@@ -3118,6 +3485,13 @@ export class UWebGameRuntime {
     this.ShotImpactTimerHandleByShotId.clear();
   }
 
+  private ClearAllMeleeTimelineTimers(): void {
+    this.MeleeTimelineTimerHandles.forEach((Handle) => {
+      this.ClearRuntimeTimeout(Handle);
+    });
+    this.MeleeTimelineTimerHandles.clear();
+  }
+
   private ClearPhaseTimers(): void {
     if (this.EncounterPromptTimerHandle !== null) {
       this.ClearRuntimeTimeout(this.EncounterPromptTimerHandle);
@@ -3132,5 +3506,6 @@ export class UWebGameRuntime {
     this.ClearActionToastTimer();
     this.ClearAllUnitHitReturnTimers();
     this.ClearAllShotImpactTimers();
+    this.ClearAllMeleeTimelineTimers();
   }
 }

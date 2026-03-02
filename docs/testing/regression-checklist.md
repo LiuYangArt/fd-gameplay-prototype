@@ -72,6 +72,12 @@
 - [x] 鼠标点击战斗视口空白区域不会直接触发攻击或进入目标选择（`App.tsx` + `pnpm smoke:web`）。
 - [x] 目标确认后进入 `ActionResolve`（锁输入），结束后自动回到 `Root + PlayerFollow`，期间不跳敌方脚本机位（`UWebGameRuntime.test.ts`）。
 - [x] `ActionResolve` 结束时触发 `EPlayerActionResolved` 占位事件（`UWebGameRuntime.test.ts`）。
+- [x] 近战链路可闭环执行：`敌人特写选目标 -> 退回待机视角 -> 前冲（可见位移） -> 命中 -> 回位瞬移 reset -> 自动切到下一角色`（`UWebGameRuntime.test.ts` + `USceneBridge.test.ts`）。
+- [x] 近战命中反馈与扣血/弹字时序一致，命中后出现 `LastDamageCue`，并伴随受击后退与回位（`UWebGameRuntime.test.ts` + `App.tsx`）。
+- [x] 近战执行期 `PlayerFollow` 复用 Spring Arm Lag 参数（`TargetArmLength/CameraLagSpeed/CameraLagMaxDistance`），退出近战后清理 lag 状态（`USceneBridge.ts` + `USceneBridge.test.ts`）。
+- [x] 近战前冲阶段角色模型与占位体使用同一显示位移解析，不应出现“镜头在动但角色瞬移”（`USceneBridge.test.ts` + `USceneBridge.ts`）。
+- [x] 近战命中后需保留结果展示窗口（伤害数字可读）再 reset 镜头与切下一角色（`UWebGameRuntime.test.ts`）。
+- [x] 近战命中需触发清晰受击特效（非远程子弹专属），并与伤害 Cue 同步（`USceneBridge.ts` + `USceneBridge.test.ts`）。
 - [x] `TargetSelect` 左右切换遵循“按屏幕 X 冻结顺序”规则（`UWebGameRuntime.test.ts`）。
 - [x] `TargetSelect` 敌人特写机位方向仅依赖固定角度参数 `TargetSelectYawDeg`，不受当前操控角色/战场中心影响（`USceneBridge.test.ts`）。
 - [x] `TargetSelect/ActionResolve` 复用瞄准锚点显示“选中敌人头顶 HP 条”（`App.tsx` + `USceneBridge.ts`）。
