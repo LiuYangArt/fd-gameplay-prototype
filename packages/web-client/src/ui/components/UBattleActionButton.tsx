@@ -1,7 +1,7 @@
 import { UInputPromptBadge } from "./UInputPromptBadge";
 
 import type { EActionTriggerType, FInputPromptToken } from "../../input/FInputPrompt";
-import type { CSSProperties } from "react";
+import type { CSSProperties, PointerEventHandler } from "react";
 
 interface FBattleActionButtonProps {
   Label: string;
@@ -16,6 +16,10 @@ interface FBattleActionButtonProps {
   RequiresHold?: boolean;
   IsHoldActive?: boolean;
   HoldProgressNormalized?: number;
+  OnPointerDown?: PointerEventHandler<HTMLButtonElement>;
+  OnPointerUp?: PointerEventHandler<HTMLButtonElement>;
+  OnPointerCancel?: PointerEventHandler<HTMLButtonElement>;
+  OnPointerLeave?: PointerEventHandler<HTMLButtonElement>;
 }
 
 function Clamp01(Value: number): number {
@@ -60,7 +64,11 @@ export function UBattleActionButton({
   Disabled = false,
   RequiresHold = false,
   IsHoldActive = false,
-  HoldProgressNormalized = 0
+  HoldProgressNormalized = 0,
+  OnPointerDown,
+  OnPointerUp,
+  OnPointerCancel,
+  OnPointerLeave
 }: FBattleActionButtonProps) {
   const ShouldShowPrompt = Prompt && (TriggerType === "Direct" || IsFocused);
   const HoldStyle = ResolveHoldStyle(RequiresHold, HoldProgressNormalized);
@@ -72,6 +80,10 @@ export function UBattleActionButton({
         ClassName ? ` ${ClassName}` : ""
       }`}
       onClick={OnClick}
+      onPointerDown={OnPointerDown}
+      onPointerUp={OnPointerUp}
+      onPointerCancel={OnPointerCancel}
+      onPointerLeave={OnPointerLeave}
       disabled={Disabled}
       style={HoldStyle}
     >
