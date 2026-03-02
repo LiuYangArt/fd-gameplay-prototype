@@ -10,6 +10,7 @@ import {
   Matrix,
   Mesh,
   MeshBuilder,
+  Ray,
   Scene,
   StandardMaterial,
   TransformNode,
@@ -157,8 +158,18 @@ interface FShotRayHit {
 }
 
 interface FHitImpactVisual {
+  CoreMesh: Mesh;
+  CoreMaterial: StandardMaterial;
+  RingMesh: Mesh;
+  RingMaterial: StandardMaterial;
+  ElapsedSec: number;
+  DurationSec: number;
+}
+
+interface FHitSparkVisual {
   Mesh: Mesh;
   Material: StandardMaterial;
+  Velocity: Vector3;
   ElapsedSec: number;
   DurationSec: number;
 }
@@ -181,6 +192,7 @@ export class USceneBridge {
   private static readonly MainLightGroundColorHex = "#4a5561";
   private static readonly ShotMissTraceDistanceMeters = 36;
   private static readonly ShotRaycastEnemyRadiusMeters = 0.95;
+  private static readonly HitSparkCount = 28;
   private readonly Engine: Engine;
   private readonly Scene: Scene;
   private readonly HandleWindowResize: () => void;
@@ -217,6 +229,7 @@ export class USceneBridge {
   private LastConsumedShotId: number;
   private readonly ShotProjectileVisuals: FShotProjectileVisual[];
   private readonly HitImpactVisuals: FHitImpactVisual[];
+  private readonly HitSparkVisuals: FHitSparkVisual[];
   private LastBattleCameraMode: FBattleCameraMode | null;
   private LastBattleControlledUnitId: string | null;
   private LastBattleSelectedTargetId: string | null;
@@ -239,6 +252,7 @@ export class USceneBridge {
     this.LastConsumedShotId = 0;
     this.ShotProjectileVisuals = [];
     this.HitImpactVisuals = [];
+    this.HitSparkVisuals = [];
     this.LastBattleCameraMode = null;
     this.LastBattleControlledUnitId = null;
     this.LastBattleSelectedTargetId = null;
@@ -1629,7 +1643,8 @@ export class USceneBridge {
     const Trajectory = this.ResolveShotTrajectory(
       ViewModel,
       Shot.AttackerUnitId,
-      Shot.TargetUnitId
+      Shot.TargetUnitId,
+      Shot.DamageAmount
     );
     if (!Trajectory) {
       return;
@@ -1665,7 +1680,8 @@ export class USceneBridge {
   private ResolveShotTrajectory(
     ViewModel: FHudViewModel,
     AttackerUnitId: string,
-    PreferredTargetUnitId: string | null
+    PreferredTargetUnitId: string | null,
+    DamageAmount: number
   ): {
     StartPosition: Vector3;
     EndPosition: Vector3;
@@ -1674,6 +1690,37 @@ export class USceneBridge {
     const StartPosition = this.ResolveShotSpawnPosition(ViewModel, AttackerUnitId);
     if (!StartPosition) {
       return null;
+    }
+
+    if (PreferredTargetUnitId && DamageAmount > 0) {
+      const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
+      const AimRay = this.ResolveCenterAimRay();
+      const ForcedHit = AimRay
+        ? this.ResolveAimRayHitAgainstEnemies(
+            ViewModel,
+            DropOffsetCm,
+            AimRay,
+            PreferredTargetUnitId
+          )
+        : null;
+      if (ForcedHit && ForcedHit.UnitId === PreferredTargetUnitId) {
+        return {
+          StartPosition,
+          EndPosition: ForcedHit.HitPoint,
+          ShouldSpawnImpact: true
+        };
+      }
+
+      const TargetUnit = this.FindBattleUnit(ViewModel, PreferredTargetUnitId);
+      if (TargetUnit && TargetUnit.TeamId === "Enemy") {
+        return {
+          StartPosition,
+          EndPosition: this.ResolveBattleUnitPositionMeters(TargetUnit, DropOffsetCm).add(
+            new Vector3(0, 1.05, 0)
+          ),
+          ShouldSpawnImpact: true
+        };
+      }
     }
 
     const AimRay = this.ResolveCenterAimRay();
@@ -1806,6 +1853,15 @@ export class USceneBridge {
     DropOffsetCm: number,
     AimRay: FShotRay
   ): FShotRayHit | null {
+    const MeshHitDistanceMeters = this.ResolveAimRayMeshHitDistanceMeters(Unit.UnitId, AimRay);
+    if (MeshHitDistanceMeters !== null) {
+      return {
+        UnitId: Unit.UnitId,
+        DistanceMeters: MeshHitDistanceMeters,
+        HitPoint: AimRay.Origin.add(AimRay.Direction.scale(MeshHitDistanceMeters))
+      };
+    }
+
     const UnitCenter = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm).add(
       new Vector3(0, 0.95, 0)
     );
@@ -1824,6 +1880,28 @@ export class USceneBridge {
       DistanceMeters: HitDistanceMeters,
       HitPoint: AimRay.Origin.add(AimRay.Direction.scale(HitDistanceMeters))
     };
+  }
+
+  private ResolveAimRayMeshHitDistanceMeters(UnitId: string, AimRay: FShotRay): number | null {
+    const UnitMesh = this.BattleUnitMeshMap.get(UnitId);
+    if (!UnitMesh || !UnitMesh.isEnabled()) {
+      return null;
+    }
+
+    const Raycast = new Ray(
+      AimRay.Origin.clone(),
+      AimRay.Direction.clone(),
+      USceneBridge.ShotMissTraceDistanceMeters
+    );
+    const PickResult = this.Scene.pickWithRay(
+      Raycast,
+      (MeshCandidate) => MeshCandidate === UnitMesh,
+      false
+    );
+    if (!PickResult || !PickResult.hit || PickResult.distance === undefined) {
+      return null;
+    }
+    return PickResult.distance;
   }
 
   private ResolveRaySphereHitDistanceMeters(
@@ -1855,6 +1933,7 @@ export class USceneBridge {
   private UpdateTransientBattleVisuals(DeltaSeconds: number): void {
     this.UpdateShotProjectileVisuals(DeltaSeconds);
     this.UpdateHitImpactVisuals(DeltaSeconds);
+    this.UpdateHitSparkVisuals(DeltaSeconds);
   }
 
   private UpdateShotProjectileVisuals(DeltaSeconds: number): void {
@@ -1882,28 +1961,51 @@ export class USceneBridge {
   }
 
   private CreateHitImpactVisual(Position: Vector3): void {
-    const ImpactMesh = MeshBuilder.CreateSphere(
+    const CoreMesh = MeshBuilder.CreateSphere(
       `HitImpact_${Date.now()}_${this.HitImpactVisuals.length}`,
-      { diameter: 0.22 },
+      { diameter: 0.44 },
       this.Scene
     );
-    const ImpactMaterial = new StandardMaterial(
+    const CoreMaterial = new StandardMaterial(
       `HitImpactMat_${Date.now()}_${this.HitImpactVisuals.length}`,
       this.Scene
     );
-    ImpactMaterial.diffuseColor = new Color3(1, 0.5, 0.22);
-    ImpactMaterial.emissiveColor = new Color3(1, 0.66, 0.3);
-    ImpactMaterial.alpha = 0.9;
-    ImpactMaterial.disableLighting = true;
-    ImpactMesh.material = ImpactMaterial;
-    ImpactMesh.isPickable = false;
-    ImpactMesh.position.copyFrom(Position);
-    ImpactMesh.scaling = new Vector3(0.4, 0.4, 0.4);
+    CoreMaterial.diffuseColor = new Color3(1, 0.82, 0.5);
+    CoreMaterial.emissiveColor = new Color3(1, 0.95, 0.62);
+    CoreMaterial.alpha = 1;
+    CoreMaterial.disableLighting = true;
+    CoreMesh.material = CoreMaterial;
+    CoreMesh.isPickable = false;
+    CoreMesh.position.copyFrom(Position);
+    CoreMesh.scaling = new Vector3(0.75, 0.75, 0.75);
+
+    const RingMesh = MeshBuilder.CreateTorus(
+      `HitImpactRing_${Date.now()}_${this.HitImpactVisuals.length}`,
+      { diameter: 0.46, thickness: 0.08, tessellation: 28 },
+      this.Scene
+    );
+    const RingMaterial = new StandardMaterial(
+      `HitImpactRingMat_${Date.now()}_${this.HitImpactVisuals.length}`,
+      this.Scene
+    );
+    RingMaterial.diffuseColor = new Color3(1, 0.65, 0.24);
+    RingMaterial.emissiveColor = new Color3(1, 0.78, 0.32);
+    RingMaterial.alpha = 0.95;
+    RingMaterial.disableLighting = true;
+    RingMesh.material = RingMaterial;
+    RingMesh.isPickable = false;
+    RingMesh.position.copyFrom(Position);
+    RingMesh.rotation.x = Math.PI / 2;
+    RingMesh.scaling = new Vector3(0.55, 0.55, 0.55);
+
+    this.SpawnHitSparkVisuals(Position);
     this.HitImpactVisuals.push({
-      Mesh: ImpactMesh,
-      Material: ImpactMaterial,
+      CoreMesh,
+      CoreMaterial,
+      RingMesh,
+      RingMaterial,
       ElapsedSec: 0,
-      DurationSec: 0.18
+      DurationSec: 0.3
     });
   }
 
@@ -1912,17 +2014,81 @@ export class USceneBridge {
       const Impact = this.HitImpactVisuals[Index];
       Impact.ElapsedSec += DeltaSeconds;
       const Alpha = this.Clamp(Impact.ElapsedSec / Impact.DurationSec, 0, 1);
-      const Scale = this.Lerp(0.4, 1.3, Alpha);
-      Impact.Mesh.scaling = new Vector3(Scale, Scale, Scale);
-      Impact.Material.alpha = this.Lerp(0.9, 0, Alpha);
+      const CoreScale = this.Lerp(0.95, 2.9, Alpha);
+      const RingScale = this.Lerp(0.55, 3.4, Alpha);
+      Impact.CoreMesh.scaling = new Vector3(CoreScale, CoreScale, CoreScale);
+      Impact.RingMesh.scaling = new Vector3(RingScale, RingScale, RingScale);
+      Impact.CoreMaterial.alpha = this.Lerp(0.98, 0, Alpha);
+      Impact.RingMaterial.alpha = this.Lerp(0.95, 0, Alpha);
 
       if (Alpha < 1) {
         continue;
       }
 
-      Impact.Mesh.dispose();
-      Impact.Material.dispose();
+      Impact.CoreMesh.dispose();
+      Impact.CoreMaterial.dispose();
+      Impact.RingMesh.dispose();
+      Impact.RingMaterial.dispose();
       this.HitImpactVisuals.splice(Index, 1);
+    }
+  }
+
+  private SpawnHitSparkVisuals(Position: Vector3): void {
+    for (let Index = 0; Index < USceneBridge.HitSparkCount; Index += 1) {
+      const SparkMesh = MeshBuilder.CreateSphere(
+        `HitSpark_${Date.now()}_${this.HitSparkVisuals.length}_${Index}`,
+        { diameter: 0.08 },
+        this.Scene
+      );
+      const SparkMaterial = new StandardMaterial(
+        `HitSparkMat_${Date.now()}_${this.HitSparkVisuals.length}_${Index}`,
+        this.Scene
+      );
+      SparkMaterial.diffuseColor = new Color3(1, 0.82, 0.46);
+      SparkMaterial.emissiveColor = new Color3(1, 0.85, 0.3);
+      SparkMaterial.alpha = 0.98;
+      SparkMaterial.disableLighting = true;
+      SparkMesh.material = SparkMaterial;
+      SparkMesh.isPickable = false;
+      SparkMesh.position.copyFrom(Position);
+
+      const RandomDirection = new Vector3(
+        Math.random() * 2 - 1,
+        Math.random() * 0.9 + 0.1,
+        Math.random() * 2 - 1
+      );
+      const Direction =
+        RandomDirection.lengthSquared() > 1e-6 ? RandomDirection.normalize() : new Vector3(0, 1, 0);
+      const Speed = this.Lerp(3.2, 6.8, Math.random());
+
+      this.HitSparkVisuals.push({
+        Mesh: SparkMesh,
+        Material: SparkMaterial,
+        Velocity: Direction.scale(Speed),
+        ElapsedSec: 0,
+        DurationSec: this.Lerp(0.24, 0.4, Math.random())
+      });
+    }
+  }
+
+  private UpdateHitSparkVisuals(DeltaSeconds: number): void {
+    for (let Index = this.HitSparkVisuals.length - 1; Index >= 0; Index -= 1) {
+      const Spark = this.HitSparkVisuals[Index];
+      Spark.ElapsedSec += DeltaSeconds;
+      Spark.Mesh.position.addInPlace(Spark.Velocity.scale(DeltaSeconds));
+      Spark.Velocity.y -= 7.2 * DeltaSeconds;
+      const Alpha = this.Clamp(Spark.ElapsedSec / Spark.DurationSec, 0, 1);
+      const Scale = this.Lerp(1, 0.35, Alpha);
+      Spark.Mesh.scaling = new Vector3(Scale, Scale, Scale);
+      Spark.Material.alpha = this.Lerp(0.98, 0, Alpha);
+
+      if (Alpha < 1) {
+        continue;
+      }
+
+      Spark.Mesh.dispose();
+      Spark.Material.dispose();
+      this.HitSparkVisuals.splice(Index, 1);
     }
   }
 
@@ -1934,10 +2100,18 @@ export class USceneBridge {
     this.ShotProjectileVisuals.length = 0;
 
     this.HitImpactVisuals.forEach((Impact) => {
-      Impact.Mesh.dispose();
-      Impact.Material.dispose();
+      Impact.CoreMesh.dispose();
+      Impact.CoreMaterial.dispose();
+      Impact.RingMesh.dispose();
+      Impact.RingMaterial.dispose();
     });
     this.HitImpactVisuals.length = 0;
+
+    this.HitSparkVisuals.forEach((Spark) => {
+      Spark.Mesh.dispose();
+      Spark.Material.dispose();
+    });
+    this.HitSparkVisuals.length = 0;
   }
 
   private SplitModelPath(ModelPath: string): { RootUrl: string; FileName: string } {
@@ -2220,41 +2394,36 @@ export class USceneBridge {
       return this.ResolveSelectedTargetScreenState(ViewModel);
     }
 
-    const RenderWidth = this.Engine.getRenderWidth();
-    const RenderHeight = this.Engine.getRenderHeight();
-    if (RenderWidth <= 0 || RenderHeight <= 0) {
+    const AimRay = this.ResolveCenterAimRay();
+    if (!AimRay) {
       return null;
     }
 
-    const Crosshair = ViewModel.Battle3CState.CrosshairScreenPosition;
     const DropOffsetCm = this.ResolveEncounterDropOffsetCm(ViewModel);
-    const Threshold = 64 / Math.min(RenderWidth, RenderHeight);
-    const ThresholdSquared = Threshold * Threshold;
-    let BestMatch: (FAimHoverTargetScreenState & { DistanceSquared: number }) | null = null;
-
-    for (const Unit of ViewModel.Battle3CState.Units) {
-      const Candidate = this.ResolveAimHoverCandidateForUnit(
-        Unit,
-        DropOffsetCm,
-        Crosshair,
-        ThresholdSquared
-      );
-      if (!Candidate) {
-        continue;
-      }
-
-      if (!BestMatch || Candidate.DistanceSquared < BestMatch.DistanceSquared) {
-        BestMatch = Candidate;
-      }
+    const Hit = this.ResolveAimRayHitAgainstEnemies(
+      ViewModel,
+      DropOffsetCm,
+      AimRay,
+      ViewModel.Battle3CState.HoveredTargetId
+    );
+    if (!Hit) {
+      return null;
+    }
+    const HitUnit = this.FindBattleUnit(ViewModel, Hit.UnitId);
+    if (!HitUnit || HitUnit.TeamId !== "Enemy" || !HitUnit.IsAlive) {
+      return null;
     }
 
-    if (!BestMatch) {
+    const Anchor = this.ProjectWorldToScreenAnchor(
+      this.ResolveBattleUnitPositionMeters(HitUnit, DropOffsetCm).add(new Vector3(0, 1, 0))
+    );
+    if (!Anchor) {
       return null;
     }
 
     return {
-      UnitId: BestMatch.UnitId,
-      Anchor: { ...BestMatch.Anchor }
+      UnitId: HitUnit.UnitId,
+      Anchor: { ...Anchor }
     };
   }
 
@@ -2292,38 +2461,6 @@ export class USceneBridge {
     return {
       UnitId: SelectedTargetUnit.UnitId,
       Anchor: { ...Anchor }
-    };
-  }
-
-  private ResolveAimHoverCandidateForUnit(
-    Unit: FBattleUnitHudState,
-    DropOffsetCm: number,
-    Crosshair: { X: number; Y: number },
-    ThresholdSquared: number
-  ): (FAimHoverTargetScreenState & { DistanceSquared: number }) | null {
-    if (Unit.TeamId !== "Enemy" || !Unit.IsAlive) {
-      return null;
-    }
-
-    const HeadWorldPos = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm).add(
-      new Vector3(0, 1, 0)
-    );
-    const Anchor = this.ProjectWorldToScreenAnchor(HeadWorldPos);
-    if (!Anchor) {
-      return null;
-    }
-
-    const DeltaX = Anchor.X - Crosshair.X;
-    const DeltaY = Anchor.Y - Crosshair.Y;
-    const DistanceSquared = DeltaX * DeltaX + DeltaY * DeltaY;
-    if (DistanceSquared > ThresholdSquared) {
-      return null;
-    }
-
-    return {
-      UnitId: Unit.UnitId,
-      Anchor: { ...Anchor },
-      DistanceSquared
     };
   }
 

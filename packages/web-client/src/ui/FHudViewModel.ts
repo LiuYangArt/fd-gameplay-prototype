@@ -90,6 +90,8 @@ export interface FBattleShotHudState {
   ShotId: number;
   AttackerUnitId: string;
   TargetUnitId: string | null;
+  DamageAmount: number;
+  ImpactAtMs: number | null;
 }
 
 export interface FBattle3CHudState {

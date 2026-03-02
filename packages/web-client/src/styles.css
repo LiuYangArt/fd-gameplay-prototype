@@ -439,6 +439,38 @@ ul {
   text-align: right;
 }
 
+.EnemyDamagePopup {
+  position: absolute;
+  transform: translate(-50%, -160%);
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 221, 172, 0.82);
+  background: rgba(28, 11, 10, 0.86);
+  color: #ffd79b;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 25;
+  animation: EnemyDamagePopupFloat 0.62s ease-out forwards;
+}
+
+@keyframes EnemyDamagePopupFloat {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -140%) scale(0.88);
+  }
+  12% {
+    opacity: 1;
+    transform: translate(-50%, -182%) scale(1.03);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -230%) scale(1);
+  }
+}
+
 .BattleActionToast {
   position: absolute;
   transform: translate(-50%, -50%);

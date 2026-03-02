@@ -74,6 +74,9 @@
 - [x] `TargetSelect` 左右切换遵循“按屏幕 X 冻结顺序”规则（`UWebGameRuntime.test.ts`）。
 - [x] `TargetSelect` 敌人特写机位方向仅依赖固定角度参数 `TargetSelectYawDeg`，不受当前操控角色/战场中心影响（`USceneBridge.test.ts`）。
 - [x] `TargetSelect/ActionResolve` 复用瞄准锚点显示“选中敌人头顶 HP 条”（`App.tsx` + `USceneBridge.ts`）。
+- [x] 瞄准命中判定应按准星中心射线与敌人模型体积命中（不再依赖“头部屏幕距离阈值”）（`USceneBridge.ts` + `pnpm smoke:web`）。
+- [x] 命中反馈需包含明显粒子爆发（闪光/冲击环/火花）并与命中事件同步触发（`USceneBridge.ts` + `pnpm smoke:web`）。
+- [x] 命中特效、扣血与伤害数字时序一致：子弹到达后再结算，开火瞬间不应提前扣血/弹字（`UWebGameRuntime.ts` + `App.tsx` + `UWebGameRuntime.test.ts`）。
 - [x] 瞄准时 `AimCameraYawDeg` 应与当前操控角色 `YawDeg` 同步更新（`UWebGameRuntime.test.ts`）。
 - [x] 瞄准时支持上下抬枪：`AimCameraPitchDeg` 随输入变化，角色 `YawDeg` 不因俯仰输入改变（`UWebGameRuntime.test.ts`）。
 - [x] `OverworldInvertLookPitch` 与 `AimInvertLookPitch` 可独立控制上下反转，互不影响（`UWebGameRuntime.test.ts`）。
@@ -163,6 +166,26 @@
   - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts -t "攻击/技能选敌与道具选己方目标阶段，左下角应提供左右切换与确认目标提示"`：通过（1 项命中）。
   - `pnpm --filter @fd/web-client test -- src/input/UInputController.test.ts src/input/UInputPromptRegistry.test.ts`：通过。
   - `pnpm --filter @fd/web-client test`：通过。
+- 是否新增 postmortem：`否`（未触发模板中的新增条件）。
+
+- 问题描述：修复“伤害数字与扣血出现在命中特效之前”的时序问题；根因是伤害在开火时立即结算，而特效在弹道到达后才触发。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（更新命中回归，增加“开火后立即不扣血，命中后再结算”断言）。
+- 新增/修改条目：C 节新增“命中特效、扣血与伤害数字时序一致”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client typecheck`：通过。
+  - `pnpm exec eslint packages/web-client/src/game/UWebGameRuntime.ts packages/web-client/src/game/UWebGameRuntime.test.ts packages/web-client/src/App.tsx packages/web-client/src/ui/FHudViewModel.ts`：通过。
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts`：通过（39 项）。
+  - `pnpm smoke:web`：通过（产物：`output/playwright/2026-03-02T03-31-14-310Z/`）。
+- 是否新增 postmortem：`否`（未触发模板中的新增条件）。
+
+- 问题描述：修复“命中反馈时序不自然（敌人先后退再炸特效）+ 粒子冲击感不足”；根因是击退在开火事件立即执行，而命中特效在弹道结束时才生成，导致视觉先后顺序错位。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（更新“命中后应先等待弹道命中再击退，并在短时后回位”）。
+- 新增/修改条目：沿用 C 节“模型体积命中判定”“明显粒子爆发命中反馈”条目，保持已完成状态。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client typecheck`：通过。
+  - `pnpm exec eslint packages/web-client/src/game/UWebGameRuntime.ts packages/web-client/src/game/USceneBridge.ts packages/web-client/src/game/UWebGameRuntime.test.ts`：通过。
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts`：通过（39 项）。
+  - `pnpm smoke:web`：通过（产物：`output/playwright/2026-03-02T03-25-31-066Z/`）。
 - 是否新增 postmortem：`否`（未触发模板中的新增条件）。
 
 - 问题描述：修复“物品目标选择时左右方向体感反向（按左选到屏幕右侧角色）”问题，要求恢复为直觉方向。
@@ -258,6 +281,18 @@
 
 - 问题描述：修复“瞄准起手左右极限体感不一致（先右再左左侧可转范围变大）”；根因是进入瞄准时仅在“扇区外”才回中轴，扇区内偏轴会造成起手单侧行程偏窄。
 - 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`（新增“扇区内偏轴进入瞄准也回中轴”回归）。
+
+- 问题描述：修复“敌人只在头部附近可命中、命中反馈不明显”；根因一是瞄准悬停目标依赖头部屏幕阈值而非模型体积，根因二是命中特效规模/层次不足。
+- 对应测试文件：
+  - `packages/web-client/src/game/USceneBridge.test.ts`
+  - `packages/web-client/src/game/UWebGameRuntime.test.ts`
+- 新增/修改条目：C 节新增“模型体积命中判定”“明显粒子爆发命中反馈”并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client typecheck`：通过。
+  - `pnpm exec eslint packages/web-client/src/game/USceneBridge.ts`：通过。
+  - `pnpm --filter @fd/web-client test -- src/game/USceneBridge.test.ts src/game/UWebGameRuntime.test.ts`：通过（43 项）。
+  - `pnpm smoke:web`：通过（产物：`output/playwright/2026-03-02T03-19-29-540Z/`）。
+- 是否新增 postmortem：`否`（未触发模板中的新增条件）。
 - 新增/修改条目：C 节“瞄准时角色朝向由 `LookYawDelta` 连续驱动，左右限位采用敌人中心中轴扇区”条目继续保持已完成，并补充本次回归覆盖。
 - 验证命令与结果：
   - `pnpm --filter @fd/web-client test`：通过（24 项）

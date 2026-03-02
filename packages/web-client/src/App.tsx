@@ -35,6 +35,12 @@ interface FAimHoverTargetAnchor {
   };
 }
 
+interface FDamagePopupState {
+  PopupId: number;
+  TargetUnitId: string;
+  DamageAmount: number;
+}
+
 interface FFilePickerAcceptType {
   description?: string;
   accept: Record<string, string[]>;
@@ -154,10 +160,17 @@ export function App() {
   const [AimHoverTargetAnchor, SetAimHoverTargetAnchor] = useState<FAimHoverTargetAnchor | null>(
     null
   );
+  const [DamagePopup, SetDamagePopup] = useState<FDamagePopupState | null>(null);
   const [DebugMenuLayout, SetDebugMenuLayout] = useState<FDebugMenuLayoutState>(() =>
     DebugMenuLayoutStore.Load()
   );
   const HudRef = useRef(Hud);
+  const LastDamagePopupShotIdRef = useRef(0);
+  const DamagePopupDelayTimerRef = useRef<number | null>(null);
+  const LastShotId = Hud.Battle3CState.LastShot?.ShotId ?? 0;
+  const LastShotTargetUnitId = Hud.Battle3CState.LastShot?.TargetUnitId ?? null;
+  const LastShotDamageAmount = Hud.Battle3CState.LastShot?.DamageAmount ?? 0;
+  const LastShotImpactAtMs = Hud.Battle3CState.LastShot?.ImpactAtMs ?? null;
   const AttachPointerLockAsyncErrorLog = useCallback((Result: unknown, Prefix: string) => {
     if (typeof Result !== "object" || Result === null || !("catch" in Result)) {
       return;
@@ -201,6 +214,69 @@ export function App() {
   useEffect(() => {
     HudRef.current = Hud;
   }, [Hud]);
+
+  useEffect(() => {
+    if (Hud.RuntimePhase !== "Battle3C") {
+      if (DamagePopupDelayTimerRef.current !== null) {
+        window.clearTimeout(DamagePopupDelayTimerRef.current);
+        DamagePopupDelayTimerRef.current = null;
+      }
+      LastDamagePopupShotIdRef.current = 0;
+      SetDamagePopup(null);
+      return;
+    }
+    if (
+      LastShotId <= LastDamagePopupShotIdRef.current ||
+      !LastShotTargetUnitId ||
+      LastShotDamageAmount <= 0
+    ) {
+      return;
+    }
+    LastDamagePopupShotIdRef.current = LastShotId;
+    const ShowPopup = () => {
+      SetDamagePopup({
+        PopupId: LastShotId,
+        TargetUnitId: LastShotTargetUnitId,
+        DamageAmount: LastShotDamageAmount
+      });
+    };
+
+    if (DamagePopupDelayTimerRef.current !== null) {
+      window.clearTimeout(DamagePopupDelayTimerRef.current);
+      DamagePopupDelayTimerRef.current = null;
+    }
+
+    const DelayMs = LastShotImpactAtMs !== null ? Math.max(LastShotImpactAtMs - Date.now(), 0) : 0;
+    if (DelayMs <= 0) {
+      ShowPopup();
+      return;
+    }
+
+    DamagePopupDelayTimerRef.current = window.setTimeout(() => {
+      DamagePopupDelayTimerRef.current = null;
+      ShowPopup();
+    }, DelayMs);
+  }, [
+    Hud.RuntimePhase,
+    LastShotDamageAmount,
+    LastShotId,
+    LastShotImpactAtMs,
+    LastShotTargetUnitId
+  ]);
+
+  useEffect(() => {
+    if (!DamagePopup) {
+      return;
+    }
+    const TimerHandle = window.setTimeout(() => {
+      SetDamagePopup((Previous) =>
+        Previous && Previous.PopupId === DamagePopup.PopupId ? null : Previous
+      );
+    }, 620);
+    return () => {
+      window.clearTimeout(TimerHandle);
+    };
+  }, [DamagePopup]);
 
   useEffect(() => {
     const Canvas = CanvasRef.current;
@@ -550,6 +626,15 @@ export function App() {
           top: `${(AimHoverTargetAnchor.Anchor.Y * 100).toFixed(2)}%`
         }
       : undefined;
+  const EnemyDamagePopupStyle: React.CSSProperties | undefined =
+    DamagePopup !== null &&
+    AimHoverTargetAnchor !== null &&
+    AimHoverTargetAnchor.UnitId === DamagePopup.TargetUnitId
+      ? {
+          left: `${(AimHoverTargetAnchor.Anchor.X * 100).toFixed(2)}%`,
+          top: `${(AimHoverTargetAnchor.Anchor.Y * 100).toFixed(2)}%`
+        }
+      : undefined;
   const ControlledUnitHudStyle: React.CSSProperties | undefined =
     ControlledUnitAnchor !== null
       ? {
@@ -751,6 +836,16 @@ export function App() {
               <div className="EnemyHeadHpHud__Value">
                 {HoveredEnemyUnit.CurrentHp} / {HoveredEnemyUnit.MaxHp}
               </div>
+            </div>
+          ) : null}
+
+          {IsBattle3CPhase && DamagePopup && EnemyDamagePopupStyle ? (
+            <div
+              key={`DamagePopup-${DamagePopup.PopupId}`}
+              className="EnemyDamagePopup"
+              style={EnemyDamagePopupStyle}
+            >
+              -{DamagePopup.DamageAmount}
             </div>
           ) : null}
 

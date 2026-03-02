@@ -62,6 +62,7 @@ interface FBattleUnitRuntimeState {
   DisplayName: string;
   TeamId: "Player" | "Enemy";
   ModelAssetPath: string | null;
+  HomePositionCm: FVector3Cm;
   PositionCm: FVector3Cm;
   YawDeg: number;
   MaxHp: number;
@@ -132,6 +133,13 @@ const AimYawCenterFanMaxHalfAngleDeg = 130;
 const AimYawCenterFanPaddingDeg = 8;
 const EnemyScriptCameraHoldMs = 680;
 const TargetSelectProjectionDepthEpsilonCm = 1;
+const BattleDefaultShotDamage = 20;
+const BattleHitKnockbackDistanceCm = 40;
+const BattleHitReturnDurationMs = 250;
+const BattleHitReactionDelaySafetyMs = 18;
+const BattleShotTravelSpeedCmPerSec = 3000;
+const BattleShotTravelMinMs = 80;
+const BattleShotTravelMaxMs = 220;
 const BattleSkillPlaceholderOptions: FBattleCommandOption[] = [
   { OptionId: "skill01", DisplayName: "技能1" },
   { OptionId: "skill02", DisplayName: "技能2" }
@@ -176,6 +184,8 @@ export class UWebGameRuntime {
   private EnemyScriptReturnTimerHandle: number | null;
   private ActionResolveTimerHandle: number | null;
   private ActionToastTimerHandle: number | null;
+  private readonly HitReturnTimerHandleByUnitId: Map<string, number>;
+  private readonly ShotImpactTimerHandleByShotId: Map<number, number>;
   private SettlementSummaryText: string;
   private ActiveInputDevice: EInputDeviceKind = EInputDeviceKinds.KeyboardMouse;
   private LastInputActionFrame: FInputActionFrame;
@@ -204,6 +214,8 @@ export class UWebGameRuntime {
     this.EnemyScriptReturnTimerHandle = null;
     this.ActionResolveTimerHandle = null;
     this.ActionToastTimerHandle = null;
+    this.HitReturnTimerHandleByUnitId = new Map();
+    this.ShotImpactTimerHandleByShotId = new Map();
     this.SettlementSummaryText = "按 Enter 或手柄 A 返回大地图探索";
     this.LastInputActionFrame = CreateEmptyInputActionFrame();
     this.HasKeyboardDirectionalFocus = false;
@@ -939,7 +951,7 @@ export class UWebGameRuntime {
         ? this.ResolveSelectedSkillDisplayName(Session)
         : PendingAction === "Item"
           ? this.ResolveSelectedItemDisplayName(Session)
-          : "攻击";
+          : "近战攻击";
     const TargetDisplayName = this.ResolveBattleTargetDisplayName(TargetId);
     Session.PendingActionResolvedDetail = `${PendingAction}:${TargetId}`;
     if (PendingAction === "Item") {
@@ -1418,7 +1430,7 @@ export class UWebGameRuntime {
           {
             SlotId: "RootAttack",
             Action: EInputAction.UIConfirm,
-            DisplayName: "攻击",
+            DisplayName: "近战攻击",
             TriggerType: "FocusedConfirm",
             IsFocused: ShouldShowFocusedSelection && FocusedRootIndex === 0,
             IsVisible: true
@@ -2226,7 +2238,8 @@ export class UWebGameRuntime {
         TeamId: Options.TeamRole,
         ModelAssetPath:
           Options.TeamRole === "Player" ? this.ResolveModelAssetPathByUnitId(UnitId) : null,
-        PositionCm,
+        HomePositionCm: { ...PositionCm },
+        PositionCm: { ...PositionCm },
         YawDeg: Options.TeamRole === "Player" ? 90 : 270,
         MaxHp: UnitConfig.BaseMaxHp,
         CurrentHp: this.Clamp(RuntimeSnapshot.CurrentHp, 0, UnitConfig.BaseMaxHp),
@@ -2571,6 +2584,7 @@ export class UWebGameRuntime {
     };
   }
 
+  // eslint-disable-next-line complexity
   private EmitBattleShotEvent(): void {
     if (!this.ActiveBattleSession) {
       return;
@@ -2585,12 +2599,190 @@ export class UWebGameRuntime {
     const TargetUnitId = this.ResolveCurrentBattleTargetForFire();
     const Target = TargetUnitId !== null ? this.FindBattleUnit(TargetUnitId) : null;
     const ResolvedTargetUnitId = Target && Target.IsAlive ? Target.UnitId : null;
+    const PredictedDamageAmount =
+      Target && Target.IsAlive ? this.ResolveShotPredictedDamageAmount(Target) : 0;
+    const ImpactAtMs =
+      Target && Target.IsAlive
+        ? Date.now() +
+          this.ResolveShotTravelDurationMs(Attacker, Target) +
+          BattleHitReactionDelaySafetyMs
+        : null;
 
     this.ActiveBattleSession.ShotSequence += 1;
+    const ShotId = this.ActiveBattleSession.ShotSequence;
     this.ActiveBattleSession.LastShot = {
-      ShotId: this.ActiveBattleSession.ShotSequence,
+      ShotId,
       AttackerUnitId,
-      TargetUnitId: ResolvedTargetUnitId
+      TargetUnitId: ResolvedTargetUnitId,
+      DamageAmount: PredictedDamageAmount,
+      ImpactAtMs
+    };
+
+    if (ResolvedTargetUnitId && PredictedDamageAmount > 0 && ImpactAtMs !== null) {
+      this.ScheduleShotImpact({
+        ShotId,
+        SessionId: this.ActiveBattleSession.SessionId,
+        AttackerUnitId,
+        TargetUnitId: ResolvedTargetUnitId,
+        PredictedDamageAmount,
+        ImpactAtMs
+      });
+    }
+  }
+
+  private ResolveShotPredictedDamageAmount(Target: FBattleUnitRuntimeState): number {
+    const MaxDamageCanApply = Math.max(Target.CurrentHp - 1, 0);
+    return this.Clamp(BattleDefaultShotDamage, 0, MaxDamageCanApply);
+  }
+
+  private ScheduleShotImpact(Params: {
+    ShotId: number;
+    SessionId: string;
+    AttackerUnitId: string;
+    TargetUnitId: string;
+    PredictedDamageAmount: number;
+    ImpactAtMs: number;
+  }): void {
+    const DelayMs = Math.max(Params.ImpactAtMs - Date.now(), 0);
+    const Handle = this.SetRuntimeTimeout(() => {
+      this.ShotImpactTimerHandleByShotId.delete(Params.ShotId);
+      if (
+        this.RuntimePhase !== "Battle3C" ||
+        !this.ActiveBattleSession ||
+        this.ActiveBattleSession.SessionId !== Params.SessionId
+      ) {
+        return;
+      }
+
+      const Target = this.FindBattleUnit(Params.TargetUnitId);
+      if (!Target || !Target.IsAlive) {
+        return;
+      }
+
+      const AppliedDamageAmount = this.ApplyShotDamageAmount(Target, Params.PredictedDamageAmount);
+      if (AppliedDamageAmount <= 0) {
+        return;
+      }
+
+      const Attacker = this.FindBattleUnit(Params.AttackerUnitId) ?? Target;
+      this.ScheduleUnitKnockbackAndReturn(Attacker, Target, 0);
+      this.NotifyRuntimeUpdated();
+    }, DelayMs);
+    this.ShotImpactTimerHandleByShotId.set(Params.ShotId, Handle);
+  }
+
+  private ApplyShotDamageAmount(Target: FBattleUnitRuntimeState, DamageAmount: number): number {
+    const MaxDamageCanApply = Math.max(Target.CurrentHp - 1, 0);
+    const ActualDamageAmount = this.Clamp(DamageAmount, 0, MaxDamageCanApply);
+    if (ActualDamageAmount <= 0) {
+      return 0;
+    }
+
+    Target.CurrentHp = this.Clamp(Target.CurrentHp - ActualDamageAmount, 1, Target.MaxHp);
+    Target.IsAlive = true;
+    return ActualDamageAmount;
+  }
+
+  private ScheduleUnitKnockbackAndReturn(
+    Attacker: FBattleUnitRuntimeState,
+    Target: FBattleUnitRuntimeState,
+    KnockbackDelayMs: number
+  ): void {
+    if (!this.ActiveBattleSession) {
+      return;
+    }
+
+    const HomePosition = Target.HomePositionCm ?? { ...Target.PositionCm };
+    Target.HomePositionCm = HomePosition;
+    const KnockbackDirection = this.ResolveKnockbackDirection(Attacker, Target);
+    const KnockedPosition = {
+      X: HomePosition.X + KnockbackDirection.X * BattleHitKnockbackDistanceCm,
+      Y: HomePosition.Y,
+      Z: HomePosition.Z + KnockbackDirection.Z * BattleHitKnockbackDistanceCm
+    };
+
+    this.ClearUnitHitReturnTimer(Target.UnitId);
+    const SessionId = this.ActiveBattleSession.SessionId;
+    const KnockbackStartHandle = this.SetRuntimeTimeout(
+      () => {
+        this.HitReturnTimerHandleByUnitId.delete(Target.UnitId);
+        if (
+          this.RuntimePhase !== "Battle3C" ||
+          !this.ActiveBattleSession ||
+          this.ActiveBattleSession.SessionId !== SessionId
+        ) {
+          return;
+        }
+
+        const CurrentTarget = this.FindBattleUnit(Target.UnitId);
+        if (!CurrentTarget) {
+          return;
+        }
+        if (!CurrentTarget.HomePositionCm) {
+          return;
+        }
+        CurrentTarget.PositionCm = { ...KnockedPosition };
+        this.NotifyRuntimeUpdated();
+
+        const ReturnHandle = this.SetRuntimeTimeout(() => {
+          this.HitReturnTimerHandleByUnitId.delete(Target.UnitId);
+          if (
+            this.RuntimePhase !== "Battle3C" ||
+            !this.ActiveBattleSession ||
+            this.ActiveBattleSession.SessionId !== SessionId
+          ) {
+            return;
+          }
+          const ReturnTarget = this.FindBattleUnit(Target.UnitId);
+          if (!ReturnTarget || !ReturnTarget.HomePositionCm) {
+            return;
+          }
+          ReturnTarget.PositionCm = { ...ReturnTarget.HomePositionCm };
+          this.NotifyRuntimeUpdated();
+        }, BattleHitReturnDurationMs);
+        this.HitReturnTimerHandleByUnitId.set(Target.UnitId, ReturnHandle);
+      },
+      Math.max(KnockbackDelayMs, 0)
+    );
+    this.HitReturnTimerHandleByUnitId.set(Target.UnitId, KnockbackStartHandle);
+  }
+
+  private ResolveShotTravelDurationMs(
+    Attacker: FBattleUnitRuntimeState,
+    Target: FBattleUnitRuntimeState
+  ): number {
+    const TargetHome = Target.HomePositionCm ?? Target.PositionCm;
+    const DeltaX = TargetHome.X - Attacker.PositionCm.X;
+    const DeltaY = TargetHome.Y - Attacker.PositionCm.Y;
+    const DeltaZ = TargetHome.Z - Attacker.PositionCm.Z;
+    const DistanceCm = Math.hypot(DeltaX, DeltaY, DeltaZ);
+    if (!Number.isFinite(DistanceCm) || DistanceCm <= 0) {
+      return BattleShotTravelMinMs;
+    }
+
+    const EstimatedMs = (DistanceCm / BattleShotTravelSpeedCmPerSec) * 1000;
+    return this.Clamp(EstimatedMs, BattleShotTravelMinMs, BattleShotTravelMaxMs);
+  }
+
+  private ResolveKnockbackDirection(
+    Attacker: FBattleUnitRuntimeState,
+    Target: FBattleUnitRuntimeState
+  ): { X: number; Z: number } {
+    const HomePosition = Target.HomePositionCm ?? Target.PositionCm;
+    const DeltaX = HomePosition.X - Attacker.PositionCm.X;
+    const DeltaZ = HomePosition.Z - Attacker.PositionCm.Z;
+    const Distance = Math.hypot(DeltaX, DeltaZ);
+    if (Distance > 1e-4) {
+      return {
+        X: DeltaX / Distance,
+        Z: DeltaZ / Distance
+      };
+    }
+
+    const Facing = this.ResolveForwardVectorFromYawDeg(Target.YawDeg);
+    return {
+      X: Facing.X,
+      Z: Facing.Z
     };
   }
 
@@ -2903,6 +3095,29 @@ export class UWebGameRuntime {
     }
   }
 
+  private ClearUnitHitReturnTimer(UnitId: string): void {
+    const Handle = this.HitReturnTimerHandleByUnitId.get(UnitId);
+    if (Handle === undefined) {
+      return;
+    }
+    this.ClearRuntimeTimeout(Handle);
+    this.HitReturnTimerHandleByUnitId.delete(UnitId);
+  }
+
+  private ClearAllUnitHitReturnTimers(): void {
+    this.HitReturnTimerHandleByUnitId.forEach((Handle) => {
+      this.ClearRuntimeTimeout(Handle);
+    });
+    this.HitReturnTimerHandleByUnitId.clear();
+  }
+
+  private ClearAllShotImpactTimers(): void {
+    this.ShotImpactTimerHandleByShotId.forEach((Handle) => {
+      this.ClearRuntimeTimeout(Handle);
+    });
+    this.ShotImpactTimerHandleByShotId.clear();
+  }
+
   private ClearPhaseTimers(): void {
     if (this.EncounterPromptTimerHandle !== null) {
       this.ClearRuntimeTimeout(this.EncounterPromptTimerHandle);
@@ -2915,5 +3130,7 @@ export class UWebGameRuntime {
     this.ClearEnemyScriptReturnTimer();
     this.ClearActionResolveTimer();
     this.ClearActionToastTimer();
+    this.ClearAllUnitHitReturnTimers();
+    this.ClearAllShotImpactTimers();
   }
 }

@@ -70,6 +70,8 @@ interface FMutableRuntime {
       ShotId: number;
       AttackerUnitId: string;
       TargetUnitId: string | null;
+      DamageAmount?: number;
+      ImpactAtMs?: number | null;
     } | null;
     Units: Array<{
       UnitId: string;
@@ -702,6 +704,18 @@ describe("UWebGameRuntime", () => {
     expect(RootSlots.some((Slot) => Slot.IsFocused)).toBe(true);
   });
 
+  it("Root 命令中的攻击文案应为近战攻击", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession();
+
+    const RootAttackSlot = Runtime.GetViewModel().InputHudState.ContextActionSlots.find(
+      (Slot) => Slot.SlotId === "RootAttack"
+    );
+    expect(RootAttackSlot?.DisplayName).toBe("近战攻击");
+  });
+
   it("切换角色应在上阵且存活成员中循环并跳过死亡成员", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
@@ -1316,7 +1330,141 @@ describe("UWebGameRuntime", () => {
     expect(LastShot).not.toBeNull();
     expect(LastShot?.AttackerUnitId).toBe("char01");
     expect(LastShot?.TargetUnitId).toBe("enemy01");
+    expect(LastShot?.DamageAmount).toBe(20);
+    expect((LastShot?.ImpactAtMs ?? 0) > 0).toBe(true);
     expect(Runtime.GetViewModel().Battle3CState.CameraMode).toBe("PlayerAim");
+  });
+
+  it("命中敌人后应扣减血量但暂不触发死亡", () => {
+    vi.useFakeTimers();
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = {
+        SessionId: "B3C_HIT_DAMAGE",
+        PlayerTeamId: "TEAM_PLAYER_01",
+        EnemyTeamId: "TEAM_ENEMY_01",
+        PlayerActiveUnitIds: ["char01"],
+        EnemyActiveUnitIds: ["enemy01"],
+        ControlledCharacterId: "char01",
+        CameraMode: "PlayerAim",
+        CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+        IsAimMode: true,
+        IsSkillTargetMode: false,
+        AimCameraYawDeg: 90,
+        SelectedTargetIndex: 0,
+        AimHoverTargetId: "enemy01",
+        ScriptStepIndex: 0,
+        ShotSequence: 0,
+        LastShot: null,
+        Units: [
+          CreateBattleUnit({ UnitId: "char01", TeamId: "Player" }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            CurrentHp: 12,
+            MaxHp: 100,
+            IsEncounterPrimaryEnemy: true
+          })
+        ],
+        ScriptFocus: null
+      };
+
+      Runtime.FireBattleAction();
+
+      const ImmediateEnemy = Runtime.GetViewModel().Battle3CState.Units.find(
+        (Unit) => Unit.UnitId === "enemy01"
+      );
+      expect(ImmediateEnemy?.CurrentHp).toBe(12);
+      expect(Runtime.GetViewModel().Battle3CState.LastShot?.DamageAmount).toBe(11);
+
+      vi.advanceTimersByTime(120);
+      const Enemy = Runtime.GetViewModel().Battle3CState.Units.find(
+        (Unit) => Unit.UnitId === "enemy01"
+      );
+      expect(Enemy?.CurrentHp).toBe(1);
+      expect(Enemy?.IsAlive).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // eslint-disable-next-line complexity
+  it("命中后应先等待弹道命中再击退，并在短时后回位", () => {
+    vi.useFakeTimers();
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = {
+        SessionId: "B3C_HIT_KNOCKBACK",
+        PlayerTeamId: "TEAM_PLAYER_01",
+        EnemyTeamId: "TEAM_ENEMY_01",
+        PlayerActiveUnitIds: ["char01"],
+        EnemyActiveUnitIds: ["enemy01"],
+        ControlledCharacterId: "char01",
+        CameraMode: "PlayerAim",
+        CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+        IsAimMode: true,
+        IsSkillTargetMode: false,
+        AimCameraYawDeg: 90,
+        SelectedTargetIndex: 0,
+        AimHoverTargetId: "enemy01",
+        ScriptStepIndex: 0,
+        ShotSequence: 0,
+        LastShot: null,
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 }
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            PositionCm: { X: 280, Y: 0, Z: -120 },
+            IsEncounterPrimaryEnemy: true
+          })
+        ],
+        ScriptFocus: null
+      };
+
+      const Before = Runtime.GetViewModel().Battle3CState.Units.find(
+        (Unit) => Unit.UnitId === "enemy01"
+      );
+      expect(Before).not.toBeUndefined();
+
+      Runtime.FireBattleAction();
+
+      const ImmediatelyAfterFire = Runtime.GetViewModel().Battle3CState.Units.find(
+        (Unit) => Unit.UnitId === "enemy01"
+      );
+      expect(ImmediatelyAfterFire?.PositionCm.X).toBeCloseTo(Before?.PositionCm.X ?? 0, 3);
+      expect(ImmediatelyAfterFire?.PositionCm.Z).toBeCloseTo(Before?.PositionCm.Z ?? 0, 3);
+
+      vi.advanceTimersByTime(200);
+      const Knocked = Runtime.GetViewModel().Battle3CState.Units.find(
+        (Unit) => Unit.UnitId === "enemy01"
+      );
+      expect(Knocked).not.toBeUndefined();
+      const KnockbackDistance = Math.hypot(
+        (Knocked?.PositionCm.X ?? 0) - (Before?.PositionCm.X ?? 0),
+        (Knocked?.PositionCm.Z ?? 0) - (Before?.PositionCm.Z ?? 0)
+      );
+      expect(KnockbackDistance).toBeCloseTo(40, 1);
+
+      vi.advanceTimersByTime(280);
+      const Returned = Runtime.GetViewModel().Battle3CState.Units.find(
+        (Unit) => Unit.UnitId === "enemy01"
+      );
+      expect(Returned?.PositionCm.X).toBeCloseTo(Before?.PositionCm.X ?? 0, 3);
+      expect(Returned?.PositionCm.Z).toBeCloseTo(Before?.PositionCm.Z ?? 0, 3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("攻击指令应先进入统一目标选择，不立即开火", () => {
