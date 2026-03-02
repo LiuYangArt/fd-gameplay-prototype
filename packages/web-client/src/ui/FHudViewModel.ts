@@ -94,6 +94,29 @@ export interface FBattleShotHudState {
   ImpactAtMs: number | null;
 }
 
+export interface FBattleMeleeActionHudState {
+  ActionId: number;
+  AttackerUnitId: string;
+  TargetUnitId: string;
+  Phase: "Retreat" | "Advance" | "Impact" | "Return";
+  RetreatStartAtMs: number;
+  RetreatEndAtMs: number;
+  DashStartAtMs: number;
+  DashEndAtMs: number;
+  ReturnStartAtMs: number;
+  ReturnEndAtMs: number;
+  StartPositionCm: FVector3Cm;
+  ContactPositionCm: FVector3Cm;
+}
+
+export interface FBattleDamageCueHudState {
+  CueId: number;
+  SourceKind: "Shot" | "Melee";
+  TargetUnitId: string;
+  DamageAmount: number;
+  PopAtMs: number;
+}
+
 export interface FBattle3CHudState {
   PlayerTeamId: string | null;
   EnemyTeamId: string | null;
@@ -120,6 +143,8 @@ export interface FBattle3CHudState {
   Units: FBattleUnitHudState[];
   ScriptFocus: FBattleScriptFocusHudState | null;
   LastShot: FBattleShotHudState | null;
+  ActiveMeleeAction?: FBattleMeleeActionHudState | null;
+  LastDamageCue?: FBattleDamageCueHudState | null;
   ActionResolveRemainingMs: number;
   ActionToastText: string | null;
   ActionToastRemainingMs: number;

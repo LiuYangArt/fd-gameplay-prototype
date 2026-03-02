@@ -1391,6 +1391,120 @@ describe("UWebGameRuntime", () => {
     }
   });
 
+  it("远程命中后应写入伤害弹字 Cue", () => {
+    vi.useFakeTimers();
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = {
+        SessionId: "B3C_SHOT_DAMAGE_CUE",
+        PlayerTeamId: "TEAM_PLAYER_01",
+        EnemyTeamId: "TEAM_ENEMY_01",
+        PlayerActiveUnitIds: ["char01"],
+        EnemyActiveUnitIds: ["enemy01"],
+        ControlledCharacterId: "char01",
+        CameraMode: "PlayerAim",
+        CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+        IsAimMode: true,
+        IsSkillTargetMode: false,
+        AimCameraYawDeg: 90,
+        SelectedTargetIndex: 0,
+        AimHoverTargetId: "enemy01",
+        ScriptStepIndex: 0,
+        ShotSequence: 0,
+        LastShot: null,
+        Units: [
+          CreateBattleUnit({ UnitId: "char01", TeamId: "Player" }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            IsEncounterPrimaryEnemy: true
+          })
+        ],
+        ScriptFocus: null
+      };
+
+      Runtime.FireBattleAction();
+      expect(Runtime.GetViewModel().Battle3CState.LastDamageCue).toBeNull();
+
+      vi.advanceTimersByTime(140);
+      const LastDamageCue = Runtime.GetViewModel().Battle3CState.LastDamageCue;
+      expect(LastDamageCue).not.toBeNull();
+      expect(LastDamageCue?.SourceKind).toBe("Shot");
+      expect(LastDamageCue?.TargetUnitId).toBe("enemy01");
+      expect((LastDamageCue?.DamageAmount ?? 0) > 0).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // eslint-disable-next-line complexity
+  it("近战命中时应触发伤害 Cue 与受击后退回位", () => {
+    vi.useFakeTimers();
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession({
+        PlayerActiveUnitIds: ["char01"],
+        EnemyActiveUnitIds: ["enemy01"],
+        ControlledCharacterId: "char01",
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            PositionCm: { X: 280, Y: 0, Z: 0 },
+            MaxHp: 100,
+            CurrentHp: 100,
+            IsEncounterPrimaryEnemy: true
+          })
+        ]
+      });
+
+      const Before = Runtime.GetViewModel().Battle3CState.Units.find(
+        (Unit) => Unit.UnitId === "enemy01"
+      );
+      Runtime.FireBattleAction();
+      Runtime.FireBattleAction();
+
+      expect(Runtime.GetViewModel().Battle3CState.LastShot).toBeNull();
+      expect(Runtime.GetViewModel().Battle3CState.ActiveMeleeAction).not.toBeNull();
+
+      vi.advanceTimersByTime(1200);
+      const DuringImpact = Runtime.GetViewModel().Battle3CState.Units.find(
+        (Unit) => Unit.UnitId === "enemy01"
+      );
+      expect(DuringImpact).not.toBeUndefined();
+      expect((DuringImpact?.CurrentHp ?? 0) < (Before?.CurrentHp ?? 0)).toBe(true);
+      const LastDamageCue = Runtime.GetViewModel().Battle3CState.LastDamageCue;
+      expect(LastDamageCue?.SourceKind).toBe("Melee");
+      expect(LastDamageCue?.TargetUnitId).toBe("enemy01");
+      const KnockDistance = Math.hypot(
+        (DuringImpact?.PositionCm.X ?? 0) - (Before?.PositionCm.X ?? 0),
+        (DuringImpact?.PositionCm.Z ?? 0) - (Before?.PositionCm.Z ?? 0)
+      );
+      expect(KnockDistance).toBeGreaterThan(10);
+
+      vi.advanceTimersByTime(320);
+      const Returned = Runtime.GetViewModel().Battle3CState.Units.find(
+        (Unit) => Unit.UnitId === "enemy01"
+      );
+      expect(Returned?.PositionCm.X).toBeCloseTo(Before?.PositionCm.X ?? 0, 3);
+      expect(Returned?.PositionCm.Z).toBeCloseTo(Before?.PositionCm.Z ?? 0, 3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // eslint-disable-next-line complexity
   it("命中后应先等待弹道命中再击退，并在短时后回位", () => {
     vi.useFakeTimers();
@@ -1562,7 +1676,7 @@ describe("UWebGameRuntime", () => {
     ).toBe(false);
   });
 
-  it("目标确认后进入 ActionResolve，锁输入并在阶段结束回到 Root", () => {
+  it("近战目标确认后应进入 ActionResolve，并在回位后自动切到下一角色", () => {
     vi.useFakeTimers();
     try {
       const Runtime = new UWebGameRuntime();
@@ -1578,8 +1692,9 @@ describe("UWebGameRuntime", () => {
       const ResolvingState = Runtime.GetViewModel().Battle3CState;
       expect(ResolvingState.CommandStage).toBe("ActionResolve");
       expect(ResolvingState.PendingActionKind).toBeNull();
-      expect(ResolvingState.LastShot?.TargetUnitId).toBe("enemy02");
-      expect(ResolvingState.CameraMode).toBe("SkillTargetZoom");
+      expect(ResolvingState.LastShot).toBeNull();
+      expect(ResolvingState.CameraMode).toBe("PlayerFollow");
+      expect(ResolvingState.ActiveMeleeAction?.TargetUnitId).toBe("enemy02");
       expect(ResolvingState.ActionToastText).toContain("已执行");
 
       Runtime.CycleBattleTarget(1);
@@ -1587,13 +1702,112 @@ describe("UWebGameRuntime", () => {
       expect(Runtime.SwitchControlledCharacter()).toBe(false);
       expect(Runtime.FleeBattleToOverworld()).toBe(false);
 
-      vi.advanceTimersByTime(700);
+      vi.advanceTimersByTime(2000);
       const FinishedState = Runtime.GetViewModel().Battle3CState;
       expect(FinishedState.CommandStage).toBe("Root");
       expect(FinishedState.CameraMode).toBe("PlayerFollow");
+      expect(FinishedState.ActiveMeleeAction).toBeNull();
+      expect(FinishedState.ControlledCharacterId).toBe("char02");
       expect(
         Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("EPlayerActionResolved"))
       ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("近战目标很近时前冲也应保持可见位移时长，避免瞬移感", () => {
+    const Runtime = new UWebGameRuntime();
+    const MutableRuntime = Runtime as unknown as FMutableRuntime;
+    MutableRuntime.RuntimePhase = "Battle3C";
+    MutableRuntime.ActiveBattleSession = CreateBattleSession({
+      Units: [
+        CreateBattleUnit({
+          UnitId: "char01",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: 0 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "char02",
+          TeamId: "Player",
+          PositionCm: { X: -220, Y: 0, Z: -120 },
+          YawDeg: 90
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy01",
+          TeamId: "Enemy",
+          DisplayName: "enemy01",
+          PositionCm: { X: -140, Y: 0, Z: 0 },
+          IsEncounterPrimaryEnemy: true
+        }),
+        CreateBattleUnit({
+          UnitId: "enemy02",
+          TeamId: "Enemy",
+          DisplayName: "enemy02",
+          PositionCm: { X: 280, Y: 0, Z: 120 }
+        })
+      ]
+    });
+
+    Runtime.FireBattleAction();
+    Runtime.FireBattleAction();
+
+    const ActiveMeleeAction = Runtime.GetViewModel().Battle3CState.ActiveMeleeAction;
+    expect(ActiveMeleeAction).not.toBeNull();
+    const DashDurationMs =
+      (ActiveMeleeAction?.DashEndAtMs ?? 0) - (ActiveMeleeAction?.DashStartAtMs ?? 0);
+    expect(DashDurationMs).toBeGreaterThanOrEqual(220);
+  });
+
+  it("近战命中后应预留结果展示时间，再 reset 镜头并切下一角色", () => {
+    vi.useFakeTimers();
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession({
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char02",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: -120 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            PositionCm: { X: -140, Y: 0, Z: 0 },
+            IsEncounterPrimaryEnemy: true
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy02",
+            TeamId: "Enemy",
+            DisplayName: "enemy02",
+            PositionCm: { X: 280, Y: 0, Z: 120 }
+          })
+        ]
+      });
+
+      Runtime.FireBattleAction();
+      Runtime.FireBattleAction();
+
+      vi.advanceTimersByTime(650);
+      const DuringResultWindow = Runtime.GetViewModel().Battle3CState;
+      expect(DuringResultWindow.CommandStage).toBe("ActionResolve");
+      expect(DuringResultWindow.ControlledCharacterId).toBe("char01");
+
+      vi.advanceTimersByTime(800);
+      const FinishedState = Runtime.GetViewModel().Battle3CState;
+      expect(FinishedState.CommandStage).toBe("Root");
+      expect(FinishedState.ControlledCharacterId).toBe("char02");
     } finally {
       vi.useRealTimers();
     }

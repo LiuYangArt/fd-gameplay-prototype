@@ -189,12 +189,12 @@ export function App() {
   );
   const HudRef = useRef(Hud);
   const LastOverworldPlayerPositionRef = useRef<FOverworldPlayerPositionSnapshot | null>(null);
-  const LastDamagePopupShotIdRef = useRef(0);
+  const LastDamagePopupCueIdRef = useRef(0);
   const DamagePopupDelayTimerRef = useRef<number | null>(null);
-  const LastShotId = Hud.Battle3CState.LastShot?.ShotId ?? 0;
-  const LastShotTargetUnitId = Hud.Battle3CState.LastShot?.TargetUnitId ?? null;
-  const LastShotDamageAmount = Hud.Battle3CState.LastShot?.DamageAmount ?? 0;
-  const LastShotImpactAtMs = Hud.Battle3CState.LastShot?.ImpactAtMs ?? null;
+  const LastDamageCueId = Hud.Battle3CState.LastDamageCue?.CueId ?? 0;
+  const LastDamageCueTargetUnitId = Hud.Battle3CState.LastDamageCue?.TargetUnitId ?? null;
+  const LastDamageCueAmount = Hud.Battle3CState.LastDamageCue?.DamageAmount ?? 0;
+  const LastDamageCuePopAtMs = Hud.Battle3CState.LastDamageCue?.PopAtMs ?? null;
   const AttachPointerLockAsyncErrorLog = useCallback((Result: unknown, Prefix: string) => {
     if (typeof Result !== "object" || Result === null || !("catch" in Result)) {
       return;
@@ -255,23 +255,23 @@ export function App() {
         window.clearTimeout(DamagePopupDelayTimerRef.current);
         DamagePopupDelayTimerRef.current = null;
       }
-      LastDamagePopupShotIdRef.current = 0;
+      LastDamagePopupCueIdRef.current = 0;
       SetDamagePopup(null);
       return;
     }
     if (
-      LastShotId <= LastDamagePopupShotIdRef.current ||
-      !LastShotTargetUnitId ||
-      LastShotDamageAmount <= 0
+      LastDamageCueId <= LastDamagePopupCueIdRef.current ||
+      !LastDamageCueTargetUnitId ||
+      LastDamageCueAmount <= 0
     ) {
       return;
     }
-    LastDamagePopupShotIdRef.current = LastShotId;
+    LastDamagePopupCueIdRef.current = LastDamageCueId;
     const ShowPopup = () => {
       SetDamagePopup({
-        PopupId: LastShotId,
-        TargetUnitId: LastShotTargetUnitId,
-        DamageAmount: LastShotDamageAmount
+        PopupId: LastDamageCueId,
+        TargetUnitId: LastDamageCueTargetUnitId,
+        DamageAmount: LastDamageCueAmount
       });
     };
 
@@ -280,7 +280,8 @@ export function App() {
       DamagePopupDelayTimerRef.current = null;
     }
 
-    const DelayMs = LastShotImpactAtMs !== null ? Math.max(LastShotImpactAtMs - Date.now(), 0) : 0;
+    const DelayMs =
+      LastDamageCuePopAtMs !== null ? Math.max(LastDamageCuePopAtMs - Date.now(), 0) : 0;
     if (DelayMs <= 0) {
       ShowPopup();
       return;
@@ -292,10 +293,10 @@ export function App() {
     }, DelayMs);
   }, [
     Hud.RuntimePhase,
-    LastShotDamageAmount,
-    LastShotId,
-    LastShotImpactAtMs,
-    LastShotTargetUnitId
+    LastDamageCueAmount,
+    LastDamageCueId,
+    LastDamageCuePopAtMs,
+    LastDamageCueTargetUnitId
   ]);
 
   useEffect(() => {
@@ -942,16 +943,9 @@ export function App() {
                     OnSlotTriggered={HandleItemOptionSlotTriggered}
                   />
                 </div>
-              ) : IsBattleTargetSelectStage ? null : IsBattleActionResolveStage ? (
-                <div className="BattleCommandPanel BattleCommandPanel--Resolve">
-                  <div className="BattleCommandPanel__Title">动作执行中</div>
-                  <div className="BattleCommandPanel__Target">
-                    输入已锁定，等待执行完成（
-                    {(Hud.Battle3CState.ActionResolveRemainingMs / 1000).toFixed(2)}
-                    s）
-                  </div>
-                </div>
-              ) : IsBattleRootCommandStage ? (
+              ) : IsBattleTargetSelectStage ||
+                IsBattleActionResolveStage ||
+                !IsBattleRootCommandStage ? null : (
                 <>
                   <div className="BattleActionHudLeft">
                     <button
@@ -975,7 +969,7 @@ export function App() {
                     />
                   </div>
                 </>
-              ) : null}
+              )}
             </div>
           ) : null}
 

@@ -226,6 +226,8 @@ async function runSmokeFlow() {
       ["keyup", "w"],
       ["press", "ArrowDown"],
       ["press", "Enter"],
+      ["press", "Enter"],
+      ["_sleep", "1800"],
       ["press", "Escape"],
       ["mousedown", "right"],
       ["mouseup", "right"],
@@ -240,6 +242,11 @@ async function runSmokeFlow() {
     ];
 
     for (const step of steps) {
+      if (step[0] === "_sleep") {
+        const durationMs = Number.parseInt(step[1] ?? "0", 10);
+        await sleep(Number.isFinite(durationMs) ? Math.max(durationMs, 0) : 0);
+        continue;
+      }
       await runOrThrow(pnpmCmd, ["exec", "playwright-cli", `-s=${smokeSession}`, ...step]);
     }
 

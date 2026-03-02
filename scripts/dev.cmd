@@ -19,7 +19,7 @@ if "%MODE%"=="" set "MODE=menu"
 
 call :normalize_mode "%MODE%"
 if "%RET_MODE%"=="" (
-  echo Usage: scripts\dev.cmd [menu/install/dev/typecheck/lint/lintfix/format/formatcheck/test/build/verify/freeport]
+  echo Usage: scripts\dev.cmd [menu/install/dev/devfresh/typecheck/lint/lintfix/format/formatcheck/test/build/verify/freeport]
   exit /b 1
 )
 
@@ -64,6 +64,7 @@ echo 8^) test        Run tests
 echo 9^) build       Build all packages
 echo 10^) verify     Run full verification
 echo 11^) freeport   Kill process using port 5173
+echo 12^) devfresh   Free port 5173 then start dev server
 echo q^) Exit
 echo =====================================================
 exit /b 0
@@ -86,6 +87,10 @@ if /I "%RAW_MODE%"=="test" set "RET_MODE=test"
 if /I "%RAW_MODE%"=="build" set "RET_MODE=build"
 if /I "%RAW_MODE%"=="verify" set "RET_MODE=verify"
 if /I "%RAW_MODE%"=="freeport" set "RET_MODE=freeport"
+if /I "%RAW_MODE%"=="devfresh" set "RET_MODE=devfresh"
+if /I "%RAW_MODE%"=="devclean" set "RET_MODE=devfresh"
+if /I "%RAW_MODE%"=="dev-safe" set "RET_MODE=devfresh"
+if /I "%RAW_MODE%"=="freeportdev" set "RET_MODE=devfresh"
 if /I "%RAW_MODE%"=="killport" set "RET_MODE=freeport"
 if /I "%RAW_MODE%"=="kill5173" set "RET_MODE=freeport"
 
@@ -116,6 +121,13 @@ if /I "%TASK%"=="freeport" (
   exit /b %errorlevel%
 )
 
+if /I "%TASK%"=="devfresh" (
+  call :free_port_5173
+  if not "%errorlevel%"=="0" exit /b %errorlevel%
+  pnpm dev
+  exit /b %errorlevel%
+)
+
 echo Unknown task: %TASK%
 exit /b 1
 
@@ -133,6 +145,7 @@ if "%~1"=="8" set "SELECTED_TASK=test"
 if "%~1"=="9" set "SELECTED_TASK=build"
 if "%~1"=="10" set "SELECTED_TASK=verify"
 if "%~1"=="11" set "SELECTED_TASK=freeport"
+if "%~1"=="12" set "SELECTED_TASK=devfresh"
 
 exit /b 0
 

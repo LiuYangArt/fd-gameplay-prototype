@@ -2,6 +2,9 @@ import { Vector3 } from "@babylonjs/core";
 import { describe, expect, it } from "vitest";
 
 import {
+  ResolveBattleUnitDisplayPositionCm,
+  ResolveMeleeDamageCueImpactPositionCm,
+  ResolveMeleeActionAttackerPositionCm,
   ResolveTargetSelectBasisForwardFromPositions,
   ShouldBlendOnBattleTargetSwitch
 } from "./USceneBridge";
@@ -83,5 +86,162 @@ describe("ShouldBlendOnBattleTargetSwitch", () => {
       CurrentSelectedTargetId: "char02"
     });
     expect(ShouldBlend).toBe(true);
+  });
+});
+
+describe("ResolveMeleeActionAttackerPositionCm", () => {
+  it("前冲阶段应从起点平滑插值到接触点", () => {
+    const Resolved = ResolveMeleeActionAttackerPositionCm(
+      {
+        ActionId: 1,
+        AttackerUnitId: "char01",
+        TargetUnitId: "enemy01",
+        Phase: "Advance",
+        RetreatStartAtMs: 0,
+        RetreatEndAtMs: 100,
+        DashStartAtMs: 100,
+        DashEndAtMs: 300,
+        ReturnStartAtMs: 450,
+        ReturnEndAtMs: 650,
+        StartPositionCm: { X: -220, Y: 0, Z: 0 },
+        ContactPositionCm: { X: 180, Y: 0, Z: 0 }
+      },
+      "char01",
+      200
+    );
+
+    expect(Resolved?.X).toBeCloseTo(-20, 2);
+    expect(Resolved?.Y).toBe(0);
+    expect(Resolved?.Z).toBe(0);
+  });
+
+  it("回位阶段应直接瞬移回起点，不做插值过渡", () => {
+    const Resolved = ResolveMeleeActionAttackerPositionCm(
+      {
+        ActionId: 1,
+        AttackerUnitId: "char01",
+        TargetUnitId: "enemy01",
+        Phase: "Return",
+        RetreatStartAtMs: 0,
+        RetreatEndAtMs: 100,
+        DashStartAtMs: 100,
+        DashEndAtMs: 300,
+        ReturnStartAtMs: 450,
+        ReturnEndAtMs: 650,
+        StartPositionCm: { X: -220, Y: 0, Z: 0 },
+        ContactPositionCm: { X: 180, Y: 0, Z: 0 }
+      },
+      "char01",
+      550
+    );
+
+    expect(Resolved?.X).toBeCloseTo(-220, 2);
+    expect(Resolved?.Y).toBe(0);
+    expect(Resolved?.Z).toBe(0);
+  });
+});
+
+describe("ResolveBattleUnitDisplayPositionCm", () => {
+  it("近战前冲中应返回插值后的攻击者显示坐标（模型与占位体共用）", () => {
+    const Resolved = ResolveBattleUnitDisplayPositionCm(
+      {
+        UnitId: "char01",
+        PositionCm: { X: -220, Y: 0, Z: 0 }
+      },
+      {
+        ActionId: 1,
+        AttackerUnitId: "char01",
+        TargetUnitId: "enemy01",
+        Phase: "Advance",
+        RetreatStartAtMs: 0,
+        RetreatEndAtMs: 100,
+        DashStartAtMs: 100,
+        DashEndAtMs: 300,
+        ReturnStartAtMs: 450,
+        ReturnEndAtMs: 450,
+        StartPositionCm: { X: -220, Y: 0, Z: 0 },
+        ContactPositionCm: { X: 180, Y: 0, Z: 0 }
+      },
+      200
+    );
+
+    expect(Resolved.X).toBeCloseTo(-20, 2);
+    expect(Resolved.Y).toBe(0);
+    expect(Resolved.Z).toBe(0);
+  });
+});
+
+describe("ResolveMeleeDamageCueImpactPositionCm", () => {
+  it("仅近战伤害 Cue 且到达弹字时刻后才触发受击特效位置", () => {
+    const Units = [
+      {
+        UnitId: "enemy01",
+        PositionCm: { X: 280, Y: 0, Z: 0 }
+      }
+    ];
+    const NotReadyBySource = ResolveMeleeDamageCueImpactPositionCm(
+      {
+        CueId: 2,
+        SourceKind: "Shot",
+        TargetUnitId: "enemy01",
+        PopAtMs: 100
+      },
+      Units,
+      null,
+      120,
+      0
+    );
+    expect(NotReadyBySource).toBeNull();
+
+    const NotReadyByTime = ResolveMeleeDamageCueImpactPositionCm(
+      {
+        CueId: 2,
+        SourceKind: "Melee",
+        TargetUnitId: "enemy01",
+        PopAtMs: 180
+      },
+      Units,
+      null,
+      120,
+      0
+    );
+    expect(NotReadyByTime).toBeNull();
+
+    const ReadyImpact = ResolveMeleeDamageCueImpactPositionCm(
+      {
+        CueId: 2,
+        SourceKind: "Melee",
+        TargetUnitId: "enemy01",
+        PopAtMs: 100
+      },
+      Units,
+      null,
+      120,
+      0
+    );
+    expect(ReadyImpact?.X).toBeCloseTo(280, 2);
+    expect(ReadyImpact?.Y).toBe(0);
+    expect(ReadyImpact?.Z).toBe(0);
+  });
+
+  it("已消费过的 Cue 不应重复触发受击特效", () => {
+    const Impact = ResolveMeleeDamageCueImpactPositionCm(
+      {
+        CueId: 5,
+        SourceKind: "Melee",
+        TargetUnitId: "enemy01",
+        PopAtMs: 100
+      },
+      [
+        {
+          UnitId: "enemy01",
+          PositionCm: { X: 280, Y: 0, Z: 0 }
+        }
+      ],
+      null,
+      120,
+      5
+    );
+    expect(Impact).toBeNull();
   });
 });
