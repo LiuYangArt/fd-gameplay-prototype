@@ -1,0 +1,58 @@
+name: Feature Request
+description: 提交用于战斗 gameplay 原型验证的功能需求
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请聚焦“原型验证价值”，描述清楚目标和验收标准，避免过早设计实现细节。
+  - type: dropdown
+    id: target_layer
+    attributes:
+      label: 目标层
+      description: 该需求主要落在哪一层。
+      options:
+        - gameplay-core（纯逻辑/回合/结算）
+        - web-client（渲染/UI/输入）
+        - ue-bridge（UE 适配）
+        - 跨层改动（请在下方说明边界）
+    validations:
+      required: true
+  - type: textarea
+    id: problem_statement
+    attributes:
+      label: 需求背景与目标
+      description: 当前痛点是什么，这个需求要验证什么玩法假设。
+      placeholder: |
+        背景：
+        目标：
+        成功后可以回答的核心问题：
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: 用可验证的结果描述完成定义（DoD）。
+      placeholder: |
+        - [ ] 场景 A 下可完成 ...
+        - [ ] HUD/输入表现为 ...
+        - [ ] 不影响现有 ... 回归项
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: 约束与非目标（可选）
+      description: 例如事件驱动、UE 迁移一致性、单位规范（cm/cm/s/deg）等。
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案（可选）
+      description: 如已考虑过其他方案，可简要写出取舍理由。
+    validations:
+      required: false

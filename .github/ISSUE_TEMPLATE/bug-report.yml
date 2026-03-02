@@ -1,0 +1,62 @@
+name: Bug Report
+description: 报告影响回合制战斗原型验证的问题
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请尽量提供可稳定复现的信息，便于快速定位并补回归测试。
+  - type: dropdown
+    id: affected_layer
+    attributes:
+      label: 影响层
+      description: 请选择最主要受影响的层，帮助快速分派处理。
+      options:
+        - gameplay-core（纯逻辑/回合/结算）
+        - web-client（渲染/UI/输入）
+        - ue-bridge（UE 适配）
+        - scripts/docs（脚本或文档流程）
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce_steps
+    attributes:
+      label: 复现步骤
+      description: 用最短路径写出复现步骤；如果和输入有关，请写明键鼠或手柄。
+      placeholder: |
+        1. 打开 ...
+        2. 执行 ...
+        3. 观察 ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected_result
+    attributes:
+      label: 预期结果
+      placeholder: 应该发生什么
+    validations:
+      required: true
+  - type: textarea
+    id: actual_result
+    attributes:
+      label: 实际结果
+      placeholder: 实际发生了什么（可附报错或异常表现）
+    validations:
+      required: true
+  - type: input
+    id: env_info
+    attributes:
+      label: 环境信息（可选）
+      description: 例如分支/commit、浏览器版本、系统版本、设备类型。
+      placeholder: main@abc123 / Chrome 124 / Windows 11 / Xbox 手柄
+    validations:
+      required: false
+  - type: textarea
+    id: logs_or_media
+    attributes:
+      label: 日志或截图（可选）
+      description: 粘贴关键日志、报错栈或截图链接。
+    validations:
+      required: false
