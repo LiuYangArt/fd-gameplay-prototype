@@ -57,6 +57,7 @@
 - [x] 物品目标选择阶段左右切换目标时，镜头应使用与其他战斗机位一致的 lerp 过渡，避免硬切（`USceneBridge.test.ts` + `USceneBridge.ts`）。
 - [x] 物品目标选择阶段因镜像机位导致左右体感反向时，应修正为“左键选屏幕左侧 / 右键选屏幕右侧”（`UWebGameRuntime.test.ts` + `UWebGameRuntime.ts`）。
 - [x] 攻击/技能选敌与道具选己方目标阶段，左下角动作栏应展示“左目标/右目标/确认目标”提示，并支持键盘 `F` 与手柄 `A` 确认（`UWebGameRuntime.test.ts` + `UInputController.test.ts` + `App.tsx`）。
+- [x] 攻击/技能/道具目标选择提示应统一挂在屏幕空间上方中间，不依赖角色世界锚点（`UBattleTargetPromptResolver.test.ts` + `App.tsx` + `styles.css`）。
 - [x] 无存活敌人时阻断进入目标选择并记录事件日志（`UWebGameRuntime.test.ts`）。
 - [x] 左下角战斗操作栏显示由 `GlobalActionSlots` 驱动：菜单态/目标态/瞄准态可显示“返回”，Root 待机显示“逃跑/跳过回合”（`UBattleHudVisibility.test.ts`）。
 - [x] 菜单输入映射统一为 `↑/↓/←/→` 导航 + `Enter/A` 确认 + `Esc/B` 返回（`UInputController.test.ts` + `UWebGameRuntime.test.ts`）。
@@ -144,6 +145,18 @@
 - [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
 
 ## F. 本次修复记录
+
+- 问题描述：修复“目标选择提示挂在角色锚点，切敌方特写后提示不可见”；要求攻击/技能/道具目标选择统一改为屏幕空间上方中间提示。
+- 对应测试文件：
+  - `packages/web-client/src/ui/UBattleTargetPromptResolver.test.ts`（新增目标提示解析回归，覆盖 Attack/Skill/Item）
+  - `packages/web-client/src/game/UWebGameRuntime.test.ts`（复跑目标选择阶段关键机位与阶段回归）
+- 新增/修改条目：C 节新增“目标选择提示统一为屏幕空间上方中间”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/ui/UBattleTargetPromptResolver.test.ts`：先失败后通过（2 项）。
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts -t "攻击指令应先进入统一目标选择，不立即开火|技能确认应进入目标选择，取消后返回技能菜单|物品确认应进入我方目标选择，并在确认后记录占位行为"`：通过（3 项命中）。
+  - `pnpm --filter @fd/web-client typecheck`：通过。
+  - `pnpm smoke:web`：通过（产物：`output/playwright/2026-03-02T05-09-24-328Z/`）。
+- 是否新增 postmortem：`是`（`docs/postmortems/2026-03-02-battle-target-prompt-world-anchor-regression.md`，14 天内同类问题复发）。
 
 - 问题描述：修复 GitHub Pages 部署后角色模型未加载（回退 capsule）与手柄提示图标路径失效；根因是资源路径使用了根路径绝对地址 `/assets/...`，在 `/<repo>/` 子路径站点下会 404。
 - 对应测试文件：

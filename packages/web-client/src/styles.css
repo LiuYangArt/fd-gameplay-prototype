@@ -309,6 +309,31 @@ ul {
   letter-spacing: 0.04em;
 }
 
+.BattleTargetPromptOverlay {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: fit-content;
+  max-width: calc(100% - 28px);
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 154, 196, 0.5);
+  background: rgba(14, 23, 35, 0.88);
+  box-shadow: 0 8px 20px rgba(5, 10, 18, 0.28);
+  z-index: 28;
+  pointer-events: none;
+}
+
+.BattleTargetPromptOverlay__Text {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #f2f7ff;
+  white-space: nowrap;
+}
+
 .ViewportHotkeyHints {
   position: absolute;
   top: 14px;
@@ -888,6 +913,11 @@ ul {
     font-size: 14px;
   }
 
+  .BattleTargetPromptOverlay {
+    top: 20px;
+    padding: 9px 14px;
+  }
+
   .BattleActionHudLeft {
     right: calc(100% + 88px);
   }
@@ -929,6 +959,16 @@ ul {
 
   .BattleCanvas {
     max-height: 52vh;
+  }
+
+  .BattleTargetPromptOverlay {
+    top: 12px;
+    max-width: calc(100% - 20px);
+    padding: 8px 12px;
+  }
+
+  .BattleTargetPromptOverlay__Text {
+    font-size: 14px;
   }
 
   .BattleCornerActions {

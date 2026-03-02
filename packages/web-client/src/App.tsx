@@ -10,6 +10,7 @@ import { UBattleGlobalActionBar } from "./ui/components/UBattleGlobalActionBar";
 import { UDebugFloatingPanel, type FDebugTabKey } from "./ui/components/UDebugFloatingPanel";
 import { UInputPromptBadge } from "./ui/components/UInputPromptBadge";
 import { ShouldShowBattleCornerActions } from "./ui/UBattleHudVisibility";
+import { ResolveBattleTargetPromptModel } from "./ui/UBattleTargetPromptResolver";
 
 import type { FDebugConfig } from "./debug/UDebugConfigStore";
 import type { FResolvedActionSlot } from "./input/FInputPrompt";
@@ -671,12 +672,6 @@ export function App() {
   const BattlePartyUnits = Hud.Battle3CState.PlayerActiveUnitIds.map((UnitId) =>
     Hud.Battle3CState.Units.find((Unit) => Unit.UnitId === UnitId)
   ).filter((Unit): Unit is NonNullable<typeof ControlledUnit> => Unit !== undefined);
-  const SelectedTargetBattleUnit =
-    Hud.Battle3CState.SelectedTargetId !== null
-      ? (Hud.Battle3CState.Units.find(
-          (Unit) => Unit.UnitId === Hud.Battle3CState.SelectedTargetId && Unit.IsAlive
-        ) ?? null)
-      : null;
   const HoveredEnemyUnit =
     AimHoverTargetAnchor !== null
       ? (Hud.Battle3CState.Units.find(
@@ -727,6 +722,7 @@ export function App() {
   const IsContextConfirmFocused = Hud.InputHudState.ContextActionSlots.some(
     (Slot) => Slot.SlotId === "ContextConfirm" && Slot.IsFocused
   );
+  const BattleTargetPromptModel = ResolveBattleTargetPromptModel(Hud);
   const SkillCommandSlots: FResolvedActionSlot[] = Hud.Battle3CState.SkillOptions.map(
     (Option, Index) => ({
       SlotId: `SkillOption:${Index}`,
@@ -889,6 +885,14 @@ export function App() {
             </div>
           ) : null}
 
+          {BattleTargetPromptModel ? (
+            <div className="BattleTargetPromptOverlay" data-ignore-fire-input="true">
+              <p className="BattleTargetPromptOverlay__Text">
+                {BattleTargetPromptModel.PromptText}
+              </p>
+            </div>
+          ) : null}
+
           {(IsBattleAimMode || IsBattleTargetSelectStage || IsBattleActionResolveStage) &&
           HoveredEnemyUnit &&
           EnemyHpBarStyle ? (
@@ -938,33 +942,7 @@ export function App() {
                     OnSlotTriggered={HandleItemOptionSlotTriggered}
                   />
                 </div>
-              ) : IsBattleTargetSelectStage ? (
-                IsItemTargetSelectStage ? null : (
-                  <div className="BattleCommandPanel">
-                    <div className="BattleCommandPanel__Title">选择目标敌人</div>
-                    <div className="BattleCommandPanel__Target">
-                      当前目标：{SelectedTargetBattleUnit?.DisplayName ?? "无可用目标"}
-                    </div>
-                    <div className="BattleCommandPanel__Actions">
-                      <button
-                        type="button"
-                        className="BattleActionButton BattleActionButton--Confirm"
-                        onClick={() => Runtime.FireBattleAction()}
-                      >
-                        <span className="BattleActionButton__Main">
-                          {ContextConfirmPrompt ? (
-                            <UInputPromptBadge Token={ContextConfirmPrompt} />
-                          ) : null}
-                          <span className="BattleActionButton__LabelText">确认目标</span>
-                        </span>
-                      </button>
-                    </div>
-                    <p className="BattleCommandHint">
-                      左右切换：A/D 或 ←/→ 或 D-Pad 左/右；确认：F 或 Enter 或 手柄 A
-                    </p>
-                  </div>
-                )
-              ) : IsBattleActionResolveStage ? (
+              ) : IsBattleTargetSelectStage ? null : IsBattleActionResolveStage ? (
                 <div className="BattleCommandPanel BattleCommandPanel--Resolve">
                   <div className="BattleCommandPanel__Title">动作执行中</div>
                   <div className="BattleCommandPanel__Target">
