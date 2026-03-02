@@ -1,6 +1,6 @@
 # fd-gameplay-prototype
 
-一个用于快速验证回合制玩法的 TypeScript 网页原型工程。
+一个用于快速验证回合制玩法的 TypeScript 网页原型工程。 支持xbox手柄/键鼠操作。 
 
 - 快速试玩：  [https://liuyangart.github.io/fd-gameplay-prototype/](https://liuyangart.github.io/fd-gameplay-prototype/)
 - 提bug/功能需求： [https://github.com/LiuYangArt/fd-gameplay-prototype/issues](https://github.com/LiuYangArt/fd-gameplay-prototype/issues)
