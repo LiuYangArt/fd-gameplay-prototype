@@ -274,6 +274,22 @@ function CreateBattleSession(Override: Partial<FBattleSessionState> = {}): FBatt
   };
 }
 
+const SINGLE_MELEE_RESOLVE_MS = 2400;
+const ENEMY_TURN_SETTLE_TICK_MS = 1000;
+const ENEMY_TURN_SETTLE_TICK_COUNT = 24;
+
+function RunSinglePlayerMeleeAction(Runtime: UWebGameRuntime): void {
+  Runtime.FireBattleAction();
+  Runtime.FireBattleAction();
+  vi.advanceTimersByTime(SINGLE_MELEE_RESOLVE_MS);
+}
+
+function AdvanceBattleTimelineForEnemyTurn(): void {
+  for (let Index = 0; Index < ENEMY_TURN_SETTLE_TICK_COUNT; Index += 1) {
+    vi.advanceTimersByTime(ENEMY_TURN_SETTLE_TICK_MS);
+  }
+}
+
 describe("UWebGameRuntime", () => {
   it("进入瞄准时若当前朝向在敌人扇区外，应先对齐中轴避免左右极限体感异常", () => {
     const Runtime = new UWebGameRuntime();
@@ -716,7 +732,7 @@ describe("UWebGameRuntime", () => {
     expect(RootAttackSlot?.DisplayName).toBe("近战攻击");
   });
 
-  it("切换角色应在上阵且存活成员中循环并跳过死亡成员", () => {
+  it("跳过回合应消耗当前角色行动次数，并在本轮队列内推进到下一存活角色", () => {
     const Runtime = new UWebGameRuntime();
     const MutableRuntime = Runtime as unknown as FMutableRuntime;
     MutableRuntime.RuntimePhase = "Battle3C";
@@ -751,11 +767,14 @@ describe("UWebGameRuntime", () => {
       ScriptFocus: null
     };
 
-    Runtime.SwitchControlledCharacter();
+    expect(Runtime.SwitchControlledCharacter()).toBe(true);
     expect(Runtime.GetViewModel().Battle3CState.ControlledCharacterId).toBe("char03");
 
-    Runtime.SwitchControlledCharacter();
-    expect(Runtime.GetViewModel().Battle3CState.ControlledCharacterId).toBe("char01");
+    expect(Runtime.SwitchControlledCharacter()).toBe(true);
+    const Logs = Runtime.GetViewModel().EventLogs;
+    expect(
+      Logs.some((Log) => Log.includes("EBattleTurnChanged") && Log.includes("EnemyTurnStart"))
+    ).toBe(true);
   });
 
   it("瞄准状态下不允许切换角色（跳过回合）", () => {
@@ -790,6 +809,78 @@ describe("UWebGameRuntime", () => {
     Runtime.SwitchControlledCharacter();
 
     expect(Runtime.GetViewModel().Battle3CState.ControlledCharacterId).toBe("char01");
+  });
+
+  it("连续跳过前两名角色后，第三名角色行动完成应进入敌方回合", () => {
+    vi.useFakeTimers();
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession({
+        PlayerActiveUnitIds: ["char01", "char02", "char03"],
+        EnemyActiveUnitIds: ["enemy01", "enemy02", "enemy03"],
+        ControlledCharacterId: "char01",
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 150 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char02",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char03",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: -150 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            PositionCm: { X: 280, Y: 0, Z: 180 },
+            IsEncounterPrimaryEnemy: true
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy02",
+            TeamId: "Enemy",
+            DisplayName: "enemy02",
+            PositionCm: { X: 280, Y: 0, Z: 0 }
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy03",
+            TeamId: "Enemy",
+            DisplayName: "enemy03",
+            PositionCm: { X: 280, Y: 0, Z: -180 }
+          })
+        ]
+      });
+
+      expect(Runtime.SwitchControlledCharacter()).toBe(true);
+      expect(Runtime.GetViewModel().Battle3CState.ControlledCharacterId).toBe("char02");
+
+      expect(Runtime.SwitchControlledCharacter()).toBe(true);
+      expect(Runtime.GetViewModel().Battle3CState.ControlledCharacterId).toBe("char03");
+
+      RunSinglePlayerMeleeAction(Runtime);
+
+      const EnemyTurnStartCount = Runtime.GetViewModel().EventLogs.filter(
+        (Log) => Log.includes("EBattleTurnChanged") && Log.includes("EnemyTurnStart")
+      ).length;
+      const EnemyActCount = Runtime.GetViewModel().EventLogs.filter((Log) =>
+        Log.includes("EnemyTurn:Act:")
+      ).length;
+      expect(EnemyTurnStartCount).toBeGreaterThan(0);
+      expect(EnemyActCount).toBeGreaterThan(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("瞄准悬停目标应仅更新 HoveredTargetId，不改当前选中目标与角色朝向", () => {
@@ -1921,6 +2012,380 @@ describe("UWebGameRuntime", () => {
       const FinishedState = Runtime.GetViewModel().Battle3CState;
       expect(FinishedState.CommandStage).toBe("Root");
       expect(FinishedState.ControlledCharacterId).toBe("char02");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("我方全员完成行动后应进入敌方回合，敌方按屏幕左到右依次近战并回到我方回合", () => {
+    vi.useFakeTimers();
+    const RandomSpy = vi
+      .spyOn(Math, "random")
+      .mockReturnValueOnce(0.0)
+      .mockReturnValueOnce(0.51)
+      .mockReturnValueOnce(0.99);
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession({
+        PlayerActiveUnitIds: ["char01", "char02", "char03"],
+        EnemyActiveUnitIds: ["enemyLeft", "enemyCenter", "enemyRight"],
+        ControlledCharacterId: "char01",
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 140 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char02",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char03",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: -140 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "enemyLeft",
+            TeamId: "Enemy",
+            DisplayName: "enemyLeft",
+            PositionCm: { X: 280, Y: 0, Z: 220 },
+            IsEncounterPrimaryEnemy: true
+          }),
+          CreateBattleUnit({
+            UnitId: "enemyCenter",
+            TeamId: "Enemy",
+            DisplayName: "enemyCenter",
+            PositionCm: { X: 280, Y: 0, Z: 0 }
+          }),
+          CreateBattleUnit({
+            UnitId: "enemyRight",
+            TeamId: "Enemy",
+            DisplayName: "enemyRight",
+            PositionCm: { X: 280, Y: 0, Z: -220 }
+          })
+        ]
+      });
+
+      RunSinglePlayerMeleeAction(Runtime);
+      RunSinglePlayerMeleeAction(Runtime);
+      RunSinglePlayerMeleeAction(Runtime);
+      AdvanceBattleTimelineForEnemyTurn();
+
+      const EnemyActionLogs = Runtime.GetViewModel().EventLogs.filter((Log) =>
+        Log.includes("EnemyTurn:Act:")
+      );
+      expect(EnemyActionLogs).toHaveLength(3);
+      expect(EnemyActionLogs[0]).toContain("EnemyTurn:Act:enemyLeft->char01");
+      expect(EnemyActionLogs[1]).toContain("EnemyTurn:Act:enemyCenter->char02");
+      expect(EnemyActionLogs[2]).toContain("EnemyTurn:Act:enemyRight->char03");
+
+      const BattleState = Runtime.GetViewModel().Battle3CState;
+      expect(BattleState.CommandStage).toBe("Root");
+      expect(BattleState.ControlledCharacterId).toBe("char01");
+      expect(BattleState.CameraMode).toBe("PlayerFollow");
+      expect(
+        BattleState.Units.filter((Unit) => Unit.TeamId === "Player" && Unit.IsAlive)
+      ).toHaveLength(3);
+      const TotalPlayerHp = BattleState.Units.filter((Unit) => Unit.TeamId === "Player").reduce(
+        (Sum, Unit) => Sum + Unit.CurrentHp,
+        0
+      );
+      expect(TotalPlayerHp).toBeLessThan(300);
+    } finally {
+      RandomSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("敌方回合随机目标应只在存活我方单位中选择", () => {
+    vi.useFakeTimers();
+    const RandomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession({
+        PlayerActiveUnitIds: ["char01", "char02", "char03"],
+        EnemyActiveUnitIds: ["enemy01", "enemy02", "enemy03"],
+        ControlledCharacterId: "char01",
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 140 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char02",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 },
+            YawDeg: 90,
+            CurrentHp: 0,
+            IsAlive: false
+          }),
+          CreateBattleUnit({
+            UnitId: "char03",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: -140 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            PositionCm: { X: 280, Y: 0, Z: 220 },
+            IsEncounterPrimaryEnemy: true
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy02",
+            TeamId: "Enemy",
+            DisplayName: "enemy02",
+            PositionCm: { X: 280, Y: 0, Z: 0 }
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy03",
+            TeamId: "Enemy",
+            DisplayName: "enemy03",
+            PositionCm: { X: 280, Y: 0, Z: -220 }
+          })
+        ]
+      });
+
+      RunSinglePlayerMeleeAction(Runtime);
+      RunSinglePlayerMeleeAction(Runtime);
+      RunSinglePlayerMeleeAction(Runtime);
+      AdvanceBattleTimelineForEnemyTurn();
+
+      const EnemyActionLogs = Runtime.GetViewModel().EventLogs.filter((Log) =>
+        Log.includes("EnemyTurn:Act:")
+      );
+      expect(EnemyActionLogs).toHaveLength(3);
+      expect(EnemyActionLogs.some((Log) => Log.includes("->char02"))).toBe(false);
+    } finally {
+      RandomSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("首个行动击杀一名敌人后，我方本轮其余角色行动完仍应进入敌方回合", () => {
+    vi.useFakeTimers();
+    const RandomSpy = vi.spyOn(Math, "random").mockReturnValue(0.2);
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession({
+        PlayerActiveUnitIds: ["char01", "char02", "char03"],
+        EnemyActiveUnitIds: ["enemy01", "enemy02", "enemy03"],
+        ControlledCharacterId: "char01",
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 160 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char02",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char03",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: -160 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            PositionCm: { X: 280, Y: 0, Z: 180 },
+            CurrentHp: 20,
+            IsEncounterPrimaryEnemy: true
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy02",
+            TeamId: "Enemy",
+            DisplayName: "enemy02",
+            PositionCm: { X: 280, Y: 0, Z: 0 }
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy03",
+            TeamId: "Enemy",
+            DisplayName: "enemy03",
+            PositionCm: { X: 280, Y: 0, Z: -180 }
+          })
+        ]
+      });
+
+      // char01 首次行动击杀 enemy01
+      RunSinglePlayerMeleeAction(Runtime);
+      expect(
+        Runtime.GetViewModel().Battle3CState.Units.find((Unit) => Unit.UnitId === "enemy01")
+          ?.IsAlive
+      ).toBe(false);
+
+      // 我方剩余角色行动
+      RunSinglePlayerMeleeAction(Runtime);
+      RunSinglePlayerMeleeAction(Runtime);
+      AdvanceBattleTimelineForEnemyTurn();
+
+      const EnemyTurnChangedLogs = Runtime.GetViewModel().EventLogs.filter(
+        (Log) => Log.includes("EBattleTurnChanged") && Log.includes("EnemyTurnStart")
+      );
+      const EnemyActionLogs = Runtime.GetViewModel().EventLogs.filter((Log) =>
+        Log.includes("EnemyTurn:Act:")
+      );
+      expect(EnemyTurnChangedLogs.length).toBeGreaterThan(0);
+      expect(EnemyActionLogs.length).toBeGreaterThan(0);
+    } finally {
+      RandomSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("敌方活跃列表异常为空但仍有存活敌人时，回合推进不应卡死", () => {
+    vi.useFakeTimers();
+    const RandomSpy = vi.spyOn(Math, "random").mockReturnValue(0.0);
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession({
+        PlayerActiveUnitIds: ["char01", "char02", "char03"],
+        // 模拟运行时异常：活跃列表为空，但单位实际仍存活。
+        EnemyActiveUnitIds: [],
+        ControlledCharacterId: "char01",
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 140 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char02",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char03",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: -140 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            PositionCm: { X: 280, Y: 0, Z: 160 },
+            IsEncounterPrimaryEnemy: true
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy02",
+            TeamId: "Enemy",
+            DisplayName: "enemy02",
+            PositionCm: { X: 280, Y: 0, Z: 0 }
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy03",
+            TeamId: "Enemy",
+            DisplayName: "enemy03",
+            PositionCm: { X: 280, Y: 0, Z: -160 }
+          })
+        ]
+      });
+
+      RunSinglePlayerMeleeAction(Runtime);
+      RunSinglePlayerMeleeAction(Runtime);
+      RunSinglePlayerMeleeAction(Runtime);
+      AdvanceBattleTimelineForEnemyTurn();
+
+      const EnemyTurnChangedLogs = Runtime.GetViewModel().EventLogs.filter(
+        (Log) => Log.includes("EBattleTurnChanged") && Log.includes("EnemyTurnStart")
+      );
+      expect(EnemyTurnChangedLogs.length).toBeGreaterThan(0);
+    } finally {
+      RandomSpy.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("敌方单位全灭后不应停在我方回合，应进入结算阶段", () => {
+    vi.useFakeTimers();
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession({
+        PlayerActiveUnitIds: ["char01", "char02", "char03"],
+        EnemyActiveUnitIds: ["enemy01", "enemy02", "enemy03"],
+        ControlledCharacterId: "char01",
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 140 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char02",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "char03",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: -140 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            PositionCm: { X: 280, Y: 0, Z: 160 },
+            CurrentHp: 20,
+            IsEncounterPrimaryEnemy: true
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy02",
+            TeamId: "Enemy",
+            DisplayName: "enemy02",
+            PositionCm: { X: 280, Y: 0, Z: 0 },
+            CurrentHp: 20
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy03",
+            TeamId: "Enemy",
+            DisplayName: "enemy03",
+            PositionCm: { X: 280, Y: 0, Z: -160 },
+            CurrentHp: 20
+          })
+        ]
+      });
+
+      RunSinglePlayerMeleeAction(Runtime);
+      RunSinglePlayerMeleeAction(Runtime);
+      RunSinglePlayerMeleeAction(Runtime);
+
+      // 留出动作链尾部事件处理时间
+      vi.advanceTimersByTime(1000);
+
+      expect(Runtime.GetViewModel().RuntimePhase).toBe("SettlementPreview");
+      expect(
+        Runtime.GetViewModel().EventLogs.some((Log) => Log.includes("ESettlementPreviewRequested"))
+      ).toBe(true);
     } finally {
       vi.useRealTimers();
     }

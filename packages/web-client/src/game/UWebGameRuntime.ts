@@ -31,6 +31,7 @@ import type {
   FBattlePendingActionKind,
   FBattleShotHudState,
   FBattleScriptFocusHudState,
+  FBattleTurnOwner,
   FHudViewModel,
   FRuntimePhase,
   FVector3Cm
@@ -42,6 +43,7 @@ type FRuntimeEventType =
   | "EEncounterTransitionStarted"
   | "EEncounterTransitionFinished"
   | "EBattle3CActionRequested"
+  | "EBattleTurnChanged"
   | "EPlayerActionResolved"
   | "ESettlementPreviewRequested"
   | "ESettlementPreviewConfirmed"
@@ -84,6 +86,10 @@ interface FBattle3CSession {
   SessionId: string;
   PlayerTeamId: string;
   EnemyTeamId: string;
+  TurnOwner?: FBattleTurnOwner;
+  PendingPlayerTurnUnitIds?: string[];
+  PendingEnemyTurnUnitIds?: string[];
+  PendingActionActorUnitId?: string | null;
   PlayerActiveUnitIds: string[];
   EnemyActiveUnitIds: string[];
   ControlledCharacterId: string;
@@ -371,6 +377,9 @@ export class UWebGameRuntime {
     }
 
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
     if (this.ActiveBattleSession.CommandStage !== "Root") {
       return;
     }
@@ -422,6 +431,10 @@ export class UWebGameRuntime {
     if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
       return false;
     }
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return false;
+    }
     if (this.ActiveBattleSession.IsAimMode) {
       this.ExitBattleAimMode();
       return true;
@@ -435,6 +448,9 @@ export class UWebGameRuntime {
     }
 
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
     if (this.ActiveBattleSession.IsAimMode) {
       this.SyncAimCameraYawToControlledFacing();
       this.EmitBattleShotEvent();
@@ -470,6 +486,10 @@ export class UWebGameRuntime {
     if (!this.ActiveBattleSession || this.RuntimePhase !== "Battle3C") {
       return;
     }
+    this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
     if (!this.ActiveBattleSession.IsAimMode) {
       return;
     }
@@ -492,24 +512,21 @@ export class UWebGameRuntime {
       return false;
     }
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return false;
+    }
     if (!this.IsBattleIdleControlState(this.ActiveBattleSession)) {
       return false;
     }
 
-    const AlivePlayerUnitIds = this.ActiveBattleSession.PlayerActiveUnitIds.filter((UnitId) => {
-      const Unit = this.FindBattleUnit(UnitId);
-      return Unit?.IsAlive ?? false;
-    });
-    if (AlivePlayerUnitIds.length <= 1) {
+    const SkipActorUnitId = this.ActiveBattleSession.ControlledCharacterId;
+    const SkipActor = this.FindBattleUnit(SkipActorUnitId);
+    if (!SkipActor || !SkipActor.IsAlive) {
       return false;
     }
-    const DidSwitch = this.SwitchToNextAliveControlledCharacter(
-      this.ActiveBattleSession,
-      "SwitchCharacter"
-    );
-    if (!DidSwitch) {
-      return false;
-    }
+
+    this.HandlePlayerActionResolved(this.ActiveBattleSession, SkipActorUnitId);
+    this.EmitRuntimeEvent("EPlayerActionResolved", `Skip:${SkipActorUnitId}`);
     this.NotifyRuntimeUpdated();
     return true;
   }
@@ -520,6 +537,9 @@ export class UWebGameRuntime {
     }
 
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
     if (this.ActiveBattleSession.CommandStage === "SkillMenu") {
       this.ReturnToRootCommandStage(this.ActiveBattleSession);
       this.EmitRuntimeEvent("EBattle3CActionRequested", "SkillMenu:Close");
@@ -541,6 +561,9 @@ export class UWebGameRuntime {
     }
 
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
     if (this.ActiveBattleSession.CommandStage === "ItemMenu") {
       this.ReturnToRootCommandStage(this.ActiveBattleSession);
       this.EmitRuntimeEvent("EBattle3CActionRequested", "ItemMenu:Close");
@@ -562,6 +585,9 @@ export class UWebGameRuntime {
     }
 
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
     if (this.ActiveBattleSession.CommandStage !== "SkillMenu") {
       return;
     }
@@ -576,6 +602,9 @@ export class UWebGameRuntime {
     }
 
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
     if (this.ActiveBattleSession.CommandStage !== "ItemMenu") {
       return;
     }
@@ -594,6 +623,9 @@ export class UWebGameRuntime {
     }
 
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
     if (this.ActiveBattleSession.CommandStage !== "TargetSelect") {
       return;
     }
@@ -625,6 +657,9 @@ export class UWebGameRuntime {
     }
 
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
     const Delta = Direction >= 0 ? 1 : -1;
     if (this.ActiveBattleSession.CommandStage === "SkillMenu") {
       this.CycleSkillMenuOption(this.ActiveBattleSession, Delta);
@@ -670,6 +705,9 @@ export class UWebGameRuntime {
       return false;
     }
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return false;
+    }
     if (!this.IsBattleIdleControlState(this.ActiveBattleSession)) {
       return false;
     }
@@ -703,6 +741,7 @@ export class UWebGameRuntime {
   }
 
   private EnsureBattleCommandState(Session: FBattle3CSession): void {
+    this.EnsureBattleTurnState(Session);
     Session.CommandStage =
       Session.CommandStage ?? (Session.IsSkillTargetMode ? "TargetSelect" : "Root");
     Session.PendingActionKind = Session.PendingActionKind ?? null;
@@ -710,6 +749,37 @@ export class UWebGameRuntime {
     this.EnsureBattleCommandSelection(Session);
     this.EnsureBattleActionResolveState(Session);
     Session.IsSkillTargetMode = Session.CommandStage === "TargetSelect";
+  }
+
+  private EnsureBattleTurnState(Session: FBattle3CSession): void {
+    Session.TurnOwner = Session.TurnOwner ?? "Player";
+    Session.PendingActionActorUnitId = Session.PendingActionActorUnitId ?? null;
+    Session.PendingPlayerTurnUnitIds =
+      Session.PendingPlayerTurnUnitIds ?? this.ResolveAlivePlayerUnitIdsInActionOrder(Session);
+    Session.PendingEnemyTurnUnitIds = Session.PendingEnemyTurnUnitIds ?? [];
+    Session.PendingPlayerTurnUnitIds = this.FilterAliveActionQueue(
+      Session.PendingPlayerTurnUnitIds,
+      Session.PlayerActiveUnitIds
+    );
+    Session.PendingEnemyTurnUnitIds = this.FilterAliveActionQueue(
+      Session.PendingEnemyTurnUnitIds,
+      Session.EnemyActiveUnitIds
+    );
+  }
+
+  private FilterAliveActionQueue(Queue: string[], TeamActiveIds: string[]): string[] {
+    const ActiveSet = TeamActiveIds.length > 0 ? new Set(TeamActiveIds) : null;
+    return Queue.filter((UnitId) => {
+      if (ActiveSet && !ActiveSet.has(UnitId)) {
+        return false;
+      }
+      const Unit = this.FindBattleUnit(UnitId);
+      return Unit?.IsAlive ?? false;
+    });
+  }
+
+  private IsPlayerTurn(Session: FBattle3CSession): boolean {
+    return (Session.TurnOwner ?? "Player") === "Player";
   }
 
   private EnsureBattleCommandOptions(Session: FBattle3CSession): void {
@@ -816,10 +886,12 @@ export class UWebGameRuntime {
   private ReturnToRootCommandStage(Session: FBattle3CSession): void {
     this.SetCommandStage(Session, "Root");
     Session.PendingActionKind = null;
+    Session.PendingActionActorUnitId = null;
     Session.PendingActionResolvedDetail = null;
     Session.TargetSelectOrderedEnemyUnitIds = [];
     Session.ActionResolveEndsAtMs = null;
     Session.AimHoverTargetId = null;
+    Session.ScriptFocus = null;
     Session.ActiveMeleeAction = null;
     this.ClearAllMeleeTimelineTimers();
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
@@ -974,6 +1046,7 @@ export class UWebGameRuntime {
           ? this.ResolveSelectedItemDisplayName(Session)
           : "近战攻击";
     const TargetDisplayName = this.ResolveBattleTargetDisplayName(TargetId);
+    Session.PendingActionActorUnitId = Session.ControlledCharacterId;
     Session.PendingActionResolvedDetail = `${PendingAction}:${TargetId}`;
     if (PendingAction === "Item") {
       this.EmitRuntimeEvent(
@@ -1004,6 +1077,7 @@ export class UWebGameRuntime {
         this.SetCommandStage(Session, "Root");
       }
       Session.PendingActionKind = null;
+      Session.PendingActionActorUnitId = null;
       Session.PendingActionResolvedDetail = null;
       Session.TargetSelectOrderedEnemyUnitIds = [];
       Session.ActionResolveEndsAtMs = null;
@@ -1026,17 +1100,27 @@ export class UWebGameRuntime {
     return false;
   }
 
-  private EnterActionResolveStage(Session: FBattle3CSession, DurationMsOverride?: number): void {
+  private EnterActionResolveStage(
+    Session: FBattle3CSession,
+    DurationMsOverride?: number,
+    Options?: {
+      PreserveScriptFocus?: boolean;
+    }
+  ): void {
     const DurationMs =
       DurationMsOverride !== undefined
         ? Math.max(Math.round(DurationMsOverride), 1)
         : Math.max(Math.round(this.DebugConfig.ActionResolveDurationSec * 1000), 1);
     const SessionId = Session.SessionId;
     Session.IsAimMode = false;
-    Session.ScriptFocus = null;
+    if (!Options?.PreserveScriptFocus) {
+      Session.ScriptFocus = null;
+    }
     this.SetCommandStage(Session, "ActionResolve");
     Session.PendingActionKind = null;
-    const IsAttackResolve = (Session.PendingActionResolvedDetail ?? "").startsWith("Attack:");
+    const ResolveDetail = Session.PendingActionResolvedDetail ?? "";
+    const IsAttackResolve =
+      ResolveDetail.startsWith("Attack:") || ResolveDetail.startsWith("EnemyAttack:");
     if (!IsAttackResolve) {
       Session.ActiveMeleeAction = null;
       this.ClearAllMeleeTimelineTimers();
@@ -1064,12 +1148,32 @@ export class UWebGameRuntime {
       return;
     }
     const EventDetail = Session.PendingActionResolvedDetail ?? "Unknown";
+    const IsEnemyAction = EventDetail.startsWith("EnemyAttack:");
+    const ShouldConsumePlayerTurn = this.ShouldConsumePlayerTurnByResolvedDetail(EventDetail);
     this.ReturnToRootCommandStage(Session);
-    if (EventDetail.startsWith("Attack:")) {
-      this.SwitchToNextAliveControlledCharacter(Session, "AutoSwitchCharacterAfterAttack");
+
+    if (IsEnemyAction) {
+      this.HandleEnemyActionResolved(Session);
+      this.NotifyRuntimeUpdated();
+      return;
+    }
+
+    if (ShouldConsumePlayerTurn) {
+      this.HandlePlayerActionResolved(
+        Session,
+        Session.PendingActionActorUnitId ?? Session.ControlledCharacterId
+      );
     }
     this.EmitRuntimeEvent("EPlayerActionResolved", EventDetail);
     this.NotifyRuntimeUpdated();
+  }
+
+  private ShouldConsumePlayerTurnByResolvedDetail(EventDetail: string): boolean {
+    return (
+      EventDetail.startsWith("Attack:") ||
+      EventDetail.startsWith("Skill:") ||
+      EventDetail.startsWith("Item:")
+    );
   }
 
   private ShowBattleActionToast(Session: FBattle3CSession, ToastText: string): void {
@@ -1108,14 +1212,24 @@ export class UWebGameRuntime {
     Session: FBattle3CSession,
     TargetId: string,
     ActionDisplayName: string,
-    TargetDisplayName: string
+    TargetDisplayName: string,
+    Options?: {
+      AttackerUnitId?: string;
+      ResolvedDetailPrefix?: "Attack" | "EnemyAttack";
+      PreserveScriptFocusDuringResolve?: boolean;
+    }
   ): void {
-    const Attacker = this.FindBattleUnit(Session.ControlledCharacterId);
+    const AttackerUnitId = Options?.AttackerUnitId ?? Session.ControlledCharacterId;
+    const ResolvedDetailPrefix = Options?.ResolvedDetailPrefix ?? "Attack";
+    const Attacker = this.FindBattleUnit(AttackerUnitId);
     const Target = this.FindBattleUnit(TargetId);
     if (!Attacker || !Target) {
-      Session.PendingActionResolvedDetail = `Attack:${TargetId}`;
+      Session.PendingActionActorUnitId = AttackerUnitId;
+      Session.PendingActionResolvedDetail = `${ResolvedDetailPrefix}:${TargetId}`;
       this.ShowBattleActionToast(Session, `已执行 ${ActionDisplayName} -> ${TargetDisplayName}`);
-      this.EnterActionResolveStage(Session);
+      this.EnterActionResolveStage(Session, undefined, {
+        PreserveScriptFocus: Options?.PreserveScriptFocusDuringResolve ?? false
+      });
       return;
     }
 
@@ -1136,7 +1250,8 @@ export class UWebGameRuntime {
     const ReturnStartAtMs = DashEndAtMs + MeleeImpactHoldMs;
     const ReturnEndAtMs = ReturnStartAtMs;
 
-    Session.PendingActionResolvedDetail = `Attack:${TargetId}`;
+    Session.PendingActionActorUnitId = Attacker.UnitId;
+    Session.PendingActionResolvedDetail = `${ResolvedDetailPrefix}:${TargetId}`;
     Session.ActiveMeleeAction = {
       ActionId: Session.ShotSequence + 1,
       AttackerUnitId: Attacker.UnitId,
@@ -1156,7 +1271,9 @@ export class UWebGameRuntime {
 
     const TotalDurationMs = Math.max(ReturnStartAtMs - NowMs + 16, 1);
     this.ShowBattleActionToast(Session, `已执行 ${ActionDisplayName} -> ${TargetDisplayName}`);
-    this.EnterActionResolveStage(Session, TotalDurationMs);
+    this.EnterActionResolveStage(Session, TotalDurationMs, {
+      PreserveScriptFocus: Options?.PreserveScriptFocusDuringResolve ?? false
+    });
 
     this.ClearAllMeleeTimelineTimers();
     const SessionId = Session.SessionId;
@@ -1417,6 +1534,196 @@ export class UWebGameRuntime {
     Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
     this.EmitRuntimeEvent("EBattle3CActionRequested", EventDetail);
     return true;
+  }
+
+  private ResolveAlivePlayerUnitIdsInActionOrder(Session: FBattle3CSession): string[] {
+    const AliveByActiveOrder = Session.PlayerActiveUnitIds.filter((UnitId) => {
+      const Unit = this.FindBattleUnit(UnitId);
+      return Unit?.IsAlive ?? false;
+    });
+    if (AliveByActiveOrder.length > 0) {
+      return AliveByActiveOrder;
+    }
+
+    return Session.Units.filter((Unit) => Unit.TeamId === "Player" && Unit.IsAlive).map(
+      (Unit) => Unit.UnitId
+    );
+  }
+
+  private ResolveAliveEnemyUnitIdsInActionOrder(Session: FBattle3CSession): string[] {
+    const AliveByActiveOrder = Session.EnemyActiveUnitIds.filter((UnitId) => {
+      const Unit = this.FindBattleUnit(UnitId);
+      return Unit?.IsAlive ?? false;
+    });
+    if (AliveByActiveOrder.length > 0) {
+      return AliveByActiveOrder;
+    }
+
+    return Session.Units.filter((Unit) => Unit.TeamId === "Enemy" && Unit.IsAlive).map(
+      (Unit) => Unit.UnitId
+    );
+  }
+
+  private ResolveEnemyTurnActionOrder(Session: FBattle3CSession): string[] {
+    const EnemyTargets = this.ResolveAliveEnemyUnitIdsInActionOrder(Session)
+      .map((UnitId) => this.FindBattleUnit(UnitId))
+      .filter((Unit): Unit is FBattleUnitRuntimeState => Unit !== null);
+    if (EnemyTargets.length < 1) {
+      return [];
+    }
+    const OrderedByProjection = this.TryResolveTargetOrderByProjectedX(Session, EnemyTargets);
+    if (OrderedByProjection && OrderedByProjection.length > 0) {
+      return OrderedByProjection;
+    }
+    return this.ResolveFallbackTargetOrder(EnemyTargets);
+  }
+
+  private ResolveRandomAlivePlayerTargetId(Session: FBattle3CSession): string | null {
+    const AlivePlayerUnitIds = this.ResolveAlivePlayerUnitIdsInActionOrder(Session);
+    if (AlivePlayerUnitIds.length < 1) {
+      return null;
+    }
+    const RandomIndex = this.Clamp(
+      Math.floor(Math.random() * AlivePlayerUnitIds.length),
+      0,
+      AlivePlayerUnitIds.length - 1
+    );
+    return AlivePlayerUnitIds[RandomIndex] ?? null;
+  }
+
+  private HandlePlayerActionResolved(Session: FBattle3CSession, ActorUnitId: string): void {
+    if (!this.IsPlayerTurn(Session)) {
+      return;
+    }
+
+    const BaseQueue =
+      Session.PendingPlayerTurnUnitIds ?? this.ResolveAlivePlayerUnitIdsInActionOrder(Session);
+    Session.PendingPlayerTurnUnitIds = this.FilterAliveActionQueue(
+      BaseQueue.filter((UnitId) => UnitId !== ActorUnitId),
+      Session.PlayerActiveUnitIds
+    );
+    const RemainingPlayerQueue = Session.PendingPlayerTurnUnitIds;
+    if (RemainingPlayerQueue.length > 0) {
+      const NextControlledId = RemainingPlayerQueue[0];
+      if (NextControlledId && Session.ControlledCharacterId !== NextControlledId) {
+        Session.ControlledCharacterId = NextControlledId;
+        Session.AimHoverTargetId = null;
+        this.AlignSelectedTargetForControlledCharacter();
+        Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+        this.EmitRuntimeEvent("EBattle3CActionRequested", "AutoSwitchCharacterAfterAction");
+      }
+      return;
+    }
+
+    this.StartEnemyTurn(Session);
+  }
+
+  private StartEnemyTurn(Session: FBattle3CSession): void {
+    if (this.TryResolveBattleOutcome(Session)) {
+      return;
+    }
+    const EnemyOrder = this.ResolveEnemyTurnActionOrder(Session);
+    const AlivePlayers = this.ResolveAlivePlayerUnitIdsInActionOrder(Session);
+    if (AlivePlayers.length < 1) {
+      this.TryResolveBattleOutcome(Session);
+      return;
+    }
+    if (EnemyOrder.length < 1) {
+      // 理论上不应发生；若发生则回退到按当前存活敌人重新排序，避免回合停滞。
+      const FallbackEnemyOrder = this.ResolveFallbackTargetOrder(
+        Session.Units.filter((Unit) => Unit.TeamId === "Enemy" && Unit.IsAlive)
+      );
+      if (FallbackEnemyOrder.length < 1) {
+        this.TryResolveBattleOutcome(Session);
+        return;
+      }
+      Session.PendingEnemyTurnUnitIds = [...FallbackEnemyOrder];
+    } else {
+      Session.PendingEnemyTurnUnitIds = [...EnemyOrder];
+    }
+    Session.TurnOwner = "Enemy";
+    Session.PendingPlayerTurnUnitIds = [];
+    Session.AimHoverTargetId = null;
+    this.EmitRuntimeEvent(
+      "EBattleTurnChanged",
+      `EnemyTurnStart:${Session.PendingEnemyTurnUnitIds.join(",")}`
+    );
+    this.TryStartNextEnemyAction(Session);
+  }
+
+  private HandleEnemyActionResolved(Session: FBattle3CSession): void {
+    if (this.IsPlayerTurn(Session)) {
+      return;
+    }
+    this.TryStartNextEnemyAction(Session);
+  }
+
+  private TryStartNextEnemyAction(Session: FBattle3CSession): void {
+    if (this.TryResolveBattleOutcome(Session)) {
+      return;
+    }
+    if (this.IsPlayerTurn(Session)) {
+      return;
+    }
+    Session.PendingEnemyTurnUnitIds = this.FilterAliveActionQueue(
+      Session.PendingEnemyTurnUnitIds ?? [],
+      Session.EnemyActiveUnitIds
+    );
+    const NextAttackerId = Session.PendingEnemyTurnUnitIds[0] ?? null;
+    if (!NextAttackerId) {
+      this.StartPlayerTurn(Session);
+      return;
+    }
+
+    const TargetUnitId = this.ResolveRandomAlivePlayerTargetId(Session);
+    if (!TargetUnitId) {
+      this.StartPlayerTurn(Session);
+      return;
+    }
+    Session.PendingEnemyTurnUnitIds = Session.PendingEnemyTurnUnitIds.slice(1);
+    Session.ScriptStepIndex += 1;
+    Session.ScriptFocus = {
+      AttackerUnitId: NextAttackerId,
+      TargetUnitIds: [TargetUnitId]
+    };
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+    this.EmitRuntimeEvent(
+      "EBattle3CActionRequested",
+      `EnemyTurn:Act:${NextAttackerId}->${TargetUnitId}`
+    );
+    this.StartMeleeResolveSequence(
+      Session,
+      TargetUnitId,
+      "敌方近战",
+      this.ResolveBattleTargetDisplayName(TargetUnitId),
+      {
+        AttackerUnitId: NextAttackerId,
+        ResolvedDetailPrefix: "EnemyAttack",
+        PreserveScriptFocusDuringResolve: true
+      }
+    );
+  }
+
+  private StartPlayerTurn(Session: FBattle3CSession): void {
+    if (this.TryResolveBattleOutcome(Session)) {
+      return;
+    }
+    const AlivePlayers = this.ResolveAlivePlayerUnitIdsInActionOrder(Session);
+    Session.TurnOwner = "Player";
+    Session.PendingEnemyTurnUnitIds = [];
+    Session.PendingPlayerTurnUnitIds = [...AlivePlayers];
+    if (AlivePlayers.length < 1) {
+      return;
+    }
+
+    const NextControlledId = AlivePlayers[0];
+    if (NextControlledId) {
+      Session.ControlledCharacterId = NextControlledId;
+    }
+    Session.AimHoverTargetId = null;
+    this.AlignSelectedTargetForControlledCharacter();
+    Session.CameraMode = this.ResolveBattleControlCameraMode(Session);
+    this.EmitRuntimeEvent("EBattleTurnChanged", `PlayerTurnStart:${AlivePlayers.join(",")}`);
   }
 
   private ResolveSelectedSkillDisplayName(Session: FBattle3CSession): string {
@@ -1730,8 +2037,12 @@ export class UWebGameRuntime {
       const Session = this.ActiveBattleSession;
       const ShouldShowFocusedSelection =
         this.ActiveInputDevice === EInputDeviceKinds.Gamepad || this.HasKeyboardDirectionalFocus;
+      const IsPlayerTurn = this.IsPlayerTurn(Session);
       const IsRootIdle =
-        Session.CommandStage === "Root" && !Session.IsAimMode && Session.ScriptFocus === null;
+        IsPlayerTurn &&
+        Session.CommandStage === "Root" &&
+        !Session.IsAimMode &&
+        Session.ScriptFocus === null;
       if (IsRootIdle) {
         const BattleFleeHoldState = this.ResolveHoldActionState(EInputAction.BattleFlee);
         const BattleSwitchHoldState = this.ResolveHoldActionState(
@@ -1763,7 +2074,9 @@ export class UWebGameRuntime {
         );
       }
 
-      if (Session.IsAimMode) {
+      if (!IsPlayerTurn) {
+        // 敌方回合统一锁输入，仅展示战斗播片与受击结果。
+      } else if (Session.IsAimMode) {
         GlobalSlots.push({
           SlotId: "AimCancelGlobal",
           Action: EInputAction.UICancel,
@@ -1947,6 +2260,7 @@ export class UWebGameRuntime {
     return {
       PlayerTeamId: BattleSession.PlayerTeamId,
       EnemyTeamId: BattleSession.EnemyTeamId,
+      TurnOwner: BattleSession.TurnOwner ?? "Player",
       PlayerActiveUnitIds: [...BattleSession.PlayerActiveUnitIds],
       EnemyActiveUnitIds: [...BattleSession.EnemyActiveUnitIds],
       ControlledCharacterId: BattleSession.ControlledCharacterId,
@@ -1988,6 +2302,7 @@ export class UWebGameRuntime {
     return {
       PlayerTeamId: null,
       EnemyTeamId: null,
+      TurnOwner: null,
       PlayerActiveUnitIds: [],
       EnemyActiveUnitIds: [],
       ControlledCharacterId: null,
@@ -2096,6 +2411,9 @@ export class UWebGameRuntime {
       return;
     }
     this.EnsureBattleCommandState(this.ActiveBattleSession);
+    if (!this.IsPlayerTurn(this.ActiveBattleSession)) {
+      return;
+    }
 
     if (this.TryHandleBattle3CImmediateActions(InputSnapshot)) {
       return;
@@ -2448,6 +2766,10 @@ export class UWebGameRuntime {
       this.ActiveBattleSession
     );
     this.EmitRuntimeEvent(
+      "EBattleTurnChanged",
+      `${this.ActiveBattleSession.TurnOwner ?? "Player"}TurnStart`
+    );
+    this.EmitRuntimeEvent(
       "EEncounterTransitionFinished",
       this.ActiveEncounterContext.EncounterEnemyId
     );
@@ -2521,6 +2843,10 @@ export class UWebGameRuntime {
       SessionId: `B3C_${Context.EncounterId}_${Date.now()}`,
       PlayerTeamId: PlayerTeam.TeamId,
       EnemyTeamId: EnemyTeam.TeamId,
+      TurnOwner: "Player",
+      PendingPlayerTurnUnitIds: [...AlivePlayerUnitIds],
+      PendingEnemyTurnUnitIds: [],
+      PendingActionActorUnitId: null,
       PlayerActiveUnitIds: [...PlayerTeam.Formation.ActiveUnitIds],
       EnemyActiveUnitIds: [...EnemyTeam.Formation.ActiveUnitIds],
       ControlledCharacterId,
@@ -3077,11 +3403,36 @@ export class UWebGameRuntime {
     const IsDefeated = WasAlive && !Target.IsAlive;
     if (IsDefeated) {
       this.HandleBattleUnitDefeated(Session, Target);
+      this.TryResolveBattleOutcome(Session);
     }
     return {
       AppliedDamageAmount: ActualDamageAmount,
       IsDefeated
     };
+  }
+
+  private TryResolveBattleOutcome(Session: FBattle3CSession): boolean {
+    if (this.RuntimePhase !== "Battle3C") {
+      return false;
+    }
+
+    const AliveEnemyCount = Session.Units.filter(
+      (Unit) => Unit.TeamId === "Enemy" && Unit.IsAlive
+    ).length;
+    const AlivePlayerCount = Session.Units.filter(
+      (Unit) => Unit.TeamId === "Player" && Unit.IsAlive
+    ).length;
+
+    if (AliveEnemyCount < 1) {
+      this.RequestSettlementPreview("敌方全灭");
+      return true;
+    }
+    if (AlivePlayerCount < 1) {
+      this.RequestSettlementPreview("我方全灭");
+      return true;
+    }
+
+    return false;
   }
 
   private HandleBattleUnitDefeated(
@@ -3116,6 +3467,9 @@ export class UWebGameRuntime {
     Session.EnemyActiveUnitIds = Session.EnemyActiveUnitIds.filter(
       (ActiveUnitId) => ActiveUnitId !== UnitId
     );
+    Session.PendingEnemyTurnUnitIds = (Session.PendingEnemyTurnUnitIds ?? []).filter(
+      (PendingUnitId) => PendingUnitId !== UnitId
+    );
     Session.TargetSelectOrderedEnemyUnitIds = (
       Session.TargetSelectOrderedEnemyUnitIds ?? []
     ).filter((OrderedUnitId) => OrderedUnitId !== UnitId);
@@ -3126,6 +3480,9 @@ export class UWebGameRuntime {
   private HandlePlayerUnitDefeated(Session: FBattle3CSession, UnitId: string): void {
     Session.PlayerActiveUnitIds = Session.PlayerActiveUnitIds.filter(
       (ActiveUnitId) => ActiveUnitId !== UnitId
+    );
+    Session.PendingPlayerTurnUnitIds = (Session.PendingPlayerTurnUnitIds ?? []).filter(
+      (PendingUnitId) => PendingUnitId !== UnitId
     );
     if (Session.ControlledCharacterId !== UnitId) {
       return;

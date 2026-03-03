@@ -1103,6 +1103,9 @@ export function App() {
               <strong>{Hud.Battle3CState.EnemyTeamId ?? "None"}</strong>
             </p>
             <p>
+              Turn Owner: <strong>{Hud.Battle3CState.TurnOwner ?? "None"}</strong>
+            </p>
+            <p>
               Controlled: <strong>{Hud.Battle3CState.ControlledCharacterId ?? "None"}</strong>
             </p>
             <p>

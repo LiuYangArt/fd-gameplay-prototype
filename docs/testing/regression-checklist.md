@@ -72,6 +72,10 @@
 - [x] 鼠标点击战斗视口空白区域不会直接触发攻击或进入目标选择（`App.tsx` + `pnpm smoke:web`）。
 - [x] 目标确认后进入 `ActionResolve`（锁输入），结束后自动回到 `Root + PlayerFollow`，期间不跳敌方脚本机位（`UWebGameRuntime.test.ts`）。
 - [x] `ActionResolve` 结束时触发 `EPlayerActionResolved` 占位事件（`UWebGameRuntime.test.ts`）。
+- [x] 我方本轮角色行动收尾后，即使中途击杀敌方单位，仍应稳定进入敌方回合（`UWebGameRuntime.test.ts`）。
+- [x] 敌方活跃列表异常（`EnemyActiveUnitIds` 漂移）时，应回退到“存活敌人”队列继续推进，避免卡在我方回合（`UWebGameRuntime.test.ts`）。
+- [x] 敌方单位全灭后应自动进入 `SettlementPreview`，不应停留在 `Battle3C`（`UWebGameRuntime.test.ts`）。
+- [x] “跳过回合”与“执行行动完成”必须等价：跳过会消耗当前角色本轮行动次数并推进队列，队列清空后进入敌方回合（`UWebGameRuntime.test.ts`）。
 - [x] 近战链路可闭环执行：`敌人特写选目标 -> 退回待机视角 -> 前冲（可见位移） -> 命中 -> 回位瞬移 reset -> 自动切到下一角色`（`UWebGameRuntime.test.ts` + `USceneBridge.test.ts`）。
 - [x] 近战命中反馈与扣血/弹字时序一致，命中后出现 `LastDamageCue`，并伴随受击后退与回位（`UWebGameRuntime.test.ts` + `App.tsx`）。
 - [x] 近战执行期 `PlayerFollow` 复用 Spring Arm Lag 参数（`TargetArmLength/CameraLagSpeed/CameraLagMaxDistance`），退出近战后清理 lag 状态（`USceneBridge.ts` + `USceneBridge.test.ts`）。
@@ -151,6 +155,35 @@
 - [ ] Overworld/Battle 角色模型替换与挂点 Gizmo 联调通过（手动冒烟）。
 
 ## F. 本次修复记录
+
+- 问题描述：修复“连续跳过前两名角色后，第三名角色行动完成未进入敌方回合”的规则不一致问题；根因是 `SwitchControlledCharacter` 仅切换控制角色，没有消耗当前角色的本轮行动队列。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`
+  - 新增回归：`连续跳过前两名角色后，第三名角色行动完成应进入敌方回合`（先失败后修复）
+  - 更新回归：`跳过回合应消耗当前角色行动次数，并在本轮队列内推进到下一存活角色`
+- 新增/修改条目：C 节新增“跳过回合与行动完成等价”条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts -t "连续跳过前两名角色后，第三名角色行动完成应进入敌方回合"`：先失败后通过。
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts`：通过（51 项）。
+  - `pnpm --filter @fd/web-client test`：通过（103 项）。
+  - `pnpm lint`：通过。
+  - `pnpm typecheck`：通过。
+- 是否新增 postmortem：`否`（当前未触发额外复盘条件）。
+
+- 问题描述：修复“击杀敌人后我方回合结束未进入敌方回合”的推进卡死问题；定位到两处根因：1）`EnemyActiveUnitIds` 异常时敌方队列被过滤为空；2）敌方全灭后缺少自动结算分支，导致停留在 `Battle3C`。
+- 对应测试文件：`packages/web-client/src/game/UWebGameRuntime.test.ts`
+  - 新增回归：`敌方活跃列表异常为空但仍有存活敌人时，回合推进不应卡死`（先失败后修复）
+  - 新增回归：`敌方单位全灭后不应停在我方回合，应进入结算阶段`（先失败后修复）
+  - 补充覆盖：`首个行动击杀一名敌人后，我方本轮其余角色行动完仍应进入敌方回合`
+- 新增/修改条目：C 节新增 3 条“回合推进健壮性/全灭结算”回归条目并置为已完成。
+- 验证命令与结果：
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts -t "敌方活跃列表异常为空但仍有存活敌人时，回合推进不应卡死|敌方单位全灭后不应停在我方回合，应进入结算阶段"`：先失败后通过。
+  - `pnpm --filter @fd/web-client test -- src/game/UWebGameRuntime.test.ts`：通过（50 项）。
+  - `pnpm --filter @fd/web-client test`：通过（102 项）。
+  - `pnpm lint`：通过。
+  - `pnpm typecheck`：通过。
+  - `pnpm verify`：通过。
+  - `pnpm smoke:web`：通过（产物：`output/playwright/2026-03-03T05-20-57-491Z/`，console `Errors: 0, Warnings: 0`）。
+- 是否新增 postmortem：`否`（本次修复周期内完成，且当前无“阻塞超 2 小时/14 天同类复发”证据）。
 
 - 问题描述：修复“目标选择提示挂在角色锚点，切敌方特写后提示不可见”；要求攻击/技能/道具目标选择统一改为屏幕空间上方中间提示。
 - 对应测试文件：
