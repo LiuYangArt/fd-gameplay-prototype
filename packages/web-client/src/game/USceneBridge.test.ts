@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   ResolveBattleUnitDisplayPositionCm,
+  ResolveEnemyDeathFadeAlpha,
+  ResolveEnemyDeathParticleAlpha,
   ResolveMeleeDamageCueImpactPositionCm,
   ResolveMeleeActionAttackerPositionCm,
   ResolveTargetSelectBasisForwardFromPositions,
@@ -243,5 +245,29 @@ describe("ResolveMeleeDamageCueImpactPositionCm", () => {
       5
     );
     expect(Impact).toBeNull();
+  });
+});
+
+describe("ResolveEnemyDeathFadeAlpha", () => {
+  it("死亡渐隐应在持续时长内从 1 线性下降到 0", () => {
+    expect(ResolveEnemyDeathFadeAlpha(0, 0.8)).toBeCloseTo(1, 6);
+    expect(ResolveEnemyDeathFadeAlpha(0.4, 0.8)).toBeCloseTo(0.5, 6);
+    expect(ResolveEnemyDeathFadeAlpha(0.8, 0.8)).toBeCloseTo(0, 6);
+  });
+
+  it("超过持续时长后透明度应维持在 0", () => {
+    expect(ResolveEnemyDeathFadeAlpha(1.2, 0.8)).toBeCloseTo(0, 6);
+  });
+});
+
+describe("ResolveEnemyDeathParticleAlpha", () => {
+  it("延迟窗口内应保持高亮不透明，之后再淡出", () => {
+    expect(ResolveEnemyDeathParticleAlpha(0.1, 0.3, 1.15)).toBeCloseTo(0.98, 6);
+    expect(ResolveEnemyDeathParticleAlpha(0.3, 0.3, 1.15)).toBeCloseTo(0.98, 6);
+    expect(ResolveEnemyDeathParticleAlpha(0.8, 0.3, 1.15)).toBeLessThan(0.6);
+  });
+
+  it("超过粒子生命周期后应完全消失", () => {
+    expect(ResolveEnemyDeathParticleAlpha(1.2, 0.3, 1.15)).toBeCloseTo(0, 6);
   });
 });

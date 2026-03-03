@@ -899,12 +899,12 @@ export function App() {
                 <div
                   className="EnemyHeadHpHud__Fill"
                   style={{
-                    width: `${((HoveredEnemyUnit.CurrentHp / Math.max(HoveredEnemyUnit.MaxHp, 1)) * 100).toFixed(2)}%`
+                    width: `${((Math.max(HoveredEnemyUnit.CurrentHp, 0) / Math.max(HoveredEnemyUnit.MaxHp, 1)) * 100).toFixed(2)}%`
                   }}
                 />
               </div>
               <div className="EnemyHeadHpHud__Value">
-                {HoveredEnemyUnit.CurrentHp} / {HoveredEnemyUnit.MaxHp}
+                {Math.max(HoveredEnemyUnit.CurrentHp, 0)} / {HoveredEnemyUnit.MaxHp}
               </div>
             </div>
           ) : null}
@@ -979,7 +979,8 @@ export function App() {
           {IsBattle3CPhase && BattlePartyUnits.length > 0 ? (
             <div className="BattlePartyHud" data-ignore-fire-input="true">
               {BattlePartyUnits.map((Unit) => {
-                const HpRatio = Unit.CurrentHp / Math.max(Unit.MaxHp, 1);
+                const ClampedCurrentHp = Math.max(Unit.CurrentHp, 0);
+                const HpRatio = ClampedCurrentHp / Math.max(Unit.MaxHp, 1);
                 const MpRatio = Unit.CurrentMp / Math.max(Unit.MaxMp, 1);
                 const IsItemTargetHighlighted = IsItemTargetSelectStage && Unit.IsSelectedTarget;
                 return (
@@ -992,7 +993,7 @@ export function App() {
                       <div className="BattlePartyValueLine">
                         <span>HP</span>
                         <strong>
-                          {Unit.CurrentHp}/{Unit.MaxHp}
+                          {ClampedCurrentHp}/{Unit.MaxHp}
                         </strong>
                       </div>
                       <div className="BattlePartyBar">
@@ -1201,7 +1202,7 @@ export function App() {
                 <li key={Unit.UnitId}>
                   {Unit.UnitId} | {Unit.TeamId} | Pos ({Unit.PositionCm.X.toFixed(0)},{" "}
                   {Unit.PositionCm.Y.toFixed(0)}, {Unit.PositionCm.Z.toFixed(0)}) | HP{" "}
-                  {Unit.CurrentHp}/{Unit.MaxHp} | MP {Unit.CurrentMp}/{Unit.MaxMp} |{" "}
+                  {Math.max(Unit.CurrentHp, 0)}/{Unit.MaxHp} | MP {Unit.CurrentMp}/{Unit.MaxMp} |{" "}
                   {Unit.IsControlled ? "Controlled" : Unit.IsSelectedTarget ? "Targeted" : "Idle"} |{" "}
                   {Unit.ModelAssetPath ?? "NoModel"}
                 </li>

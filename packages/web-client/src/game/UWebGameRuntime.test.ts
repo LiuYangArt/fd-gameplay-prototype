@@ -1335,7 +1335,7 @@ describe("UWebGameRuntime", () => {
     expect(Runtime.GetViewModel().Battle3CState.CameraMode).toBe("PlayerAim");
   });
 
-  it("命中敌人后应扣减血量但暂不触发死亡", () => {
+  it("命中敌人后应扣减血量并在未致死时保持存活", () => {
     vi.useFakeTimers();
     try {
       const Runtime = new UWebGameRuntime();
@@ -1364,7 +1364,7 @@ describe("UWebGameRuntime", () => {
             UnitId: "enemy01",
             TeamId: "Enemy",
             DisplayName: "enemy01",
-            CurrentHp: 12,
+            CurrentHp: 35,
             MaxHp: 100,
             IsEncounterPrimaryEnemy: true
           })
@@ -1377,15 +1377,77 @@ describe("UWebGameRuntime", () => {
       const ImmediateEnemy = Runtime.GetViewModel().Battle3CState.Units.find(
         (Unit) => Unit.UnitId === "enemy01"
       );
-      expect(ImmediateEnemy?.CurrentHp).toBe(12);
-      expect(Runtime.GetViewModel().Battle3CState.LastShot?.DamageAmount).toBe(11);
+      expect(ImmediateEnemy?.CurrentHp).toBe(35);
+      expect(Runtime.GetViewModel().Battle3CState.LastShot?.DamageAmount).toBe(20);
 
       vi.advanceTimersByTime(120);
       const Enemy = Runtime.GetViewModel().Battle3CState.Units.find(
         (Unit) => Unit.UnitId === "enemy01"
       );
-      expect(Enemy?.CurrentHp).toBe(1);
+      expect(Enemy?.CurrentHp).toBe(15);
       expect(Enemy?.IsAlive).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("远程致死后应判定死亡并从可交互目标中移除", () => {
+    vi.useFakeTimers();
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = {
+        SessionId: "B3C_SHOT_KILL",
+        PlayerTeamId: "TEAM_PLAYER_01",
+        EnemyTeamId: "TEAM_ENEMY_01",
+        PlayerActiveUnitIds: ["char01"],
+        EnemyActiveUnitIds: ["enemy01", "enemy02"],
+        ControlledCharacterId: "char01",
+        CameraMode: "PlayerAim",
+        CrosshairScreenPosition: { X: 0.5, Y: 0.5 },
+        IsAimMode: true,
+        IsSkillTargetMode: false,
+        AimCameraYawDeg: 90,
+        SelectedTargetIndex: 0,
+        AimHoverTargetId: "enemy01",
+        ScriptStepIndex: 0,
+        ShotSequence: 0,
+        LastShot: null,
+        Units: [
+          CreateBattleUnit({ UnitId: "char01", TeamId: "Player" }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            CurrentHp: 12,
+            MaxHp: 100,
+            IsEncounterPrimaryEnemy: true
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy02",
+            TeamId: "Enemy",
+            DisplayName: "enemy02",
+            CurrentHp: 100,
+            MaxHp: 100
+          })
+        ],
+        ScriptFocus: null
+      };
+
+      Runtime.FireBattleAction();
+      expect(Runtime.GetViewModel().Battle3CState.LastShot?.DamageAmount).toBe(12);
+
+      vi.advanceTimersByTime(160);
+      const State = Runtime.GetViewModel().Battle3CState;
+      const Enemy01 = State.Units.find((Unit) => Unit.UnitId === "enemy01");
+      expect(Enemy01?.CurrentHp).toBe(0);
+      expect(Enemy01?.IsAlive).toBe(false);
+      expect(State.EnemyActiveUnitIds).toEqual(["enemy02"]);
+
+      Runtime.SetBattleAimHoverTarget("enemy01");
+      expect(Runtime.GetViewModel().Battle3CState.HoveredTargetId).not.toBe("enemy01");
+      expect(Runtime.GetViewModel().Battle3CState.SelectedTargetId).toBe("enemy02");
     } finally {
       vi.useRealTimers();
     }
@@ -1500,6 +1562,57 @@ describe("UWebGameRuntime", () => {
       );
       expect(Returned?.PositionCm.X).toBeCloseTo(Before?.PositionCm.X ?? 0, 3);
       expect(Returned?.PositionCm.Z).toBeCloseTo(Before?.PositionCm.Z ?? 0, 3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("近战致死后应判定死亡并移出敌方活跃列表", () => {
+    vi.useFakeTimers();
+    try {
+      const Runtime = new UWebGameRuntime();
+      const MutableRuntime = Runtime as unknown as FMutableRuntime;
+      MutableRuntime.RuntimePhase = "Battle3C";
+      MutableRuntime.ActiveBattleSession = CreateBattleSession({
+        PlayerActiveUnitIds: ["char01"],
+        EnemyActiveUnitIds: ["enemy01", "enemy02"],
+        ControlledCharacterId: "char01",
+        Units: [
+          CreateBattleUnit({
+            UnitId: "char01",
+            TeamId: "Player",
+            PositionCm: { X: -220, Y: 0, Z: 0 },
+            YawDeg: 90
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy01",
+            TeamId: "Enemy",
+            DisplayName: "enemy01",
+            PositionCm: { X: 280, Y: 0, Z: 0 },
+            MaxHp: 100,
+            CurrentHp: 20,
+            IsEncounterPrimaryEnemy: true
+          }),
+          CreateBattleUnit({
+            UnitId: "enemy02",
+            TeamId: "Enemy",
+            DisplayName: "enemy02",
+            PositionCm: { X: 280, Y: 0, Z: 120 },
+            MaxHp: 100,
+            CurrentHp: 100
+          })
+        ]
+      });
+
+      Runtime.FireBattleAction();
+      Runtime.FireBattleAction();
+      vi.advanceTimersByTime(1200);
+
+      const State = Runtime.GetViewModel().Battle3CState;
+      const Enemy01 = State.Units.find((Unit) => Unit.UnitId === "enemy01");
+      expect(Enemy01?.CurrentHp).toBe(0);
+      expect(Enemy01?.IsAlive).toBe(false);
+      expect(State.EnemyActiveUnitIds).toEqual(["enemy02"]);
     } finally {
       vi.useRealTimers();
     }

@@ -123,4 +123,32 @@ describe("UMeleeSimulation", () => {
     expect(Events[0]?.EventId).toBe(1);
     expect(Events[1]?.EventId).toBe(2);
   });
+
+  it("致死伤害应允许血量降到 0 并输出 RemainingHp=0", () => {
+    const Simulation = new UMeleeSimulation();
+
+    const IsAccepted = Simulation.SubmitCommand({
+      Type: EMeleeCommandType.ResolveStrike,
+      SourceUnit: CreateUnit({ UnitId: "P01", TeamId: "Player" }),
+      TargetUnit: CreateUnit({
+        UnitId: "E01",
+        TeamId: "Enemy",
+        CurrentHp: 10,
+        MaxHp: 80
+      }),
+      DistanceCm: 85,
+      RangeCm: 120,
+      BaseDamage: 26
+    });
+    expect(IsAccepted).toBe(true);
+
+    const DamageEvent = Simulation.GetEventHistory().find(
+      (Event) => Event.Type === EMeleeEventType.DamageApplied
+    );
+    expect(DamageEvent).toBeDefined();
+    expect(DamageEvent?.Payload).toMatchObject({
+      AppliedDamage: 10,
+      RemainingHp: 0
+    });
+  });
 });
