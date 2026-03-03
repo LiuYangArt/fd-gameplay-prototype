@@ -1302,23 +1302,37 @@ export class UWebGameRuntime {
       return;
     }
 
-    Target.CurrentHp = this.Clamp(DamageEvent.Payload.RemainingHp, 1, Target.MaxHp);
-    Target.IsAlive = true;
-    if (DamageEvent.Payload.AppliedDamage > 0) {
+    const DamageResult = this.ApplyDamageToBattleUnit(
+      this.ActiveBattleSession,
+      Target,
+      DamageEvent.Payload.AppliedDamage
+    );
+    if (DamageResult.AppliedDamageAmount > 0) {
       this.QueueDamageCue(
         this.ActiveBattleSession,
         "Melee",
         Target.UnitId,
-        DamageEvent.Payload.AppliedDamage,
+        DamageResult.AppliedDamageAmount,
         ImpactAtMs
       );
-      this.ScheduleUnitKnockbackAndReturn(Attacker, Target, 0);
+      this.TryScheduleUnitHitReaction(Attacker, Target, DamageResult.IsDefeated);
     }
     this.EmitRuntimeEvent(
       "EBattle3CActionRequested",
-      `MeleeResolved:Hit:${Target.UnitId}:${DamageEvent.Payload.AppliedDamage}`
+      `MeleeResolved:Hit:${Target.UnitId}:${DamageResult.AppliedDamageAmount}`
     );
     this.NotifyRuntimeUpdated();
+  }
+
+  private TryScheduleUnitHitReaction(
+    Attacker: FBattleUnitRuntimeState,
+    Target: FBattleUnitRuntimeState,
+    IsDefeated: boolean
+  ): void {
+    if (IsDefeated) {
+      return;
+    }
+    this.ScheduleUnitKnockbackAndReturn(Attacker, Target, 0);
   }
 
   private CloneBattleUnitAsSnapshot(Unit: FBattleUnitRuntimeState): FUnitSnapshot {
@@ -2987,7 +3001,7 @@ export class UWebGameRuntime {
   }
 
   private ResolveShotPredictedDamageAmount(Target: FBattleUnitRuntimeState): number {
-    const MaxDamageCanApply = Math.max(Target.CurrentHp - 1, 0);
+    const MaxDamageCanApply = Math.max(Target.CurrentHp, 0);
     return this.Clamp(BattleDefaultShotDamage, 0, MaxDamageCanApply);
   }
 
@@ -3015,8 +3029,12 @@ export class UWebGameRuntime {
         return;
       }
 
-      const AppliedDamageAmount = this.ApplyShotDamageAmount(Target, Params.PredictedDamageAmount);
-      if (AppliedDamageAmount <= 0) {
+      const DamageResult = this.ApplyDamageToBattleUnit(
+        this.ActiveBattleSession,
+        Target,
+        Params.PredictedDamageAmount
+      );
+      if (DamageResult.AppliedDamageAmount <= 0) {
         return;
       }
 
@@ -3025,25 +3043,94 @@ export class UWebGameRuntime {
         this.ActiveBattleSession,
         "Shot",
         Params.TargetUnitId,
-        AppliedDamageAmount,
+        DamageResult.AppliedDamageAmount,
         Params.ImpactAtMs
       );
-      this.ScheduleUnitKnockbackAndReturn(Attacker, Target, 0);
+      if (!DamageResult.IsDefeated) {
+        this.ScheduleUnitKnockbackAndReturn(Attacker, Target, 0);
+      }
       this.NotifyRuntimeUpdated();
     }, DelayMs);
     this.ShotImpactTimerHandleByShotId.set(Params.ShotId, Handle);
   }
 
-  private ApplyShotDamageAmount(Target: FBattleUnitRuntimeState, DamageAmount: number): number {
-    const MaxDamageCanApply = Math.max(Target.CurrentHp - 1, 0);
+  private ApplyDamageToBattleUnit(
+    Session: FBattle3CSession,
+    Target: FBattleUnitRuntimeState,
+    DamageAmount: number
+  ): {
+    AppliedDamageAmount: number;
+    IsDefeated: boolean;
+  } {
+    const MaxDamageCanApply = Math.max(Target.CurrentHp, 0);
     const ActualDamageAmount = this.Clamp(DamageAmount, 0, MaxDamageCanApply);
     if (ActualDamageAmount <= 0) {
-      return 0;
+      return {
+        AppliedDamageAmount: 0,
+        IsDefeated: !Target.IsAlive
+      };
     }
 
-    Target.CurrentHp = this.Clamp(Target.CurrentHp - ActualDamageAmount, 1, Target.MaxHp);
-    Target.IsAlive = true;
-    return ActualDamageAmount;
+    const WasAlive = Target.IsAlive;
+    Target.CurrentHp = this.Clamp(Target.CurrentHp - ActualDamageAmount, 0, Target.MaxHp);
+    Target.IsAlive = Target.CurrentHp > 0;
+    const IsDefeated = WasAlive && !Target.IsAlive;
+    if (IsDefeated) {
+      this.HandleBattleUnitDefeated(Session, Target);
+    }
+    return {
+      AppliedDamageAmount: ActualDamageAmount,
+      IsDefeated
+    };
+  }
+
+  private HandleBattleUnitDefeated(
+    Session: FBattle3CSession,
+    Target: FBattleUnitRuntimeState
+  ): void {
+    this.ClearUnitHitReturnTimer(Target.UnitId);
+    if (Session.AimHoverTargetId === Target.UnitId) {
+      Session.AimHoverTargetId = null;
+    }
+    if (Session.ScriptFocus) {
+      Session.ScriptFocus.TargetUnitIds = Session.ScriptFocus.TargetUnitIds.filter(
+        (UnitId) => UnitId !== Target.UnitId
+      );
+      if (
+        Session.ScriptFocus.AttackerUnitId === Target.UnitId ||
+        Session.ScriptFocus.TargetUnitIds.length < 1
+      ) {
+        Session.ScriptFocus = null;
+      }
+    }
+
+    if (Target.TeamId === "Enemy") {
+      this.HandleEnemyUnitDefeated(Session, Target.UnitId);
+      return;
+    }
+
+    this.HandlePlayerUnitDefeated(Session, Target.UnitId);
+  }
+
+  private HandleEnemyUnitDefeated(Session: FBattle3CSession, UnitId: string): void {
+    Session.EnemyActiveUnitIds = Session.EnemyActiveUnitIds.filter(
+      (ActiveUnitId) => ActiveUnitId !== UnitId
+    );
+    Session.TargetSelectOrderedEnemyUnitIds = (
+      Session.TargetSelectOrderedEnemyUnitIds ?? []
+    ).filter((OrderedUnitId) => OrderedUnitId !== UnitId);
+    this.RebuildTargetSelectOrder(Session);
+    this.AlignSelectedTargetForControlledCharacter();
+  }
+
+  private HandlePlayerUnitDefeated(Session: FBattle3CSession, UnitId: string): void {
+    Session.PlayerActiveUnitIds = Session.PlayerActiveUnitIds.filter(
+      (ActiveUnitId) => ActiveUnitId !== UnitId
+    );
+    if (Session.ControlledCharacterId !== UnitId) {
+      return;
+    }
+    this.SwitchToNextAliveControlledCharacter(Session, "AutoSwitchCharacterAfterDefeat");
   }
 
   private ScheduleUnitKnockbackAndReturn(

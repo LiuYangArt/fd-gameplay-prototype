@@ -88,11 +88,11 @@ export class UMeleeSimulation {
       return true;
     }
 
-    const MaxDamageCanApply = Math.max(Command.TargetUnit.CurrentHp - 1, 0);
+    const MaxDamageCanApply = Math.max(Command.TargetUnit.CurrentHp, 0);
     const AppliedDamage = this.Clamp(this.ClampDamage(Command.BaseDamage), 0, MaxDamageCanApply);
     const RemainingHp = this.Clamp(
       Command.TargetUnit.CurrentHp - AppliedDamage,
-      1,
+      0,
       Command.TargetUnit.MaxHp
     );
 

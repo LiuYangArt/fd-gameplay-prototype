@@ -156,6 +156,31 @@ function LerpNumber(Start: number, End: number, Alpha: number): number {
   return Start + (End - Start) * Clamp01(Alpha);
 }
 
+export function ResolveEnemyDeathFadeAlpha(ElapsedSec: number, DurationSec: number): number {
+  const SafeDurationSec = Math.max(DurationSec, 1e-4);
+  const Progress = Clamp01(ElapsedSec / SafeDurationSec);
+  return LerpNumber(1, 0, Progress);
+}
+
+export function ResolveEnemyDeathParticleAlpha(
+  ElapsedSec: number,
+  FadeDelaySec: number,
+  DurationSec: number
+): number {
+  const SafeDurationSec = Math.max(DurationSec, 1e-4);
+  const SafeFadeDelaySec = Math.min(Math.max(FadeDelaySec, 0), SafeDurationSec);
+  if (ElapsedSec <= SafeFadeDelaySec) {
+    return 0.98;
+  }
+  if (ElapsedSec >= SafeDurationSec) {
+    return 0;
+  }
+
+  const FadeDurationSec = Math.max(SafeDurationSec - SafeFadeDelaySec, 1e-4);
+  const FadeProgress = Clamp01((ElapsedSec - SafeFadeDelaySec) / FadeDurationSec);
+  return LerpNumber(0.98, 0, FadeProgress);
+}
+
 export function ResolveMeleeActionAttackerPositionCm(
   Action: FBattleMeleeActionHudState | null | undefined,
   UnitId: string,
@@ -253,6 +278,23 @@ interface FHitSparkVisual {
   DurationSec: number;
 }
 
+interface FEnemyDeathFadeVisual {
+  UnitId: string;
+  Mesh: Mesh;
+  Material: StandardMaterial;
+  ElapsedSec: number;
+  DurationSec: number;
+  IsCompleted: boolean;
+}
+
+interface FEnemyDeathParticleVisual {
+  Mesh: Mesh;
+  Material: StandardMaterial;
+  Velocity: Vector3;
+  ElapsedSec: number;
+  DurationSec: number;
+}
+
 export class USceneBridge {
   private static readonly CentimetersToMeters = 0.01;
   private static readonly AimCameraBlendDurationSec = 0.2;
@@ -272,6 +314,12 @@ export class USceneBridge {
   private static readonly ShotMissTraceDistanceMeters = 36;
   private static readonly ShotRaycastEnemyRadiusMeters = 0.95;
   private static readonly HitSparkCount = 28;
+  private static readonly EnemyDeathFadeDurationSec = 0.8;
+  private static readonly EnemyDeathParticleDurationSec = 1.15;
+  private static readonly EnemyDeathParticleFadeDelaySec = 0.3;
+  private static readonly EnemyDeathParticleCount = 64;
+  private static readonly EnemyDeathParticleSpawnRadiusMeters = 0.9;
+  private static readonly EnemyDeathParticleSpawnHalfHeightMeters = 0.95;
   private readonly Engine: Engine;
   private readonly Scene: Scene;
   private readonly HandleWindowResize: () => void;
@@ -310,6 +358,8 @@ export class USceneBridge {
   private readonly ShotProjectileVisuals: FShotProjectileVisual[];
   private readonly HitImpactVisuals: FHitImpactVisual[];
   private readonly HitSparkVisuals: FHitSparkVisual[];
+  private readonly EnemyDeathFadeVisualMap: Map<string, FEnemyDeathFadeVisual>;
+  private readonly EnemyDeathParticleVisuals: FEnemyDeathParticleVisual[];
   private LastBattleCameraMode: FBattleCameraMode | null;
   private LastBattleControlledUnitId: string | null;
   private LastBattleSelectedTargetId: string | null;
@@ -335,6 +385,8 @@ export class USceneBridge {
     this.ShotProjectileVisuals = [];
     this.HitImpactVisuals = [];
     this.HitSparkVisuals = [];
+    this.EnemyDeathFadeVisualMap = new Map();
+    this.EnemyDeathParticleVisuals = [];
     this.LastBattleCameraMode = null;
     this.LastBattleControlledUnitId = null;
     this.LastBattleSelectedTargetId = null;
@@ -1339,14 +1391,10 @@ export class USceneBridge {
         (!IsPlayer ||
           (!IsModelReady && ViewModel.DebugState.Config.FallbackToPlaceholderOnLoadFail));
       Mesh.setEnabled(ShouldShowFallback);
+      this.SyncEnemyDeathVisualState(Unit, Mesh, DropOffsetCm);
 
       if (ShouldShowFallback) {
-        const Material = Mesh.material as StandardMaterial;
-        if (!Unit.IsAlive) {
-          Material.diffuseColor = new Color3(0.24, 0.24, 0.24);
-        } else {
-          Material.diffuseColor = this.ResolveBattleUnitBaseColor(Unit);
-        }
+        this.ApplyBattleUnitFallbackMaterial(Unit, Mesh);
       }
 
       ExistingIds.delete(Unit.UnitId);
@@ -1358,7 +1406,41 @@ export class USceneBridge {
         UnitMesh.dispose();
       }
       this.BattleUnitMeshMap.delete(UnitId);
+      this.ResetEnemyDeathVisualState(UnitId);
     });
+  }
+
+  private SyncEnemyDeathVisualState(
+    Unit: FBattleUnitHudState,
+    Mesh: Mesh,
+    DropOffsetCm: number
+  ): void {
+    if (Unit.TeamId !== "Enemy") {
+      return;
+    }
+    if (Unit.IsAlive) {
+      this.ResetEnemyDeathVisualState(Unit.UnitId);
+      return;
+    }
+    this.StartEnemyDeathVisual(Unit, Mesh, DropOffsetCm);
+  }
+
+  private ApplyBattleUnitFallbackMaterial(Unit: FBattleUnitHudState, Mesh: Mesh): void {
+    const Material = Mesh.material as StandardMaterial;
+    if (Unit.TeamId !== "Enemy" || Unit.IsAlive) {
+      Material.alpha = 1;
+      Material.diffuseColor = this.ResolveBattleUnitBaseColor(Unit);
+      return;
+    }
+
+    const DeathFade = this.EnemyDeathFadeVisualMap.get(Unit.UnitId);
+    Material.alpha = DeathFade
+      ? ResolveEnemyDeathFadeAlpha(DeathFade.ElapsedSec, DeathFade.DurationSec)
+      : 1;
+    if (DeathFade?.IsCompleted) {
+      Mesh.setEnabled(false);
+    }
+    Material.diffuseColor = new Color3(0.24, 0.24, 0.24);
   }
 
   private ShouldHideBattleUnitInAimMode(
@@ -2096,6 +2178,8 @@ export class USceneBridge {
     this.UpdateShotProjectileVisuals(DeltaSeconds);
     this.UpdateHitImpactVisuals(DeltaSeconds);
     this.UpdateHitSparkVisuals(DeltaSeconds);
+    this.UpdateEnemyDeathFadeVisuals(DeltaSeconds);
+    this.UpdateEnemyDeathParticleVisuals(DeltaSeconds);
   }
 
   private UpdateShotProjectileVisuals(DeltaSeconds: number): void {
@@ -2275,6 +2359,131 @@ export class USceneBridge {
     }
   }
 
+  private StartEnemyDeathVisual(Unit: FBattleUnitHudState, Mesh: Mesh, DropOffsetCm: number): void {
+    if (this.EnemyDeathFadeVisualMap.has(Unit.UnitId)) {
+      return;
+    }
+
+    const Material = Mesh.material as StandardMaterial;
+    Material.alpha = 1;
+    this.EnemyDeathFadeVisualMap.set(Unit.UnitId, {
+      UnitId: Unit.UnitId,
+      Mesh,
+      Material,
+      ElapsedSec: 0,
+      DurationSec: USceneBridge.EnemyDeathFadeDurationSec,
+      IsCompleted: false
+    });
+
+    const SpawnCenterPosition = this.ResolveBattleUnitPositionMeters(Unit, DropOffsetCm);
+    this.SpawnEnemyDeathParticleVisuals(SpawnCenterPosition);
+  }
+
+  private ResetEnemyDeathVisualState(UnitId: string): void {
+    const Existing = this.EnemyDeathFadeVisualMap.get(UnitId);
+    if (!Existing) {
+      return;
+    }
+    Existing.Material.alpha = 1;
+    Existing.IsCompleted = false;
+    Existing.ElapsedSec = 0;
+    this.EnemyDeathFadeVisualMap.delete(UnitId);
+  }
+
+  private UpdateEnemyDeathFadeVisuals(DeltaSeconds: number): void {
+    this.EnemyDeathFadeVisualMap.forEach((FadeState) => {
+      FadeState.ElapsedSec += DeltaSeconds;
+      const Alpha = ResolveEnemyDeathFadeAlpha(FadeState.ElapsedSec, FadeState.DurationSec);
+      FadeState.Material.alpha = Alpha;
+      if (Alpha > 0) {
+        return;
+      }
+      FadeState.IsCompleted = true;
+      FadeState.Mesh.setEnabled(false);
+      FadeState.Material.alpha = 0;
+    });
+  }
+
+  private SpawnEnemyDeathParticleVisuals(
+    SpawnCenterPosition: Vector3,
+    Count: number = USceneBridge.EnemyDeathParticleCount
+  ): void {
+    for (let Index = 0; Index < Count; Index += 1) {
+      const SparkMesh = MeshBuilder.CreateSphere(
+        `EnemyDeathSpark_${Date.now()}_${this.EnemyDeathParticleVisuals.length}_${Index}`,
+        { diameter: 0.14 },
+        this.Scene
+      );
+      const SparkMaterial = new StandardMaterial(
+        `EnemyDeathSparkMat_${Date.now()}_${this.EnemyDeathParticleVisuals.length}_${Index}`,
+        this.Scene
+      );
+      SparkMaterial.diffuseColor = new Color3(0.9, 0.95, 1);
+      SparkMaterial.emissiveColor = new Color3(0.58, 0.84, 1);
+      SparkMaterial.alpha = 0.98;
+      SparkMaterial.disableLighting = true;
+      SparkMesh.material = SparkMaterial;
+      SparkMesh.isPickable = false;
+      const SpawnOffset = new Vector3(
+        (Math.random() * 2 - 1) * USceneBridge.EnemyDeathParticleSpawnRadiusMeters,
+        (Math.random() * 2 - 1) * USceneBridge.EnemyDeathParticleSpawnHalfHeightMeters,
+        (Math.random() * 2 - 1) * USceneBridge.EnemyDeathParticleSpawnRadiusMeters
+      );
+      SparkMesh.position.copyFrom(SpawnCenterPosition.add(SpawnOffset));
+
+      const LateralDirection = new Vector3(
+        Math.random() * 2 - 1,
+        Math.random() * 0.55 + 0.35,
+        Math.random() * 2 - 1
+      );
+      const Direction =
+        LateralDirection.lengthSquared() > 1e-6
+          ? LateralDirection.normalize()
+          : new Vector3(0, 1, 0);
+      const Speed = this.Lerp(2.6, 5.4, Math.random());
+      const DurationSec = this.Lerp(
+        USceneBridge.EnemyDeathParticleDurationSec * 0.85,
+        USceneBridge.EnemyDeathParticleDurationSec,
+        Math.random()
+      );
+
+      this.EnemyDeathParticleVisuals.push({
+        Mesh: SparkMesh,
+        Material: SparkMaterial,
+        Velocity: Direction.scale(Speed),
+        ElapsedSec: 0,
+        DurationSec
+      });
+    }
+  }
+
+  private UpdateEnemyDeathParticleVisuals(DeltaSeconds: number): void {
+    for (let Index = this.EnemyDeathParticleVisuals.length - 1; Index >= 0; Index -= 1) {
+      const Spark = this.EnemyDeathParticleVisuals[Index];
+      Spark.ElapsedSec += DeltaSeconds;
+      Spark.Mesh.position.addInPlace(Spark.Velocity.scale(DeltaSeconds));
+      Spark.Velocity.y += 2.1 * DeltaSeconds;
+      Spark.Velocity.x *= 0.992;
+      Spark.Velocity.z *= 0.992;
+      const LifeProgress = this.Clamp(Spark.ElapsedSec / Spark.DurationSec, 0, 1);
+      const Scale = this.Lerp(1.12, 0.58, LifeProgress);
+      Spark.Mesh.scaling = new Vector3(Scale, Scale, Scale);
+      Spark.Material.alpha = ResolveEnemyDeathParticleAlpha(
+        Spark.ElapsedSec,
+        USceneBridge.EnemyDeathParticleFadeDelaySec,
+        Spark.DurationSec
+      );
+
+      if (LifeProgress < 1) {
+        continue;
+      }
+
+      Spark.Mesh.dispose();
+      Spark.Material.dispose();
+      this.EnemyDeathParticleVisuals.splice(Index, 1);
+    }
+  }
+
   private ClearTransientBattleVisuals(): void {
     this.ShotProjectileVisuals.forEach((Projectile) => {
       Projectile.Mesh.dispose();
@@ -2295,6 +2504,17 @@ export class USceneBridge {
       Spark.Material.dispose();
     });
     this.HitSparkVisuals.length = 0;
+
+    this.EnemyDeathParticleVisuals.forEach((Spark) => {
+      Spark.Mesh.dispose();
+      Spark.Material.dispose();
+    });
+    this.EnemyDeathParticleVisuals.length = 0;
+
+    this.EnemyDeathFadeVisualMap.forEach((FadeState) => {
+      FadeState.Material.alpha = 1;
+    });
+    this.EnemyDeathFadeVisualMap.clear();
   }
 
   private SplitModelPath(ModelPath: string): { RootUrl: string; FileName: string } {
