@@ -25,6 +25,7 @@ export type FBattleCommandStage =
   | "ActionResolve";
 
 export type FBattlePendingActionKind = "Attack" | "Skill" | "Item" | null;
+export type FBattleTurnOwner = "Player" | "Enemy";
 
 export interface FBattleCommandOption {
   OptionId: string;
@@ -120,6 +121,7 @@ export interface FBattleDamageCueHudState {
 export interface FBattle3CHudState {
   PlayerTeamId: string | null;
   EnemyTeamId: string | null;
+  TurnOwner?: FBattleTurnOwner | null;
   PlayerActiveUnitIds: string[];
   EnemyActiveUnitIds: string[];
   ControlledCharacterId: string | null;
